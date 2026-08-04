@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""Render a testcase-first HTML report from LazyAdFinder verdicts.
-
-The home page is generated from the TC ids that actually exist in
-``verdicts.json``.  Selecting a testcase opens its AOS/iOS results, with
-TEST_MODE and TEST_TYPE available as filters.  No testcase catalog or expected
-answer is hard-coded here; Page validates and presents Verdict data only.
-"""
+"""Render the LazyAdFinder result platform and TestCase catalog."""
 
 import argparse
 import html
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,21 +16,19 @@ from pathlib import Path
 from verdict import Status
 
 
+ROOT = Path(__file__).parent
 VERDICTS_FILE = "verdicts.json"
 SUMMARY_FILE = "summary.json"
 LEGACY_METADATA_FILE = "metadata.json"
+DEFAULT_CATALOG = ROOT / "testcases" / "catalog.json"
 VALID_STATUSES = {status.value for status in Status}
 STATUS_ORDER = (Status.FAILED.value, Status.BLOCKED.value, Status.PASS.value)
 PLATFORMS = (("aos", "AOS", "Android"), ("ios", "iOS", "Apple"))
-TEST_MODES = (
-    ("standalone", "Standalone"),
-    ("admob-mediation", "AdMob Mediation"),
-    ("applovin-mediation", "AppLovin Mediation"),
-)
-TEST_TYPES = (
-    ("aibid", "AIBID"),
-    ("reen-static", "REEN Static"),
-    ("reen-dynamic", "REEN Dynamic"),
+MODES = (("standalone", "Standalone"), ("mediation", "Mediation"))
+TYPES = (
+    ("aibid", "AIBID", "首購 / 新客競價"),
+    ("reen-static", "REEN Static", "再行銷 · 靜態素材"),
+    ("reen-dynamic", "REEN Dynamic", "再行銷 · 動態素材"),
 )
 
 
@@ -47,22 +38,46 @@ class ReportError(RuntimeError):
 
 def _load_json(path):
     try:
-        return json.loads(path.read_text())
+        return json.loads(Path(path).read_text())
     except OSError as exc:
         raise ReportError(f"Cannot read {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ReportError(f"Invalid JSON in {path}: {exc}") from exc
 
 
+def load_catalog(path):
+    path = Path(path).expanduser().resolve()
+    if not path.exists():
+        return []
+    document = _load_json(path)
+    rows = document.get("testcases") if isinstance(document, dict) else None
+    if not isinstance(rows, list):
+        raise ReportError(f"{path} must contain {{\"testcases\": [...]}}")
+    seen, normalized = set(), []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ReportError(f"{path}: testcase #{index + 1} must be an object")
+        tc = str(row.get("id", "")).strip()
+        if not tc or tc in seen:
+            raise ReportError(f"{path}: testcase #{index + 1} has an empty or duplicate id")
+        seen.add(tc)
+        for platform, _label, _device in PLATFORMS:
+            spec = row.get(platform, {})
+            if not isinstance(spec, dict):
+                raise ReportError(f"{path}: {tc}.{platform} must be an object")
+        normalized.append(row)
+    return normalized
+
+
 def _metadata_for(verdict_path):
-    metadata_path = verdict_path.parent / SUMMARY_FILE
-    if not metadata_path.exists():
-        metadata_path = verdict_path.parent / LEGACY_METADATA_FILE
-    if not metadata_path.exists():
+    path = verdict_path.parent / SUMMARY_FILE
+    if not path.exists():
+        path = verdict_path.parent / LEGACY_METADATA_FILE
+    if not path.exists():
         return {}
-    document = _load_json(metadata_path)
+    document = _load_json(path)
     if not isinstance(document, dict):
-        raise ReportError(f"{metadata_path} must contain an object")
+        raise ReportError(f"{path} must contain an object")
     return document
 
 
@@ -78,6 +93,11 @@ def _platform_of(metadata, verdict_path):
     return "unknown"
 
 
+def _mode_group(value):
+    value = str(value).strip().lower()
+    return "standalone" if value == "standalone" else "mediation" if "mediation" in value else value
+
+
 def _verdict_rows(document, path):
     if isinstance(document, list):
         rows = document
@@ -85,24 +105,20 @@ def _verdict_rows(document, path):
         rows = document["verdicts"]
     else:
         raise ReportError(f"{path} must contain a list or {{\"verdicts\": [...]}}")
-
     metadata = _metadata_for(path)
     config = metadata.get("config") if isinstance(metadata.get("config"), dict) else metadata
-    platform = _platform_of(metadata, path)
     normalized = []
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ReportError(f"{path}: verdict #{index + 1} must be an object")
-        tc = row.get("tc")
-        status = row.get("status")
-        reason = row.get("reason", "")
+        tc, status = row.get("tc"), row.get("status")
+        reason, evidence = row.get("reason", ""), row.get("evidence")
         if not isinstance(tc, str) or not tc.strip():
             raise ReportError(f"{path}: verdict #{index + 1} has no TC id")
         if status not in VALID_STATUSES:
             raise ReportError(f"{path}: {tc} has invalid status {status!r}")
         if not isinstance(reason, str):
             raise ReportError(f"{path}: {tc} reason must be a string")
-        evidence = row.get("evidence")
         if status == Status.BLOCKED.value:
             if not reason.strip():
                 raise ReportError(f"{path}: BLOCKED verdict {tc} requires a reason")
@@ -110,27 +126,18 @@ def _verdict_rows(document, path):
                 raise ReportError(f"{path}: BLOCKED verdict {tc} cannot claim an answer")
         elif not isinstance(evidence, str) or not evidence.strip():
             raise ReportError(f"{path}: evaluated verdict {tc} requires evidence")
-
-        title = row.get("title", tc)
-        description = row.get("description", "")
-        if not isinstance(title, str) or not isinstance(description, str):
-            raise ReportError(f"{path}: {tc} title/description must be strings")
+        test_mode = str(config.get("test_mode", "")).strip().lower()
         normalized.append({
-            "tc": tc.strip(),
-            "title": title.strip() or tc.strip(),
-            "description": description.strip(),
-            "status": status,
-            "reason": reason,
-            "expected": row.get("expected"),
-            "actual": row.get("actual"),
-            "evidence": evidence,
-            "source": path,
-            "platform": platform,
-            "test_mode": str(config.get("test_mode", "")).strip().lower(),
+            "tc": tc.strip(), "title": str(row.get("title", tc)).strip() or tc.strip(),
+            "description": str(row.get("description", "")).strip(), "status": status,
+            "reason": reason, "expected": row.get("expected"), "actual": row.get("actual"),
+            "evidence": evidence, "source": path, "platform": _platform_of(metadata, path),
+            "test_mode": test_mode, "mode_group": _mode_group(test_mode),
             "test_type": str(config.get("test_type", "")).strip().lower(),
             "captured_at": str(metadata.get("captured_at") or metadata.get("finished_at", "")),
             "capture_name": str(metadata.get("capture_name", "")),
             "device": metadata.get("device") if isinstance(metadata.get("device"), dict) else {},
+            "layer": str(row.get("layer", "Signal")).strip().lower(),
         })
     return normalized
 
@@ -141,9 +148,10 @@ def discover(evidence_dirs):
         root = Path(root_value).expanduser().resolve()
         if not root.exists():
             continue
-        summary_captures = {path.parent for path in root.rglob(SUMMARY_FILE)}
-        legacy_captures = {path.parent for path in root.rglob(LEGACY_METADATA_FILE)}
-        captures.extend(sorted(summary_captures | legacy_captures))
+        captures.extend(sorted(
+            {p.parent for p in root.rglob(SUMMARY_FILE)} |
+            {p.parent for p in root.rglob(LEGACY_METADATA_FILE)}
+        ))
         for path in sorted(root.rglob(VERDICTS_FILE)):
             resolved = path.resolve()
             if resolved in seen:
@@ -173,308 +181,161 @@ def _evidence_link(row):
         target = row["source"].parent / target
     label = html.escape(reference)
     if target.exists():
-        uri = html.escape(target.resolve().as_uri(), quote=True)
-        return f'<a class="ev" href="{uri}">{label} ↗</a>'
-    return f'<span class="missing" title="Evidence path does not exist">{label}</span>'
-
-
-def _percent(count, total):
-    return round(count / total * 100, 2) if total else 0
-
-
-def _tc_groups(verdicts):
-    groups = {}
-    for row in verdicts:
-        groups.setdefault(row["tc"], []).append(row)
-    return groups
-
-
-def _home_card(index, tc, rows):
-    counts = Counter(row["status"] for row in rows)
-    title = next((row["title"] for row in rows if row["title"] != tc), tc)
-    description = next((row["description"] for row in rows if row["description"]), "")
-    platforms = {row["platform"] for row in rows}
-    total = len(rows)
-    platform_chips = "".join(
-        f'<span class="platform-chip {pid}">{label}</span>'
-        for pid, label, _ in PLATFORMS if pid in platforms
-    ) or '<span class="platform-chip unknown">未標記平台</span>'
-    return (
-        f'<button class="tc-card" data-detail="detail-{index}">'
-        '<div class="card-top"><div>'
-        f'<div class="tc-id">{html.escape(tc)}</div>'
-        f'<div class="tc-title">{html.escape(title)}</div></div>'
-        f'<span class="result-count">{total} result{"s" if total != 1 else ""}</span></div>'
-        f'<p class="tc-description">{html.escape(description or "尚未提供 TC 說明")}</p>'
-        f'<div class="platform-chips">{platform_chips}</div>'
-        '<div class="status-bar">'
-        f'<i class="failed" style="width:{_percent(counts[Status.FAILED.value], total)}%"></i>'
-        f'<i class="blocked" style="width:{_percent(counts[Status.BLOCKED.value], total)}%"></i>'
-        f'<i class="pass" style="width:{_percent(counts[Status.PASS.value], total)}%"></i></div>'
-        '<div class="card-counts">'
-        f'<span class="failed-text">{counts[Status.FAILED.value]} FAILED</span>'
-        f'<span class="blocked-text">{counts[Status.BLOCKED.value]} BLOCKED</span>'
-        f'<span class="pass-text">{counts[Status.PASS.value]} PASS</span></div>'
-        '<div class="card-open">查看 AOS / iOS 結果 →</div></button>'
-    )
+        return f'<a href="{html.escape(target.resolve().as_uri(), quote=True)}">{label} ↗</a>'
+    return f'<span class="missing">{label}</span>'
 
 
 def _result_card(row):
     device = row["device"]
     device_name = device.get("model") or device.get("name") or "—"
-    status = row["status"].lower()
-    return (
-        f'<article class="result-card" data-platform="{html.escape(row["platform"])}" '
-        f'data-mode="{html.escape(row["test_mode"])}" data-type="{html.escape(row["test_type"])}">'
-        '<div class="result-head">'
-        f'<span class="status {status}">{html.escape(row["status"])}</span>'
-        f'<span class="capture">{html.escape(row["capture_name"] or "capture")}</span></div>'
-        '<div class="context">'
-        f'<span><b>Mode</b>{html.escape(row["test_mode"] or "—")}</span>'
-        f'<span><b>Type</b>{html.escape(row["test_type"] or "—")}</span>'
-        f'<span><b>Device</b>{html.escape(str(device_name))}</span></div>'
-        '<div class="answer-grid">'
-        f'<div><label>Expected</label><pre>{html.escape(_display(row["expected"]))}</pre></div>'
-        f'<div><label>Actual</label><pre>{html.escape(_display(row["actual"]))}</pre></div></div>'
-        f'<p class="reason"><b>Reason</b> {html.escape(row["reason"] or "—")}</p>'
-        '<div class="result-foot">'
-        f'{_evidence_link(row)}<time>{html.escape(row["captured_at"] or "—")}</time></div>'
-        '</article>'
-    )
+    return f'''<article class="result-card">
+<div class="result-head"><div><span class="tc-id">{html.escape(row["tc"])}</span>
+<strong>{html.escape(row["title"])}</strong></div><span class="status {row["status"].lower()}">{row["status"]}</span></div>
+<div class="context"><span>{html.escape(row["test_mode"] or "—")}</span><span>{html.escape(str(device_name))}</span><span>{html.escape(row["capture_name"] or "capture")}</span></div>
+<div class="answers"><div><label>Expected</label><pre>{html.escape(_display(row["expected"]))}</pre></div>
+<div><label>Actual</label><pre>{html.escape(_display(row["actual"]))}</pre></div></div>
+<p><b>Reason</b> {html.escape(row["reason"] or "—")}</p>
+<footer>{_evidence_link(row)}<time>{html.escape(row["captured_at"] or "—")}</time></footer></article>'''
 
 
-def _filter_options(items):
-    return '<option value="">全部</option>' + "".join(
-        f'<option value="{html.escape(value)}">{html.escape(label)}</option>'
-        for value, label in items
-    )
+def _slot_card(platform, mode, kind, label, description, rows):
+    signal_rows = [row for row in rows if row["layer"] != "e2e"]
+    e2e_rows = [row for row in rows if row["layer"] == "e2e"]
+    signal = Counter(row["status"] for row in signal_rows)
+    e2e = Counter(row["status"] for row in e2e_rows)
+    return f'''<button class="type-card" data-slot="{platform}:{mode}:{kind}">
+<div><span class="type-id">{html.escape(kind)}</span><span class="total">{len(rows)} results</span></div>
+<h3>{html.escape(label)}</h3><p>{html.escape(description)}</p>
+<div class="layer-row"><b>Signal</b><span class="pass-text">{signal[Status.PASS.value]}✓</span><span class="failed-text">{signal[Status.FAILED.value]}✗</span><span class="blocked-text">{signal[Status.BLOCKED.value]} blocked</span><small>{len(signal_rows)} TC</small></div>
+<div class="layer-row"><b>E2E</b><span class="pass-text">{e2e[Status.PASS.value]}✓</span><span class="failed-text">{e2e[Status.FAILED.value]}✗</span><span class="blocked-text">{e2e[Status.BLOCKED.value]} blocked</span><small>{len(e2e_rows)} TC</small></div>
+<b class="open">查看結果 →</b></button>'''
 
 
-def _detail(index, tc, rows):
-    title = next((row["title"] for row in rows if row["title"] != tc), tc)
-    description = next((row["description"] for row in rows if row["description"]), "")
-    tabs = "".join(
-        f'<button data-platform="{pid}"{" class=on" if n == 0 else ""}>'
-        f'<span class="dot"></span>{label}</button>'
-        for n, (pid, label, _device) in enumerate(PLATFORMS)
-    )
-    panes = []
-    for n, (pid, label, device) in enumerate(PLATFORMS):
-        platform_rows = [row for row in rows if row["platform"] == pid]
-        cards = "".join(_result_card(row) for row in sorted(
-            platform_rows,
-            key=lambda row: (STATUS_ORDER.index(row["status"]), row["captured_at"]),
+def _slot_detail(platform, mode, kind, label, rows):
+    def cards_for(layer):
+        selected = [row for row in rows if (row["layer"] == "e2e") == (layer == "e2e")]
+        return "".join(_result_card(row) for row in sorted(
+            selected, key=lambda row: (STATUS_ORDER.index(row["status"]), row["captured_at"])
         ))
-        if not cards:
-            cards = (
-                '<div class="platform-empty"><b>尚無結果</b>'
-                f'<span>{html.escape(label)} 尚未產生這條 TC 的 Verdict。</span></div>'
-            )
-        panes.append(
-            f'<section class="platform-pane" data-platform="{pid}"{"" if n == 0 else " hidden"}>'
-            f'<div class="pane-title"><span class="platform-chip {pid}">{label}</span>'
-            f'<b>{device}</b><span class="visible-count"></span></div>'
-            f'<div class="result-grid">{cards}</div></section>'
-        )
-    return (
-        f'<section class="detail" id="detail-{index}" hidden>'
-        '<div class="detail-bar"><button class="back">← TestCase 清單</button>'
-        f'<div><span class="detail-id">{html.escape(tc)}</span>'
-        f'<strong>{html.escape(title)}</strong></div></div>'
-        f'<p class="detail-description">{html.escape(description or "尚未提供 TC 說明")}</p>'
-        '<div class="detail-tools"><div class="seg platform-tabs">'
-        f'{tabs}</div><label>TEST_MODE<select class="mode-filter">{_filter_options(TEST_MODES)}</select></label>'
-        f'<label>TEST_TYPE<select class="type-filter">{_filter_options(TEST_TYPES)}</select></label></div>'
-        + "".join(panes) + '</section>'
-    )
+    signal_cards = cards_for("signal") or '<div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div>'
+    e2e_cards = cards_for("e2e") or '<div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div>'
+    platform_label = next(item[1] for item in PLATFORMS if item[0] == platform)
+    mode_label = next(item[1] for item in MODES if item[0] == mode)
+    return f'''<section class="slot-detail" data-slot="{platform}:{mode}:{kind}" hidden>
+<div class="detail-bar"><button class="back">← 返回分類</button><div><span class="crumb">{platform_label} / {mode_label}</span><h2>{html.escape(label)}</h2></div></div>
+<div class="report-section"><div class="section-title"><span>01</span><div><h3>Signal</h3><p>SDK 欄位、識別碼與事件訊號</p></div></div><div class="result-grid">{signal_cards}</div></div>
+<div class="report-section"><div class="section-title"><span>02</span><div><h3>E2E</h3><p>Init → Bid → Render → Impression → Click → Landing</p></div></div><div class="result-grid">{e2e_cards}</div></div></section>'''
+
+
+def _catalog_cell(spec):
+    if not spec.get("applicable", False):
+        return f'<div class="na"><b>N/A</b><p>{html.escape(str(spec.get("expected", "")))}</p></div>'
+    return f'''<div class="platform-spec"><b>Setup</b><p>{html.escape(str(spec.get("setup", "—")))}</p>
+<b>Expected</b><p>{html.escape(str(spec.get("expected", "—")))}</p>
+<b>Evidence</b><p>{html.escape(str(spec.get("evidence", "—")))}</p></div>'''
+
+
+def _catalog_table(catalog):
+    rows = []
+    for tc in catalog:
+        rows.append(f'''<tr><td><span class="draft">{html.escape(str(tc.get("status", "DRAFT")))}</span>
+<strong class="catalog-id">{html.escape(str(tc["id"]))}</strong><small>{html.escape(str(tc.get("round", "")))}</small></td>
+<td><b>{html.escape(str(tc.get("title", "")))}</b><p>{html.escape(str(tc.get("layer", "Signal")))} · {html.escape(str(tc.get("category", "")))}</p>
+<code>{html.escape(str(tc.get("field", "")))}</code><span class="priority">{html.escape(str(tc.get("priority", "")))}</span></td>
+<td>{_catalog_cell(tc.get("aos", {}))}</td><td>{_catalog_cell(tc.get("ios", {}))}</td></tr>''')
+    body = "".join(rows) or '<tr><td colspan="4" class="empty">尚未定義 TestCase。</td></tr>'
+    return f'''<div class="table-wrap"><table><thead><tr><th>TestCase</th><th>目的／欄位</th><th>AOS</th><th>iOS</th></tr></thead><tbody>{body}</tbody></table></div>'''
 
 
 CSS = r"""
-:root{--bg:#eef1f4;--panel:#fff;--panel-2:#f6f8fa;--ink:#131a21;--soft:#516069;
---faint:#7d8b94;--line:#dbe2e8;--accent:#0e7c86;--accent-soft:#e2eff1;
---aos:#2e9e5b;--aos-soft:#e4f4ea;--ios:#3a6ea5;--ios-soft:#e6eef7;
---pass:#2f7d3a;--pass-bg:#e5f4e8;--failed:#c0392b;--failed-bg:#fbe9e7;
---blocked:#b5761a;--blocked-bg:#fff2dc;--shadow:0 1px 2px #131a210f,0 8px 24px #131a210f;
---mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif}
-@media(prefers-color-scheme:dark){:root{--bg:#0d1216;--panel:#151d23;--panel-2:#111820;
---ink:#e7edf1;--soft:#a6b6c1;--faint:#71828d;--line:#243039;--accent:#38bdc9;
---accent-soft:#123037;--aos:#4cc57d;--aos-soft:#12281b;--ios:#6ba6dd;--ios-soft:#132132;
---pass:#5cc46a;--pass-bg:#163520;--failed:#f0766a;--failed-bg:#3b1c1a;
---blocked:#e0a94a;--blocked-bg:#392b13;--shadow:0 10px 30px #0006}}
-:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark;
---bg:#0d1216;--panel:#151d23;--panel-2:#111820;--ink:#e7edf1;--soft:#a6b6c1;
---faint:#71828d;--line:#243039;--accent:#38bdc9;--accent-soft:#123037;
---aos:#4cc57d;--aos-soft:#12281b;--ios:#6ba6dd;--ios-soft:#132132;
---pass:#5cc46a;--pass-bg:#163520;--failed:#f0766a;--failed-bg:#3b1c1a;
---blocked:#e0a94a;--blocked-bg:#392b13;--shadow:0 10px 30px #0006}
-*{box-sizing:border-box}html,body{margin:0;min-height:100%}body{background:var(--bg);color:var(--ink);
-font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}.top{position:sticky;top:0;z-index:20;
-height:52px;display:flex;align-items:center;padding:0 18px;background:color-mix(in srgb,var(--panel) 88%,transparent);
-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:10px}
-.sig{width:25px;height:25px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#0a5c64);position:relative}
-.sig:after{content:"";position:absolute;inset:7px;border:2px solid #fff;border-right-color:transparent;
-border-bottom-color:transparent;transform:rotate(45deg)}.brand strong{display:block;font-size:13px}.brand small{color:var(--faint);font-size:10px;letter-spacing:.08em}
-.theme{margin-left:auto;width:30px;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--ink);cursor:pointer}
-main{max-width:1180px;margin:auto;padding:26px 20px 48px}.lead{color:var(--soft);max-width:72ch;margin:3px 0 24px}.overview h1{font-size:22px;margin:0}
-.summary{display:flex;gap:16px;flex-wrap:wrap;color:var(--faint);font-size:12px;margin-bottom:18px}.summary b{color:var(--ink)}
-.tc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:15px}.tc-card{
-font:inherit;color:inherit;text-align:left;cursor:pointer;background:var(--panel);border:1px solid var(--line);
-border-radius:14px;padding:17px;box-shadow:var(--shadow);transition:.14s;position:relative;overflow:hidden}
-.tc-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
-.tc-card:hover{transform:translateY(-2px);border-color:var(--accent)}.card-top{display:flex;justify-content:space-between;gap:12px}.tc-id{font:700 13px var(--mono);color:var(--accent)}
-.tc-title{font-weight:700;font-size:15px;margin-top:3px}.result-count{font-size:11px;color:var(--faint);white-space:nowrap}.tc-description{color:var(--soft);min-height:42px}
-.platform-chips{display:flex;gap:6px}.platform-chip{font:700 11px var(--mono);padding:3px 9px;border-radius:7px}.platform-chip.aos{color:var(--aos);background:var(--aos-soft)}
-.platform-chip.ios{color:var(--ios);background:var(--ios-soft)}.platform-chip.unknown{color:var(--faint);background:var(--panel-2)}
-.status-bar{display:flex;height:7px;background:var(--panel-2);border-radius:5px;overflow:hidden;margin-top:13px}.status-bar i{height:100%}.status-bar .pass{background:var(--pass)}
-.status-bar .failed{background:var(--failed)}.status-bar .blocked{background:var(--blocked)}.card-counts{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;margin-top:7px}
-.pass-text{color:var(--pass)}.failed-text{color:var(--failed)}.blocked-text{color:var(--blocked)}.card-open{margin-top:14px;color:var(--accent);font-weight:650;font-size:12px}
-.empty{padding:52px;text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:14px}.empty p{color:var(--soft)}
-.detail-bar{display:flex;align-items:center;gap:14px}.back{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}.detail-id{font:700 12px var(--mono);color:var(--accent);margin-right:9px}
-.detail-description{color:var(--soft)}.detail-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0 17px;border-bottom:1px solid var(--line)}
-.seg{display:flex;padding:2px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2)}.seg button{border:0;background:transparent;color:var(--soft);padding:6px 14px;border-radius:7px;cursor:pointer;font:650 12px var(--sans)}
-.seg button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px}
-.detail-tools label{font-size:10px;color:var(--faint);letter-spacing:.04em}.detail-tools select{display:block;margin-top:2px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink);padding:5px 8px}
-.platform-pane{padding-top:18px}.pane-title{display:flex;align-items:center;gap:9px;margin-bottom:12px}.pane-title>span:last-child{color:var(--faint);font-size:12px}
-.result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:14px}.result-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px;box-shadow:var(--shadow)}
-.result-head,.result-foot{display:flex;justify-content:space-between;gap:10px;align-items:center}.status{font:750 11px var(--mono);padding:4px 9px;border-radius:999px}.status.pass{color:var(--pass);background:var(--pass-bg)}
-.status.failed{color:var(--failed);background:var(--failed-bg)}.status.blocked{color:var(--blocked);background:var(--blocked-bg)}.capture,time{font-size:11px;color:var(--faint)}
-.context{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.context span{font-size:11px;background:var(--panel-2);border-radius:6px;padding:4px 7px}.context b{color:var(--faint);margin-right:5px}
-.answer-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answer-grid label{font-size:10px;color:var(--faint);text-transform:uppercase}.answer-grid pre{margin:3px 0 0;padding:9px;background:var(--panel-2);border-radius:7px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 var(--mono);min-height:50px}
-.reason{color:var(--soft);font-size:12px}.reason b{color:var(--ink)}.ev{color:var(--accent);font-size:12px}.missing{color:var(--failed);text-decoration:line-through}.platform-empty{display:flex;flex-direction:column;gap:5px;padding:35px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:12px;color:var(--soft)}
-.meta{margin-top:22px;color:var(--faint);font-size:11px;overflow-wrap:anywhere}[hidden]{display:none!important}@media(max-width:620px){main{padding:20px 12px}.answer-grid{grid-template-columns:1fr}.detail-tools{align-items:flex-end}}
+:root{--bg:#eef1f4;--panel:#fff;--panel2:#f6f8fa;--ink:#131a21;--soft:#516069;--faint:#7d8b94;--line:#dbe2e8;--accent:#0e7c86;--accent2:#e2eff1;--aos:#2e9e5b;--ios:#3a6ea5;--pass:#2f7d3a;--fail:#c0392b;--block:#b5761a;--shadow:0 1px 2px #131a210f,0 8px 24px #131a210f;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1216;--panel:#151d23;--panel2:#111820;--ink:#e7edf1;--soft:#a6b6c1;--faint:#71828d;--line:#243039;--accent:#38bdc9;--accent2:#123037;--aos:#4cc57d;--ios:#6ba6dd;--pass:#5cc46a;--fail:#f0766a;--block:#e0a94a;--shadow:0 10px 30px #0006}}
+:root[data-theme=dark]{--bg:#0d1216;--panel:#151d23;--panel2:#111820;--ink:#e7edf1;--soft:#a6b6c1;--faint:#71828d;--line:#243039;--accent:#38bdc9;--accent2:#123037;--aos:#4cc57d;--ios:#6ba6dd;--pass:#5cc46a;--fail:#f0766a;--block:#e0a94a;--shadow:0 10px 30px #0006}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}button,select{font:inherit}.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:10px 18px;background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}.brand{font-weight:800}.brand small{display:block;color:var(--faint);font:10px var(--mono)}.main-nav{display:flex;gap:4px}.main-nav button,.seg button,.back,.theme{border:1px solid transparent;background:transparent;color:var(--soft);padding:7px 12px;border-radius:8px;cursor:pointer}.main-nav button.on,.seg button.on{background:var(--accent2);color:var(--accent);font-weight:750}.theme{margin-left:auto;border-color:var(--line)}main{max-width:1180px;margin:auto;padding:25px 20px 50px}.hero h1{margin:0;font-size:23px}.hero p{color:var(--soft)}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}.seg{display:flex;gap:3px;padding:3px;background:var(--panel);border:1px solid var(--line);border-radius:11px}.seg.platform button[data-value=aos].on{color:var(--aos)}.seg.platform button[data-value=ios].on{color:var(--ios)}.type-grid,.result-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:15px}.type-card{background:var(--panel);color:inherit;text-align:left;border:1px solid var(--line);border-radius:14px;padding:17px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}.type-card:hover{transform:translateY(-2px);border-color:var(--accent)}.type-card>div:first-child,.result-head,footer{display:flex;justify-content:space-between;gap:10px}.type-id,.tc-id,.crumb{font:700 11px var(--mono);color:var(--accent)}.total{color:var(--faint);font-size:11px}.type-card h3{margin:8px 0 2px;font-size:18px}.type-card p{color:var(--soft);min-height:40px}.counts{display:flex;gap:10px;font-size:10px}.pass-text{color:var(--pass)}.failed-text{color:var(--fail)}.blocked-text{color:var(--block)}.open{display:block;color:var(--accent);margin-top:15px;font-size:12px}.detail-bar{display:flex;align-items:center;gap:15px;margin-bottom:18px}.detail-bar h2{margin:2px 0}.back{border-color:var(--line);background:var(--panel)}.result-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px;box-shadow:var(--shadow)}.result-head>div{display:flex;flex-direction:column}.status{font:750 11px var(--mono);padding:4px 9px;border-radius:999px;height:max-content}.status.pass{color:var(--pass);background:#2f7d3a20}.status.failed{color:var(--fail);background:#c0392b20}.status.blocked{color:var(--block);background:#b5761a20}.context{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.context span{background:var(--panel2);padding:4px 7px;border-radius:6px;font-size:11px}.answers{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answers label,.platform-spec>b{font-size:10px;color:var(--faint);text-transform:uppercase}.answers pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel2);padding:9px;border-radius:7px;min-height:50px;font:12px var(--mono)}footer{color:var(--faint);font-size:11px}a{color:var(--accent)}.missing{color:var(--fail);text-decoration:line-through}.empty{padding:45px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:13px;color:var(--soft)}.catalog-head{display:flex;justify-content:space-between;align-items:end;gap:20px}.catalog-head p{color:var(--soft)}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}table{border-collapse:collapse;width:100%;min-width:980px}th,td{text-align:left;vertical-align:top;padding:14px;border-bottom:1px solid var(--line)}th{position:sticky;top:0;background:var(--panel2);font-size:11px;color:var(--faint);text-transform:uppercase}td:first-child{width:120px}.catalog-id{display:block;font:750 13px var(--mono);margin:7px 0}.draft,.priority{display:inline-block;padding:2px 6px;border-radius:5px;background:var(--accent2);color:var(--accent);font:700 9px var(--mono)}td code{color:var(--accent)}.priority{margin-left:7px}.platform-spec p,.na p{margin:3px 0 10px;color:var(--soft);min-width:250px}.na{color:var(--faint)}.meta{color:var(--faint);font-size:11px;margin-top:20px}[hidden]{display:none!important}@media(max-width:650px){main{padding:18px 12px}.top{flex-wrap:wrap}.main-nav{order:3;width:100%}.answers{grid-template-columns:1fr}}
+.layer-row{display:grid;grid-template-columns:58px 26px 26px 1fr auto;gap:6px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:10px}.layer-row>b{font-size:11px}.layer-row small{color:var(--faint)}
+.report-section{margin:22px 0 32px}.section-title{display:flex;align-items:center;gap:11px;margin-bottom:12px}.section-title>span{font:800 11px var(--mono);color:var(--accent);background:var(--accent2);padding:6px;border-radius:7px}.section-title h3,.section-title p{margin:0}.section-title p{color:var(--faint);font-size:11px}
 """
 
 
 SCRIPT = r"""
 (function(){
-  var root=document.documentElement,key="laf2-theme";
-  try{var saved=localStorage.getItem(key);if(saved)root.dataset.theme=saved}catch(e){}
-  function theme(){return root.dataset.theme||(matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light")}
-  document.getElementById("theme").onclick=function(){root.dataset.theme=theme()==="dark"?"light":"dark";try{localStorage.setItem(key,root.dataset.theme)}catch(e){}};
-  var overview=document.getElementById("overview"),details=[].slice.call(document.querySelectorAll(".detail"));
-  function filter(detail){
-    var platform=detail.querySelector(".platform-tabs button.on").dataset.platform;
-    var mode=detail.querySelector(".mode-filter").value,type=detail.querySelector(".type-filter").value;
-    detail.querySelectorAll(".platform-pane").forEach(function(pane){pane.hidden=pane.dataset.platform!==platform});
-    var pane=detail.querySelector('.platform-pane[data-platform="'+platform+'"]'),visible=0;
-    if(!pane)return;
-    pane.querySelectorAll(".result-card").forEach(function(card){
-      var show=(!mode||card.dataset.mode===mode)&&(!type||card.dataset.type===type);card.hidden=!show;if(show)visible++;
-    });
-    var count=pane.querySelector(".visible-count");if(count)count.textContent=visible?visible+" 筆符合":"沒有符合篩選的結果";
-  }
-  function openDetail(id){overview.hidden=true;details.forEach(function(d){d.hidden=d.id!==id});var d=document.getElementById(id);if(d){d.hidden=false;filter(d)}scrollTo(0,0)}
-  function home(){details.forEach(function(d){d.hidden=true});overview.hidden=false;scrollTo(0,0)}
-  document.querySelectorAll(".tc-card").forEach(function(card){card.onclick=function(){openDetail(card.dataset.detail)}});
-  document.querySelectorAll(".detail").forEach(function(detail){
-    detail.querySelector(".back").onclick=home;
-    detail.querySelectorAll(".platform-tabs button").forEach(function(button){button.onclick=function(){detail.querySelectorAll(".platform-tabs button").forEach(function(b){b.classList.toggle("on",b===button)});filter(detail)}});
-    detail.querySelector(".mode-filter").onchange=function(){filter(detail)};detail.querySelector(".type-filter").onchange=function(){filter(detail)};
-  });
-  addEventListener("keydown",function(e){if(e.key==="Escape")home()});
+ var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
+ try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
+ document.getElementById("theme").onclick=function(){var dark=root.dataset.theme==="dark";root.dataset.theme=dark?"light":"dark";try{localStorage.setItem("laf2-theme",root.dataset.theme)}catch(e){}};
+ document.querySelectorAll(".main-nav button").forEach(function(b){b.onclick=function(){activePage=b.dataset.page;document.querySelectorAll(".main-nav button").forEach(function(x){x.classList.toggle("on",x===b)});document.querySelectorAll(".app-page").forEach(function(p){p.hidden=p.id!==activePage+"-page"});if(activePage==="reports")showOverview()}});
+ function select(group,value){document.querySelectorAll('.seg.'+group+' button').forEach(function(b){b.classList.toggle("on",b.dataset.value===value)})}
+ function update(){select("platform",platform);select("mode",mode);document.querySelectorAll(".type-card").forEach(function(c){c.hidden=!c.dataset.slot.startsWith(platform+":"+mode+":")});document.getElementById("result-context").textContent=(platform==="aos"?"AOS":"iOS")+" · "+(mode==="standalone"?"Standalone":"Mediation")}
+ document.querySelectorAll(".seg.platform button").forEach(function(b){b.onclick=function(){platform=b.dataset.value;showOverview();update()}});
+ document.querySelectorAll(".seg.mode button").forEach(function(b){b.onclick=function(){mode=b.dataset.value;showOverview();update()}});
+ var overview=document.getElementById("slot-overview"),details=document.querySelectorAll(".slot-detail");
+ function showOverview(){details.forEach(function(d){d.hidden=true});overview.hidden=false}
+ document.querySelectorAll(".type-card").forEach(function(c){c.onclick=function(){overview.hidden=true;details.forEach(function(d){d.hidden=d.dataset.slot!==c.dataset.slot});scrollTo(0,0)}});
+ document.querySelectorAll(".back").forEach(function(b){b.onclick=function(){showOverview();scrollTo(0,0)}});
+ addEventListener("keydown",function(e){if(e.key==="Escape")showOverview()});update();
 })();
 """
 
 
-def render(verdicts, captures, verdict_files, evidence_dirs):
-    groups = _tc_groups(verdicts)
-    ordered_groups = sorted(groups.items(), key=lambda item: item[0])
-    cards = "".join(_home_card(index, tc, rows) for index, (tc, rows) in enumerate(ordered_groups))
-    details = "".join(_detail(index, tc, rows) for index, (tc, rows) in enumerate(ordered_groups))
-    if not cards:
-        cards = (
-            '<section class="empty"><h2>TestCase 清單尚未建立</h2>'
-            '<p>加入第一條 TC 並產生 <code>verdicts.json</code> 後，這裡才會出現第一張卡片。'
-            '<br>Page 不會預建或硬編任何 TestCase。</p></section>'
-        )
+def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
+    cards, details = [], []
+    for platform, _plabel, _device in PLATFORMS:
+        for mode, _mlabel in MODES:
+            for kind, label, description in TYPES:
+                rows = [row for row in verdicts if row["platform"] == platform and row["mode_group"] == mode and row["test_type"] == kind]
+                cards.append(_slot_card(platform, mode, kind, label, description, rows))
+                details.append(_slot_detail(platform, mode, kind, label, rows))
     counts = Counter(row["status"] for row in verdicts)
-    roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
-    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LazyAdFinder2 · TestCase Report</title><style>{CSS}</style></head><body>
-<header class="top"><div class="brand"><div class="sig"></div><div><strong>SDK TestCase Report</strong><small>Appier · LazyAdFinder2</small></div></div><button class="theme" id="theme" aria-label="切換深淺色">◐</button></header>
-<main><section class="overview" id="overview"><h1>TestCase 清單</h1>
-<p class="lead">卡片依實際 Verdict 動態產生。點入 TestCase 後，可分別查看 AOS／iOS，並用 TEST_MODE 與 TEST_TYPE 篩選結果。</p>
-<div class="summary"><span><b>{len(groups)}</b> TestCases</span><span><b>{len(verdicts)}</b> Results</span><span class="failed-text">{counts[Status.FAILED.value]} FAILED</span><span class="blocked-text">{counts[Status.BLOCKED.value]} BLOCKED</span><span class="pass-text">{counts[Status.PASS.value]} PASS</span></div>
-<div class="tc-grid">{cards}</div></section>{details}
-<p class="meta">Raw captures: {len(captures)} · Verdict files: {len(verdict_files)} · Generated: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main>
-<script>{SCRIPT}</script></body></html>'''
+    roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
+<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">Round Reports</button><button data-page="catalog">TestCase Catalog</button></nav><button class="theme" id="theme">◐</button></header>
+<main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>Round Reports</h1><p>一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。</p></div>
+<div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
+<div class="type-grid">{"".join(cards)}</div></div>{"".join(details)}</section>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>TestCase Catalog</h1><p>整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</p></div><b>{len(catalog)} TestCases</b></div>{_catalog_table(catalog)}</section>
+<p class="meta">Results: {len(verdicts)} · PASS {counts[Status.PASS.value]} · FAILED {counts[Status.FAILED.value]} · BLOCKED {counts[Status.BLOCKED.value]}<br>Raw captures: {len(captures)} · Verdict files: {len(verdict_files)} · Generated: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main><script>{SCRIPT}</script></body></html>'''
 
 
 def write_report(output, content):
     output = Path(output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent, delete=False) as stream:
-        temporary = Path(stream.name)
-        stream.write(content)
+        temporary = Path(stream.name); stream.write(content)
     os.replace(temporary, output)
     return output
 
 
 def _origin_url():
     try:
-        return subprocess.check_output(
-            ["git", "remote", "get-url", "origin"],
-            cwd=Path(__file__).parent,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
+        return subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
     except subprocess.CalledProcessError as exc:
-        raise ReportError(
-            "Git remote 'origin' is not configured; cannot publish GitHub Pages"
-        ) from exc
+        raise ReportError("Git remote 'origin' is not configured; cannot publish") from exc
 
 
 def _pages_url(remote):
     match = re.search(r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$", remote)
-    if not match:
-        return ""
-    owner, repository = match.groups()
-    return f"https://{owner}.github.io/{repository}/"
+    return f"https://{match.group(1)}.github.io/{match.group(2)}/" if match else ""
 
 
-def publish(evidence_dirs, remote=None, open_page=True):
-    """Render and push ``index.html`` to the origin repository's gh-pages branch."""
+def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=True):
     remote = remote or _origin_url()
     verdicts, captures, verdict_files = discover(evidence_dirs)
-    document = render(verdicts, captures, verdict_files, evidence_dirs)
+    document = render(verdicts, captures, verdict_files, evidence_dirs, load_catalog(catalog_path))
     with tempfile.TemporaryDirectory(prefix="lazyadfinder2-pages-") as temp:
         checkout = Path(temp) / "pages"
-        branch_exists = subprocess.run(
-            ["git", "ls-remote", "--exit-code", "--heads", remote, "gh-pages"],
-            text=True,
-            capture_output=True,
-        ).returncode == 0
-        if branch_exists:
-            subprocess.run(
-                ["git", "clone", "--depth", "1", "--branch", "gh-pages", remote, str(checkout)],
-                check=True,
-            )
+        exists = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "gh-pages"], text=True, capture_output=True).returncode == 0
+        if exists:
+            subprocess.run(["git", "clone", "--depth", "1", "--branch", "gh-pages", remote, str(checkout)], check=True)
         else:
             subprocess.run(["git", "clone", "--depth", "1", remote, str(checkout)], check=True)
             subprocess.run(["git", "switch", "--orphan", "gh-pages"], cwd=checkout, check=True)
-            subprocess.run(
-                ["git", "rm", "-rf", "--ignore-unmatch", "."],
-                cwd=checkout,
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
+            subprocess.run(["git", "rm", "-rf", "--ignore-unmatch", "."], cwd=checkout, check=True, stdout=subprocess.DEVNULL)
         (checkout / "index.html").write_text(document, encoding="utf-8")
         subprocess.run(["git", "add", "index.html"], cwd=checkout, check=True)
-        changed = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"], cwd=checkout
-        ).returncode != 0
+        changed = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=checkout).returncode != 0
         if changed:
-            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            subprocess.run(
-                ["git", "commit", "-m", f"publish: QA report {stamp}"],
-                cwd=checkout,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "push", "origin", "HEAD:gh-pages"], cwd=checkout, check=True
-            )
+            subprocess.run(["git", "commit", "-m", f"publish: QA report {datetime.now():%Y-%m-%d %H:%M:%S}"], cwd=checkout, check=True)
+            subprocess.run(["git", "push", "origin", "HEAD:gh-pages"], cwd=checkout, check=True)
     url = _pages_url(remote)
     print(f"[publish] {'updated' if changed else 'unchanged'} · {url or remote}")
     if url and open_page and os.environ.get("OPEN_PAGES", "1") != "0":
@@ -484,21 +345,21 @@ def publish(evidence_dirs, remote=None, open_page=True):
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--evidence", nargs="+", default=[str(Path(__file__).parent / "evidence")])
+    parser.add_argument("--evidence", nargs="+", default=[str(ROOT / "evidence")])
+    parser.add_argument("--catalog", default=str(DEFAULT_CATALOG))
     parser.add_argument("--out", default="report.html")
-    parser.add_argument("--publish", action="store_true", help="push report to origin/gh-pages")
-    parser.add_argument("--no-open", action="store_true", help="do not open the public Pages URL")
+    parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--no-open", action="store_true")
     return parser
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.publish:
-        publish(args.evidence, open_page=not args.no_open)
-        return 0
+        publish(args.evidence, args.catalog, open_page=not args.no_open); return 0
     verdicts, captures, verdict_files = discover(args.evidence)
-    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence))
-    print(f"[report] {output} · testcases={len(_tc_groups(verdicts))} verdicts={len(verdicts)} captures={len(captures)}")
+    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, load_catalog(args.catalog)))
+    print(f"[report] {output} · catalog={len(load_catalog(args.catalog))} verdicts={len(verdicts)} captures={len(captures)}")
     return 0
 
 
@@ -506,5 +367,4 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ReportError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        print(f"[error] {exc}", file=sys.stderr); raise SystemExit(1)
