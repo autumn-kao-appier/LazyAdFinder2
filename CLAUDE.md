@@ -202,7 +202,46 @@ git checkout 8307b56 -- verdict.py     # 整檔拉回
 | `qa_ios.py` | `IOS_VALIDATORS`、`IOS_STATE`、`AUTO_TCS`、`CAT_OF_IOS`、`IOS_FIELD_SCHEMA` |
 | `verdict.py` | `FIELD_SCHEMA`（欄位的使用者導向 schema） |
 
-**留空 ②：判定的通過標準與 HTML 版面（契約，只有一份）**
+**留空 ②：佈狀態（`qa_aos.py`，約 344 行）**
+
+`ensure_timezone` / `ensure_battery` / `ensure_vpn` ＋ `set_tailscale` / `ensure_tracking` /
+`ensure_app_locale` / `set_volume` / `set_location` / `set_and_verify` / `auto_common` /
+`restore_standard_state`，以及查詢類 `battery_state` / `vpn_active` / `tracking_opted_in` /
+`_location_granted` / `dump_ui`。
+
+保留 `StateError` / `STATE_ACTIONS` / `take_state_actions()` / `adb_state()`（機制），
+`STATE_SURFACE`（哪個 intent 開哪個設定頁 —— 裝置知識而非 TC 定義）。
+
+> **重建時務必保留的設計原則：設完必須讀回確認，沒有人工 fallback。** 設不起來就
+> `raise StateError`，讓 round 排程跳過該批、整輪繼續；對應 TC 標「本輪未執行 → Blocked」。
+> 「設了就假設成功」會產出**狀態其實沒佈成、但 bid 被當成該狀態證據**的假 PASS／假 FAIL。
+
+骨架行為（已實測）：所有 `ensure_`/`set_` 一律 raise `StateError` →
+`CURRENT` 批次照跑（它本來就不佈狀態），`CTRL1`／`CTRL2`／`CTRL3`／`SD` 全部乾淨跳過，
+走的是既有的「狀態佈不起來」路徑（`run_round()` 印 `[<批次> 跳過]`），不是新的失敗模式。
+`restore_standard_state()` 是 no-op 而非 raise —— 它掛在 `atexit`，收尾丟例外會蓋掉真正的錯誤。
+
+**留空 ③：證據落地（兩平台）**
+
+| | 留空的函式 |
+|---|---|
+| `qa_aos.py` | `save_evidence()`、`collect_environment()`、`snapshot_device_state()`、`capture_state_proof()` ＋ `_capture_group_proof()` |
+| `qa_ios.py` | `save_evidence()`、`collect_environment_ios()`、`snapshot_device_state_ios()`、`capture_state_proof_ios()` |
+
+保留：`summarize_bid_fields()`（把 bid 攤平成 dotted-path 清單 —— 重建 TC 目錄時就是靠它
+看 bid 有哪些欄位可驗，是純工具、無 TC 知識）、`SAVE_STEPS`（原版 7 個落地步驟，當檢查表）、
+`adb_screencap()`、`IOS_SETTINGS_NAV` ＋ `_tap_settings_row()`（裝置導航知識）。
+
+兩個 `save_evidence()` 的骨架仍會**建立 capture 資料夾並回傳**（保留「一次 capture ＝
+一個資料夾」的結構），但不寫任何檔案；沒有 `results.json`，報告端就不會把它當成 capture。
+
+> ⚠️ **檔名是雙邊契約。** 讀取側（`load_captures()` / `capture_candidates()` / `build()` /
+> `_json_file()` / `_traffic()` / `_logcat()`）仍硬編所有檔名。只改寫入側，報告會一條都對不上、
+> 全被判 BLOCKED —— 而且症狀看起來像「這輪沒做」，不像「檔名改了」。完整檔名對照表寫在
+> `qa_aos.save_evidence()` 的 docstring（含 privacy／E2E 點擊必須在 traffic.jsonl 歸檔前做、
+> mediation 要先 E2E 後 privacy 這兩個順序約束）。
+
+**留空 ④：判定的通過標準與 HTML 版面（契約，只有一份）**
 
 - `verdict.run_validator()` —— 每個 check 的通過標準。**`CHECKS` 詞彙表是留著的**：
   哪些 check 存在、各需要 TC 帶什麼欄位（`expected` / `pattern` / `min`,`max` / `ref_field`）。
@@ -212,15 +251,19 @@ git checkout 8307b56 -- verdict.py     # 整檔拉回
 - `qa_aos.render_html()` / `qa_aos.render_e2e_pane()` / `qa_ios.render_html()` —— 各平台頁面骨架。
   **簽名固定**（`build()` 以位置引數呼叫），docstring 列出該有哪些區塊。
 
-**照搬未動（可直接跑）**：`mitmdump_addon.py`、`apr_xorenc.py`、`page.py` 全檔；
-兩個 runner 的 adb 佈狀態／Appium capture／證據落地／round 排程／retry／logcat 與 syslog／
-privacy 與 E2E 點擊流程；`classify()` 與 `tier_of()` 判定狀態機；`get_field` / `_unwrap` /
+**照搬未動**：`mitmdump_addon.py`、`apr_xorenc.py`、`page.py` 全檔；
+兩個 runner 的 Appium／adb 驅動與 bid 偵測（`run_capture`／`main`／`detect_udid`／
+logcat 與 syslog 側錄／`scan_logcat_bid`／`diagnose_no_ad`／刷到指定 CID 的重試迴圈／
+`PHASE_TIMEOUT_SEC` 收尾）、round 排程與失敗補跑（`run_round`／`PHASES`／
+`retry_failed_rounds`）、privacy 與 E2E 點擊流程（`do_privacy_click`／`do_e2e_flow`／
+`do_session_case`）；`classify()` 與 `tier_of()` 判定狀態機；`get_field` / `_unwrap` /
 `normalize_bid` / `normalize_ios_bid` 解析；`load_captures` / `pick_capture` /
 `batch_prefixes` 批次與歷史命名契約；`build()` 的組卡片資料流；文字報告
-（`format_report` / `format_round_report`）。
+（`format_report` / `format_round_report`）；`auto_publish()`。
 
-已驗證骨架可端到端跑完：`--inspect`、`--report`（合成 evidence → HTML）、
-`page.py --out`（subprocess 呼叫兩平台 CLI 併成整合頁）。填 TC 前判定數字一律是 0。
+已實測跑通：`--inspect`、`--report`（合成 evidence → HTML）、`page.py --out`
+（subprocess 呼叫兩平台 CLI 併成整合頁）、所有佈狀態 stub 的 `StateError` 跳批路徑。
+填 TC 前判定數字一律是 0。
 
 > `page.py --publish` 從本專案跑會停在「取不到 `origin`」——LazyAdFinder2 還沒有 remote。
 > 這也順便保證它**不會誤推到 LazyAdFinder 的 gh-pages**。要發佈得先設好自己的 remote 與
@@ -228,6 +271,14 @@ privacy 與 E2E 點擊流程；`classify()` 與 `tier_of()` 判定狀態機；`g
 
 ## 已知落差
 
+- **`run_capture()` 指向不存在的 `run_qa.py`（承襲自 LazyAdFinder 的既有 bug，尚未修）。**
+  六檔整併時 `run_qa.py` 併進了 `qa_aos.py`，但 `run_capture()` 仍然
+  `subprocess.run([sys.executable, ROOT / "run_qa.py"])`。所以**完整 round（不帶參數）
+  每一批都會立刻失敗**，而且錯誤訊息會誤導 —— 子行程因為檔案不存在 exit 2，
+  run_capture 把 exit 2 翻譯成「Sample App 沒有觸發 Appier bid request」。
+  補跑指定 TC（`python3 qa_aos.py AND-04`）走的是同一個 process，不受影響。
+  一行可修（改成 `qa_aos.py` 或 `Path(__file__)`），但原專案也有同一個問題，
+  修之前先確認要不要兩邊一起修。
 - **iOS 沒有 round 排程**：`qa_ios.py` 只做單次 capture，狀態類 TC 要逐條人工佈。
   待補（AOS 的 CURRENT/CTRL1/CTRL2/CTRL3/SD 對應實作）。
 - **沒有測試**。原本唯一的回歸機制是「拿既有 evidence 重算，判定數字必須不變」；

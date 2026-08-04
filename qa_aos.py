@@ -1489,350 +1489,105 @@ def adb_state(*args):
     return (p.stdout + p.stderr).strip()
 
 
+# ── 佈狀態（骨架）─────────────────────────────────────────────────────────────
+#
+# 刻意留空：每個狀態要怎麼佈、佈完要讀回什麼才算成立，屬於 TC 定義的一部分，
+# 跟 TC 目錄一起重新設計。原版（約 350 行，含各狀態的讀回驗證與 Tailscale／GAID
+# 那些特例）：`git show 8307b56:qa_aos.py`
+#
+# **設計原則（原版最重要的一條，重建時務必保留）：設完必須讀回確認，沒有人工
+# fallback。** 設不起來就 `raise StateError`，讓 round 排程跳過該批 capture、
+# 整輪繼續跑；對應的 TC 在報告裡是「本輪未執行 → Blocked」。絕對不要「設了就假設
+# 成功」—— 那會產出「狀態其實沒佈成、但 bid 被當成該狀態的證據」的假 PASS/假 FAIL。
+#
+# 骨架行為：所有 ensure_/set_ 一律 raise StateError。所以現在跑完整 round 會是
+#   CURRENT 批次照跑（它本來就不佈狀態）→ CTRL1/CTRL2/CTRL3/SD 全部乾淨跳過
+# 這正是「狀態佈不起來」的既有路徑（`run_round()` 接 StateError → `[<批次> 跳過]`），
+# 不是新的失敗模式。
+#
+# 重建時要填回的狀態（原版的 CTRL1/CTRL2/CTRL3 對照見 CLAUDE.md〈命名契約〉）：
+#   時區、電量與充電、省電模式、VPN on/off、GAID opt-in/opt-out、
+#   深色模式、亮度、字級、媒體音量、App 語系、定位權限
+#
+# 查詢類 helper（`battery_state` / `vpn_active` / `tracking_opted_in` /
+# `_location_granted` / `dump_ui`）回中性值，讓呼叫端不會炸；
+# `restore_standard_state()` 必須是 no-op 而不是 raise —— 它掛在 `atexit`，
+# 在收尾階段丟例外會蓋掉真正的錯誤訊息。
+
+
+def _not_built(what):
+    raise StateError(f"{what}：佈狀態未實作（骨架）")
+
+
 def ensure_timezone(zone, label):
-    out = adb_state("shell", "cmd", "alarm", "set-timezone", zone)
-    actual = adb_state("shell", "getprop", "persist.sys.timezone").strip()
-    if actual != zone:
-        raise StateError(f"{label}：時區設定失敗，讀回 {actual!r}，預期 {zone!r}（{out}）")
-    STATE_ACTIONS.append(f"adb shell cmd alarm set-timezone {zone}")
-    print(f"[自動] 時區 → {zone}")
+    _not_built(f"{label} 時區 {zone}")
 
 
 def battery_state():
-    dump = adb_state("shell", "dumpsys", "battery")
-    level_m = re.search(r"level:\s*(\d+)", dump)
-    powered = any(re.search(fr"{kind} powered:\s*true", dump, re.I)
-                  for kind in ("AC", "USB", "Wireless"))
-    return (int(level_m.group(1)) if level_m else None), powered
+    """回 (level:int|None, charging:bool|None)。骨架：讀不到。"""
+    return None, None
 
 
 def ensure_battery(title, level=None, charging=None):
-    actual_level, actual_charging = battery_state()
-    STATE_ACTIONS.append(
-        f"battery before: level={actual_level}, charging={actual_charging}")
-    # A USB-only ADB device cannot be physically unplugged without killing the
-    # test session. Use Android's battery simulation for charging-state cases.
-    if charging is False and actual_charging:
-        STATE_ACTIONS.append("adb shell dumpsys battery unplug")
-        adb_state("shell", "dumpsys", "battery", "unplug")
-        actual_level, actual_charging = battery_state()
-        if not actual_charging:
-            print("[自動] Battery mock → unplugged（USB ADB 保持連線）")
-    elif charging is True and not actual_charging:
-        STATE_ACTIONS.append("adb shell dumpsys battery reset")
-        adb_state("shell", "dumpsys", "battery", "reset")
-        actual_level, actual_charging = battery_state()
-        if not actual_charging:
-            STATE_ACTIONS.append("adb shell dumpsys battery set ac 1")
-            adb_state("shell", "dumpsys", "battery", "set", "ac", "1")
-        actual_level, actual_charging = battery_state()
-        if actual_charging:
-            print("[自動] Battery → charging")
-    if level is not None and actual_level != level:
-        STATE_ACTIONS.append(f"adb shell dumpsys battery set level {level}")
-        adb_state("shell", "dumpsys", "battery", "set", "level", str(level))
-        actual_level, actual_charging = battery_state()
-    level_ok = level is None or actual_level == level
-    charging_ok = charging is None or actual_charging == charging
-    if not (level_ok and charging_ok):
-        raise StateError(
-            f"{title}：讀回 {actual_level}% / charging={actual_charging}，"
-            f"預期 level={level} / charging={charging}")
-    STATE_ACTIONS.append(
-        f"battery after: level={actual_level}, charging={actual_charging}, "
-        f"target_level={level}, target_charging={charging}")
-    print(f"[自動確認] 電量={actual_level}% charging={actual_charging}：符合")
+    _not_built(f"{title} 電量 level={level} charging={charging}")
 
 
 def vpn_active():
-    dump = adb_state("shell", "dumpsys", "connectivity")
-    links = adb_state("shell", "ip", "link")
-    return bool(re.search(r"TRANSPORT_VPN|type:\s*VPN", dump, re.I) or
-                re.search(r"\b(tun\d+|ppp\d+|wg\d+|tailscale\d*)\b", links, re.I))
+    """VPN 是否連線中。骨架：一律回 False。"""
+    return False
 
 
 def set_tailscale(expected):
-    """Toggle the installed Tailscale client and verify via the VPN interface."""
-    packages = adb_state("shell", "pm", "list", "packages", "com.tailscale.ipn")
-    if "com.tailscale.ipn" not in packages:
-        return False
-    adb_state("shell", "monkey", "-p", "com.tailscale.ipn", "-c",
-        "android.intent.category.LAUNCHER", "1")
-    time.sleep(1)
-
-    def read_ui():
-        adb_state("shell", "uiautomator", "dump", "/sdcard/tailscale-window.xml")
-        return adb_state("shell", "cat", "/sdcard/tailscale-window.xml")
-
-    def tap_text(ui, label):
-        match = re.search(
-            rf'text="{re.escape(label)}"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-            ui)
-        if not match:
-            return False
-        x = (int(match.group(1)) + int(match.group(3))) // 2
-        y = (int(match.group(2)) + int(match.group(4))) // 2
-        adb_state("shell", "input", "tap", str(x), str(y))
-        return True
-
-    ui = read_ui()
-    switch = re.search(
-        r'checkable="true" checked="(true|false)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-        ui)
-    if not switch:
-        return False
-    checked = switch.group(1) == "true"
-    if checked != expected:
-        x = (int(switch.group(2)) + int(switch.group(4))) // 2
-        y = (int(switch.group(3)) + int(switch.group(5))) // 2
-        adb_state("shell", "input", "tap", str(x), str(y))
-        time.sleep(2)
-    if expected:
-        # Reengage CIDs require Taiwan Office egress. Always select and verify
-        # the configured Taipei exit node instead of accepting any VPN route.
-        ui = read_ui()
-        search_pos = ui.find('content-desc="Search"')
-        selected_pos = ui.find('text="tpe-exit-3"')
-        tpe_selected = 0 <= selected_pos < search_pos
-        if not tpe_selected:
-            if not tap_text(ui, "EXIT NODE"):
-                return False
-            time.sleep(1)
-            ui = read_ui()
-            if not tap_text(ui, "tpe-exit-3"):
-                return False
-            time.sleep(3)
-            ui = read_ui()
-            search_pos = ui.find('content-desc="Search"')
-            selected_pos = ui.find('text="tpe-exit-3"')
-            tpe_selected = 0 <= selected_pos < search_pos
-        return tpe_selected and 'text="Connected"' in ui
-    ui = read_ui()
-    switch = re.search(r'checkable="true" checked="(true|false)"', ui)
-    return bool(switch and switch.group(1) == "false")
+    _not_built(f"Tailscale {'on' if expected else 'off'}")
 
 
 def ensure_vpn(expected):
-    actual = vpn_active()
-    if actual == expected:
-        print(f"[自動確認] VPN={'on' if actual else 'off'}：符合")
-        return
-    if not set_tailscale(expected):
-        raise StateError(f"VPN {'on' if expected else 'off'}：Tailscale 自動切換失敗")
-    # Tailscale UI 若留在前景會蓋住 sample app，導致 capture 的刷廣告 loop 找不到版位
-    adb_state("shell", "input", "keyevent", "KEYCODE_HOME")
-    # set_tailscale 的 off 判斷抓 UI 第一個 checkable，可能不是 VPN 開關 → 用
-    # vpn_active() ground truth 復驗，回報成功但實際不符仍算佈狀態失敗。
-    if vpn_active() != expected:
-        raise StateError(
-            f"VPN {'on' if expected else 'off'}：Tailscale 回報成功但 vpn_active 讀回不符")
-    STATE_ACTIONS.append(f"tailscale VPN → {'on' if expected else 'off'}")
-    print(f"[自動] Tailscale VPN → {'on' if expected else 'off'}")
+    _not_built(f"VPN {'on' if expected else 'off'}")
 
 
 def dump_ui():
-    # `uiautomator dump /dev/tty` 在部分裝置吐不出內容；dump 到檔案再 cat 才穩
-    adb_state("shell", "uiautomator", "dump", "/sdcard/ssp-ui.xml")
-    return adb_state("shell", "cat", "/sdcard/ssp-ui.xml")
+    """當前畫面的 UI dump（XML）。骨架：回空字串。"""
+    return ""
 
 
 def tracking_opted_in():
-    # state-proof 截圖可能留下通知欄／鎖屏遮罩；遮罩存在時 uiautomator 只會
-    # dump SystemUI，導致找不到 Delete/Get advertising ID。
-    adb_state("shell", "cmd", "statusbar", "collapse")
-    adb_state("shell", "wm", "dismiss-keyguard")
-    adb_state("shell", "am", "start", "-n",
-        "com.google.android.gms/.adsidentity.settings.AdsIdentitySettingsActivity")
-    time.sleep(2)
-    ui = dump_ui()
-    if re.search(r"Get new advertising ID|重新取得廣告 ID|取得新的廣告 ID", ui, re.I):
-        return False
-    if re.search(r"Delete advertising ID|刪除廣告 ID", ui, re.I):
-        return True
+    """GAID 是否 opt-in。骨架：回 None（讀不到）。"""
     return None
 
 
 def ensure_tracking(expected):
-    actual = tracking_opted_in()
-    if actual == expected:
-        print(f"[自動確認] GAID opt-{'in' if actual else 'out'}：符合")
-        return
-    labels = (["Get new advertising ID", "重新取得廣告 ID", "取得新的廣告 ID"]
-              if expected else
-              ["Delete advertising ID", "刪除廣告 ID"])
-    for _ in range(2):
-        ui = dump_ui()
-        tapped = False
-        for label in labels + ["Confirm", "確認", "OK"]:
-            match = re.search(
-                rf'text="{re.escape(label)}"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-                ui, re.I)
-            if not match:
-                continue
-            x = (int(match.group(1)) + int(match.group(3))) // 2
-            y = (int(match.group(2)) + int(match.group(4))) // 2
-            adb_state("shell", "input", "tap", str(x), str(y))
-            time.sleep(1)
-            tapped = True
-            break
-        if not tapped:
-            break
-    actual = tracking_opted_in()
-    if actual != expected:
-        raise StateError(f"GAID：讀回 {actual!r}，預期 {expected!r}")
-    STATE_ACTIONS.append(f"GAID opt-{'in' if expected else 'out'}")
-    print(f"[自動] GAID opt-{'in' if expected else 'out'}")
+    _not_built(f"GAID {'opt-in' if expected else 'opt-out'}")
 
 
 def ensure_app_locale(language_tag):
-    cmd = ("shell", "cmd", "locale", "set-app-locales", APP_PACKAGE,
-           "--user", "0", "--locales", language_tag)
-    STATE_ACTIONS.append("adb " + " ".join(cmd))
-    adb_state(*cmd)
-    get_cmd = ("shell", "cmd", "locale", "get-app-locales", APP_PACKAGE, "--user", "0")
-    actual = adb_state(*get_cmd)
-    if language_tag.lower() not in actual.lower():
-        raise StateError(f"App locale 讀回 {actual!r}，預期 {language_tag}")
-    STATE_ACTIONS.append(f"app locale after: {actual.strip()}")
+    _not_built(f"App locale {language_tag}")
 
 
 def set_and_verify(label, set_args, get_args, expected):
-    adb_state(*set_args)
-    actual = adb_state(*get_args).strip()
-    if actual != str(expected):
-        raise StateError(f"{label}：讀回 {actual!r}，預期 {expected!r}")
-    STATE_ACTIONS.append("adb " + " ".join(set_args))
-    print(f"[自動] {label}: OK（讀回 {actual!r}）")
+    _not_built(f"{label} = {expected}")
 
 
 def set_volume(value):
-    out = adb_state("shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
-    m = re.search(r"range \[(\d+)\.\.(\d+)\]", out)
-    if not m:
-        raise StateError(f"媒體音量：讀不到音量範圍（{out}）")
-    target = int(m.group(1)) if value == "min" else int(m.group(2))
-    STATE_ACTIONS.append(f"adb shell cmd audio set-volume 3 {target}")
-    # cmd audio set-volume 在 Pixel 10a/Android 16 實測可靠；
-    # media_session --set 會靜默失敗，保留當備援
-    adb_state("shell", "cmd", "audio", "set-volume", "3", str(target))
-    adb_state("shell", "cmd", "media_session", "volume", "--stream", "3", "--set", str(target))
-    after = adb_state("shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
-    actual = re.search(r"volume is\s+(\d+)\s+in range\s+\[(\d+)\.\.(\d+)\]", after, re.I)
-    if not actual or int(actual.group(1)) != target:
-        # cmd media_session --set 在部分機型（Pixel 10a/Android 16）靜默無效；退回音量鍵逐步推到端點
-        key = "KEYCODE_VOLUME_DOWN" if value == "min" else "KEYCODE_VOLUME_UP"
-        span = int(m.group(2)) - int(m.group(1))
-        STATE_ACTIONS.append(f"adb shell input keyevent {key} x{span}")
-        for _ in range(span):
-            adb_state("shell", "input", "keyevent", key)
-        time.sleep(2)  # keyevent 進位有延遲，等落定再讀
-        after = adb_state("shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
-        actual = re.search(r"volume is\s+(\d+)\s+in range\s+\[(\d+)\.\.(\d+)\]", after, re.I)
-        if actual and int(actual.group(1)) != target:
-            for _ in range(abs(target - int(actual.group(1)))):
-                adb_state("shell", "input", "keyevent", key)
-            time.sleep(2)
-            after = adb_state("shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
-            actual = re.search(r"volume is\s+(\d+)\s+in range\s+\[(\d+)\.\.(\d+)\]", after, re.I)
-    if not actual or int(actual.group(1)) != target:
-        raise StateError(f"媒體音量：設定 {value} 後讀回失敗（{after}）")
-    STATE_ACTIONS.append(
-        f"volume after: current={actual.group(1)}, min={actual.group(2)}, "
-        f"max={actual.group(3)}, target={value}")
-    print(f"[自動] 媒體音量 → {target}（{value}）；讀回 {actual.group(1)}/{actual.group(3)}")
+    _not_built(f"媒體音量 {value}")
 
 
 def _location_granted():
-    """讀回 runtime 權限 ground truth：任一 FINE/COARSE granted 即視為「app 有定位」。
-    回 True=有定位 / False=完全沒有 / None=讀不到。"""
-    dump = adb_state("shell", "dumpsys", "package", APP_PACKAGE)
-    vals = []
-    for perm in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
-        m = re.search(perm + r":\s*granted=(true|false)", dump)
-        if m:
-            vals.append(m.group(1) == "true")
-    if not vals:
-        return None
-    return any(vals)
+    """定位權限是否已授權。骨架：回 None（讀不到）。"""
+    return None
 
 
 def set_location(grant):
-    # revoke 只動 FINE 會留下 COARSE（restore 同時給兩者）→ 「拒絕」情境其實仍有粗定位、
-    # bid 仍帶 geo，卻被當拒絕驗（假 PASS/FAIL）。FINE+COARSE 兩個機制（pm + appops）都要對齊。
-    verb = "grant" if grant else "revoke"
-    op = "allow" if grant else "ignore"
-    out = ""
-    for perm in ("android.permission.ACCESS_FINE_LOCATION",
-                 "android.permission.ACCESS_COARSE_LOCATION"):
-        out += adb_state("shell", "pm", verb, APP_PACKAGE, perm) + "\n"
-    for opname in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
-        adb_state("shell", "appops", "set", APP_PACKAGE, opname, op)
-    actual = _location_granted()   # ground-truth 讀回
-    cmd_err = "exception" in out.lower() or "not requested" in out.lower()
-    if cmd_err or (actual is not None and actual != grant):
-        raise StateError(
-            f"Location：讀回 granted={actual}，預期 {grant}（FINE+COARSE 未對齊）")
-    STATE_ACTIONS.append(f"location {verb} FINE+COARSE")
-    print(f"[自動] Location permission → {'allowed' if grant else 'denied'}"
-          f"（FINE+COARSE；讀回 granted={actual}）")
+    _not_built(f"定位權限 {'允許' if grant else '拒絕'}")
 
 
 def auto_common(high):
-    """一次佈齊 dark mode / battery saver / 亮度 / 字級 / 音量 / 定位。
-
-    high=False: CTRL1 default/low/allowed；high=True: CTRL2 opposite/high/denied。
-    """
-    print("\n── 自動設定裝置狀態 ──")
-    adb_state("shell", "cmd", "uimode", "night", "yes" if high else "no")
-    STATE_ACTIONS.append(f"adb shell cmd uimode night {'yes' if high else 'no'}")
-    print(f"[自動] Dark mode → {'on' if high else 'off'}")
-    set_and_verify("Battery Saver",
-                   ("shell", "cmd", "power", "set-mode", "1" if high else "0"),
-                   ("shell", "settings", "get", "global", "low_power"),
-                   "1" if high else "0")
-    adb_state("shell", "settings", "put", "system", "screen_brightness_mode", "0")
-    set_and_verify("Brightness",
-                   ("shell", "settings", "put", "system", "screen_brightness",
-                    "255" if high else "0"),
-                   ("shell", "settings", "get", "system", "screen_brightness"),
-                   "255" if high else "0")
-    set_and_verify("Font scale",
-                   ("shell", "settings", "put", "system", "font_scale",
-                    "1.5" if high else "1.0"),
-                   ("shell", "settings", "get", "system", "font_scale"),
-                   "1.5" if high else "1.0")
-    set_volume("max" if high else "min")
-    set_location(not high)
+    """一組受控狀態（high=True 走 CTRL2 的『相反／高／拒絕』那一側）。"""
+    _not_built(f"CTRL{'2' if high else '1'} 共同狀態")
 
 
 def restore_standard_state():
-    """Return the device to the team's readable, non-test baseline."""
-    print("\n── 收尾：還原標準裝置狀態 ──")
-    adb_state("shell", "dumpsys", "battery", "reset")
-    adb_state("shell", "cmd", "uimode", "night", "no")
-    adb_state("shell", "cmd", "power", "set-mode", "0")
-    adb_state("shell", "settings", "put", "system", "screen_brightness_mode", "0")
-    adb_state("shell", "settings", "put", "system", "screen_brightness", "102")
-    adb_state("shell", "settings", "put", "system", "font_scale", "1.0")
-    adb_state("shell", "cmd", "media_session", "volume", "--stream", "3", "--set", "12")
-    adb_state("shell", "appops", "set", APP_PACKAGE, "ACCESS_FINE_LOCATION", "allow")
-    adb_state("shell", "appops", "set", APP_PACKAGE, "ACCESS_COARSE_LOCATION", "allow")
-    adb_state("shell", "cmd", "alarm", "set-timezone", "Asia/Taipei")
-    vpn_off = True
-    if vpn_active():
-        try:
-            ensure_vpn(False)
-        except StateError:
-            vpn_off = False
-    try:
-        ensure_tracking(True)
-        tracking_restored = True
-    except StateError:
-        tracking_restored = False
-    print("[還原] light mode / battery saver off / brightness 40% / font 1.0 / volume 12")
-    print("[還原] location allowed / timezone Asia/Taipei / battery reset")
-    print(f"[還原] VPN off：{'OK' if vpn_off else 'FAILED'}")
-    print(f"[還原] GAID opt-in：{'OK' if tracking_restored else 'FAILED'}")
+    """還原成標準狀態。掛在 atexit，**不可 raise**。骨架：什麼都不做。"""
+    print("[骨架] restore_standard_state 未實作，未還原任何裝置狀態。")
 
 
 
@@ -2694,46 +2449,16 @@ def detect_root():
 # ── device state snapshot ─────────────────────────────────────────────────────
 
 def snapshot_device_state():
-    """Capture device state at moment of bid. Returns formatted string."""
-    connectivity = adb("shell", "dumpsys", "connectivity")
-    links = adb("shell", "ip", "link")
-    vpn_active = bool(re.search(r"TRANSPORT_VPN|type:\s*VPN", connectivity, re.I) or
-                      re.search(r"\b(tun\d+|ppp\d+|wg\d+|tailscale\d*)\b", links, re.I))
-    raw = {
-        "dark_mode":         adb("shell", "cmd", "uimode", "night"),
-        "battery":           adb("shell", "dumpsys", "battery"),
-        "battery_saver":     adb("shell", "settings", "get", "global", "low_power"),
-        "screen_brightness": adb("shell", "settings", "get", "system", "screen_brightness"),
-        "font_scale":        adb("shell", "settings", "get", "system", "font_scale"),
-        "timezone":          adb("shell", "getprop", "persist.sys.timezone"),
-        "volume_music":      _volume_music(),
-        "locale":            adb("shell", "getprop", "persist.sys.locale"),
-        "os_version":        adb("shell", "getprop", "ro.build.version.release"),
-        "model":             adb("shell", "getprop", "ro.product.model"),
-        "actual_root":       detect_root()[1],   # ground truth，對照 bid 的 device.ext.jailbreak
-        "vpn_active":        vpn_active,
-    }
+    """capture 當下的裝置狀態文字快照 → `device_state.txt`（骨架）。
 
-    # foreground activity + 受測 app 版本
-    focus = adb("shell", "dumpsys", "window")
-    m = re.search(r"mCurrentFocus=.*", focus)
-    raw["foreground"] = m.group(0) if m else "(unknown)"
-    pkg_dump = adb("shell", "dumpsys", "package", APP_PACKAGE)
-    m = re.search(r"versionName=\S+", pkg_dump)
-    raw["app_version"] = m.group(0) if m else "(unknown)"
+    與 `environment.json` 的分工：environment.json 是**結構化**的，報告會讀去做
+    ground-truth 對照；device_state.txt 是**給人看的**全文快照（原版含 battery
+    dumpsys 原文、前景 activity、受測 app 版本、VPN 介面），出事時翻它。
 
-    battery_is_mocked = "UPDATES STOPPED" in raw["battery"]
-    raw["battery_source"] = "MOCKED (Android Battery Service updates stopped)" if battery_is_mocked else "REAL"
-    raw["battery_raw"] = raw["battery"]
-    # summarise battery dump to relevant lines
-    batt_lines = [
-        l.strip() for l in raw["battery"].splitlines()
-        if any(k in l for k in ("level", "AC powered", "USB powered", "status:"))
-    ]
-    raw["battery"] = " | ".join(batt_lines)
-
-    lines = [f"  {k:<22}: {v}" for k, v in raw.items()]
-    return "\n".join(lines)
+    刻意留空：要記什麼取決於 TC 怎麼定義，跟 TC 目錄一起重新設計。
+    原版：`git show 8307b56:qa_aos.py`
+    """
+    return ""
 
 
 def detect_device_kind():
@@ -2755,55 +2480,32 @@ def detect_device_kind():
 
 
 def collect_environment():
-    """讀取已安裝 APK 與 Capture 當下環境，供 report 頂端稽核卡使用。"""
-    pkg = adb("shell", "dumpsys", "package", APP_PACKAGE)
-    def match(pattern, default="—"):
-        m = re.search(pattern, pkg)
-        return m.group(1) if m else default
-    battery = adb("shell", "dumpsys", "battery")
-    connectivity = adb("shell", "dumpsys", "connectivity")
-    links = adb("shell", "ip", "link")
-    ipv6_addrs = adb("shell", "ip", "-6", "addr", "show", "scope", "global")
-    ipv6_match = re.search(r"inet6\s+([0-9a-f:]+)/\d+", ipv6_addrs, re.I)
-    vpn_active = bool(re.search(r"TRANSPORT_VPN|type:\s*VPN", connectivity, re.I) or
-                      re.search(r"\b(tun\d+|ppp\d+|wg\d+|tailscale\d*)\b", links, re.I))
-    # 定位權限 ground truth：抓 bid 當下 app 實際的 runtime 權限，供報告 gate AND-45/46
-    # （geo 是唯一先前沒存 ground-truth 的狀態）。fine 或 coarse 任一 granted 即視為允許。
-    fine_m = re.search(r"ACCESS_FINE_LOCATION:\s*granted=(true|false)", pkg)
-    coarse_m = re.search(r"ACCESS_COARSE_LOCATION:\s*granted=(true|false)", pkg)
-    loc_granted = ((fine_m and fine_m.group(1) == "true")
-                   or (coarse_m and coarse_m.group(1) == "true"))
-    return {
-        "package": APP_PACKAGE,
-        "location_permission": "granted" if loc_granted else "denied",
-        "location_fine": fine_m.group(1) if fine_m else "—",
-        "location_coarse": coarse_m.group(1) if coarse_m else "—",
-        "location_source": "dumpsys package runtime permissions",
-        "version_name": match(r"versionName=([^\s]+)"),
-        "version_code": match(r"versionCode=(\d+)"),
-        "first_install_time": match(r"firstInstallTime=([^\n]+)"),
-        "device": adb("shell", "getprop", "ro.product.model"),
-        "device_kind": detect_device_kind(),
-        "android": adb("shell", "getprop", "ro.build.version.release"),
-        "build_fingerprint": adb("shell", "getprop", "ro.build.fingerprint"),
-        "timezone": adb("shell", "getprop", "persist.sys.timezone"),
-        "dark_mode": adb("shell", "cmd", "uimode", "night"),
-        "battery_saver": adb("shell", "settings", "get", "global", "low_power"),
-        "brightness": adb("shell", "settings", "get", "system", "screen_brightness"),
-        "font_scale": adb("shell", "settings", "get", "system", "font_scale"),
-        "locale": adb("shell", "getprop", "persist.sys.locale"),
-        "app_locale": adb("shell", "cmd", "locale", "get-app-locales", APP_PACKAGE, "--user", "0"),
-        "media_volume": _volume_music(),
-        "battery": " | ".join(l.strip() for l in battery.splitlines()
-                               if any(k in l for k in ("level", "powered", "status:"))),
-        "battery_source": ("MOCKED" if "UPDATES STOPPED" in battery else "REAL"),
-        "battery_raw": battery,
-        "root": detect_root()[1],
-        "vpn_active": vpn_active,
-        "vpn_source": "dumpsys connectivity + ip link",
-        "public_ipv6": ipv6_match.group(1) if ipv6_match else None,
-        "ipv6_source": "ip -6 addr show scope global",
-    }
+    """capture 當下的裝置／APK 環境快照 → `environment.json`（骨架）。
+
+    這是報告的 **ground truth 來源**：卡片背面的「INDEPENDENT DEVICE / APP EVIDENCE」
+    與 `capture_state_eligible()` 的前置門檻都讀這裡，用來**獨立對照** bid 送的值 ——
+    bid 說 `darkmode=true`，環境快照也說 `dark_mode=yes`，才算真的驗到；只看 bid
+    自己說什麼不構成證據。
+
+    刻意留空：要記哪些欄位取決於 TC 怎麼定義，一起重新設計。
+    原版（約 50 個 adb 查詢）：`git show 8307b56:qa_aos.py`
+
+    讀取側目前預期的 key（`ground_truth_for()` / `device_kind_of()` /
+    `provenance_label()` / 報告頂端的環境與前置狀態面板）：
+
+      package version_name version_code first_install_time
+      device device_kind android build_fingerprint
+      timezone dark_mode battery_saver brightness font_scale
+      locale app_locale media_volume
+      battery battery_source battery_raw
+      root vpn_active vpn_source
+      location_permission location_fine location_coarse location_source
+      public_ipv6 ipv6_source
+
+    少了某個 key 只會讓對應的 ground-truth 區塊消失，不會爆 —— 但那條 TC 也就只剩
+    bid 自己的說法、沒有獨立佐證。
+    """
+    return {}
 
 
 # ── state-proof screenshot ──────────────────────────────────────────────────
@@ -2872,184 +2574,33 @@ def adb_screencap(path):
 
 
 def capture_state_proof(folder):
-    """為本次 TC 擷取所有對應狀態頁；批次 TC 會產生一組 proof 圖。
+    """把「看得見該狀態的系統畫面」叫出來截圖 → `state_proof_<group>.png`（骨架）。
 
-    bid 已經在正確狀態下送出（本函式在 save_evidence 內、capture 之後才跑），
-    這裡只是把對應的系統畫面叫出來拍給人看。回傳 {group: caption}。
+    這是狀態類 TC 的**肉眼證據**：不是拍廣告頁，而是拍設定頁 —— 驗 darkmode 就開
+    Display 設定拍那個開關。bid 已經在正確狀態下送出（本函式在 capture 之後才跑），
+    這裡只負責把畫面叫出來。回傳 `{group: caption}`。
+
+    刻意留空：哪條 TC 要哪張證據，跟 TC 定義一起重新設計。驅動它的 `STATE_GROUP`
+    （TC → 互斥組）本來就已經是空的，所以原版留著也不會動。
+    `STATE_SURFACE`（組 → 用哪個 intent／component 開哪一頁）**保留未清** ——
+    那是裝置知識（哪個 action 開哪個設定頁）而不是 TC 定義。
+    原版（含 tracking／volume／brightness 那些拿不到畫面的特例處理）：
+    `git show 8307b56:qa_aos.py`
+
+    重建時的形狀：
+      capture_state_proof(folder)         -> {group: caption}
+        由 TC_ID 經 STATE_GROUP 推出要截哪幾組，逐組呼叫下面那支
+      _capture_group_proof(folder, group) -> caption | None
+        依 STATE_SURFACE[group] 的 kind（intent / component / app / appdetails /
+        qs / volpanel / notif / None）把畫面帶出來，`adb_screencap()` 存成
+        state_proof_<group>.png，附 _meta.json；截圖不足以證明的組（emulator、
+        session、fgbg）改寫 state_proof_<group>.txt 說明為什麼。
     """
-    if TC_ID == "CURRENT":
-        return {}
-    groups = []
-    for tc in TC_ID.split(","):
-        group = STATE_GROUP.get(tc.strip())
-        if group and group not in groups:
-            groups.append(group)
-    captions = {}
-    for group in groups:
-        caption = _capture_group_proof(folder, group)
-        if caption:
-            captions[group] = caption
-    return captions
+    return {}
 
 
 def _capture_group_proof(folder, group):
-    """開啟單一 state group 的證據頁並存成 state_proof_<group>.png。"""
-    kind, arg, caption = STATE_SURFACE.get(group, (None, None, None))
-    supplemental = (folder / "results.json").exists()
-
-    if kind is None:
-        with open(folder / f"state_proof_{group}.txt", "w") as f:
-            f.write(f"{TC_ID} ({group}): {caption}\n")
-        return caption
-
-    # 先 force-stop Settings：否則若上一條 TC 停在別的設定頁（如 VPN），
-    # am start 另一個設定頁常只把既有 Settings 工作列叫回前景、沒真的導頁 → 截到錯頁（bright/dark 出現在 VPN 頁即此因）。
-    if kind in ("intent", "component", "appdetails", "applocale"):
-        adb("shell", "am", "force-stop", "com.android.settings")
-        time.sleep(0.5)
-    elif kind in ("qs", "volpanel", "notif"):
-        # 亮度/音量/狀態列是疊在當前畫面上，先回桌面 + 清 Settings，背景才乾淨
-        adb("shell", "am", "force-stop", "com.android.settings")
-        adb("shell", "input", "keyevent", "KEYCODE_HOME")
-        time.sleep(0.5)
-
-    launch_result = ""
-    volume_before = None
-    if kind == "intent":
-        launch_result = adb("shell", "am", "start", "-a", arg)
-    elif kind == "component":
-        launch_result = adb("shell", "am", "start", "-n", arg)
-    elif kind == "app":
-        # arg = package name；沒安裝就退回說明檔（例：非 Magisk 的 root 方案）
-        installed = arg in adb("shell", "pm", "list", "packages", arg)
-        if not installed:
-            with open(folder / f"state_proof_{group}.txt", "w") as f:
-                f.write(f"{TC_ID} ({group}): {arg} 未安裝，改用其他 root 佐證\n")
-            return caption
-        launch_result = adb("shell", "monkey", "-p", arg, "-c", "android.intent.category.LAUNCHER", "1")
-    elif kind == "appdetails":
-        launch_result = adb("shell", "am", "start", "-a",
-                            "android.settings.APPLICATION_DETAILS_SETTINGS",
-                            "-d", f"package:{APP_PACKAGE}")
-    elif kind == "applocale":
-        launch_result = adb("shell", "am", "start", "-a",
-                            "android.settings.APP_LOCALE_SETTINGS",
-                            "-d", f"package:{APP_PACKAGE}")
-    elif kind == "qs":
-        adb("shell", "cmd", "statusbar", "expand-settings")
-    elif kind == "volpanel":
-        # 在端點按同方向音量鍵，只叫出 system volume panel，不改變受測值。
-        volume_before = _volume_music()
-        match = re.fullmatch(r"(\d+)/(\d+)", volume_before)
-        if not match:
-            launch_result = "error: 無法讀取 STREAM_MUSIC current/max；不產生誤導截圖"
-        elif int(match.group(1)) == int(match.group(2)):
-            launch_result = adb("shell", "input", "keyevent", "KEYCODE_VOLUME_UP")
-        elif int(match.group(1)) == 0:
-            launch_result = adb("shell", "input", "keyevent", "KEYCODE_VOLUME_DOWN")
-        else:
-            launch_result = "error: STREAM_MUSIC 不在 min/max 端點，不能擷取端點證據"
-    elif kind == "notif":
-        adb("shell", "cmd", "statusbar", "expand-notifications")
-
-    if any(x in launch_result.lower() for x in
-           ("error", "exception", "unable to resolve", "unknown command", "unrecognized")):
-        with open(folder / f"state_proof_{group}.txt", "w") as f:
-            f.write(f"{TC_ID} ({group}): 無法開啟預期證據頁\n{launch_result}\n")
-        return None
-
-    time.sleep(2.0)
-    ui_xml = ""
-    if group == "tracking":
-        remote_xml = "/sdcard/state_proof_tracking.xml"
-        adb("shell", "uiautomator", "dump", remote_xml)
-        ui_xml = adb("shell", "cat", remote_xml)
-        if ui_xml.strip().startswith("<?xml"):
-            with open(folder / "state_proof_tracking.xml", "w") as f:
-                f.write(ui_xml)
-        if re.search(r"Get new advertising ID|重新取得廣告 ID|取得新的廣告 ID", ui_xml, re.I):
-            tracking_state = "opt-out (advertising ID deleted)"
-        elif re.search(r"Delete advertising ID|刪除廣告 ID", ui_xml, re.I):
-            tracking_state = "opt-in (advertising ID exists)"
-        else:
-            tracking_state = "unknown (UI label not recognized)"
-        with open(folder / "state_proof_tracking_state.json", "w") as f:
-            json.dump({"state": tracking_state, "source": "Google Ads settings UI dump"},
-                      f, ensure_ascii=False, indent=2)
-        caption = f"Google 廣告設定頁：{tracking_state}；與同次 device.ia / device.lat 對照"
-        print(f"  state_ui    → {folder / 'state_proof_tracking.xml'}  ({tracking_state})")
-        # GAID 字串在頁面底部：狀態判斷用的 XML 已 dump 完（頁首按鈕區），
-        # 捲到頁底再截圖，讓截圖裡看得到 advertising ID 本體（與 device.ia 對照）
-        adb("shell", "input", "swipe", "540", "1800", "540", "400", "300")
-        time.sleep(0.8)
-    elif group in {"charging", "batterylevel"}:
-        remote_xml = f"/sdcard/state_proof_{group}.xml"
-        adb("shell", "uiautomator", "dump", remote_xml)
-        ui_xml = adb("shell", "cat", remote_xml)
-        if ui_xml.strip().startswith("<?xml"):
-            with open(folder / f"state_proof_{group}.xml", "w") as f:
-                f.write(ui_xml)
-        battery_dump = adb("shell", "dumpsys", "battery")
-        source = "MOCKED" if "UPDATES STOPPED" in battery_dump else "REAL"
-        caption = f"Android Battery 頁面；Capture source={source}"
-    elif group == "volume":
-        remote_xml = "/sdcard/state_proof_volume.xml"
-        adb("shell", "uiautomator", "dump", remote_xml)
-        ui_xml = adb("shell", "cat", remote_xml)
-        if ui_xml.strip().startswith("<?xml"):
-            with open(folder / "state_proof_volume.xml", "w") as f:
-                f.write(ui_xml)
-        volume_after = _volume_music()
-        if volume_after != volume_before:
-            with open(folder / "state_proof_volume.txt", "w") as f:
-                f.write(f"{TC_ID} (volume): 顯示面板前後值改變：{volume_before} → {volume_after}\n")
-            return None
-        if not re.search(r"volume|音量|slider|seekbar", ui_xml, re.I):
-            with open(folder / "state_proof_volume.txt", "w") as f:
-                f.write(f"{TC_ID} (volume): 畫面未偵測到音量面板，不採納截圖\n")
-            return None
-        caption = f"System STREAM_MUSIC 音量面板；current/max={volume_after}；顯示前後讀值一致"
-
-    # 對會切換 Activity 的頁面核對前景 package；啟動失敗時不可把上一頁誤當證據。
-    # Settings 剛被 force-stop、冷啟動常超過 2 秒 → 輪詢等待，不能只查一次
-    # （2026-07-15 曾因單次檢查讓 intent 類 proof 全數 fallback 成 txt）。
-    if kind in ("intent", "component", "app", "appdetails", "applocale"):
-        expected_pkgs = (["com.google.android.gms"] if kind == "component" else
-                         [arg] if kind == "app" else
-                         ["com.android.settings", "com.google.android.settings.intelligence"])
-        focus_line = ""
-        focus_ok = False
-        for _ in range(12):
-            # 注意：Android 15+ 的 `dumpsys window windows` 沒有 mCurrentFocus，
-            # 要用不帶子命令的 `dumpsys window`
-            focus = adb("shell", "dumpsys", "window")
-            focus_line = next((line for line in focus.splitlines()
-                               if "mCurrentFocus" in line or "mFocusedApp" in line
-                               or "topResumedActivity" in line), "")
-            if any(pkg in focus_line or pkg in ui_xml for pkg in expected_pkgs):
-                focus_ok = True
-                break
-            time.sleep(0.5)
-        if not focus_ok:
-            with open(folder / f"state_proof_{group}.txt", "w") as f:
-                f.write(f"{TC_ID} ({group}): 前景頁不是預期的 {expected_pkgs}\n{focus_line}\n")
-            return None
-    adb("shell", "settings", "put", "system", "pointer_location", "0")
-    proof_path = folder / f"state_proof_{group}.png"
-    ok = adb_screencap(str(proof_path))
-    with open(folder / f"state_proof_{group}_meta.json", "w") as f:
-        json.dump({
-            "captured_at": datetime.now().isoformat(timespec="seconds"),
-            "same_session": not supplemental,
-            "evidence_class": "SUPPLEMENTAL" if supplemental else "SAME_CAPTURE",
-        }, f, ensure_ascii=False, indent=2)
-    # 收起面板 / 回到桌面，避免影響下一輪
-    adb("shell", "cmd", "statusbar", "collapse")
-    if ok:
-        if supplemental:
-            caption = "SUPPLEMENTAL（非原 Capture 同時）· " + caption
-        print(f"  state_proof → {proof_path}  ({caption})")
-        return caption
+    """單一互斥組的狀態證據（骨架）。見 `capture_state_proof()` 的說明。"""
     return None
 
 
@@ -3334,183 +2885,74 @@ def do_session_case(driver, case):
 
 
 def save_evidence(driver, ts):
+    """把這一次 capture 的證據落地（骨架）。
+
+    刻意留空：每條 TC 該有什麼證據，跟 TC 定義一起重新設計。
+    這裡只保留結構 —— **一次 capture ＝ 一個資料夾**，資料夾名＝批次名＋timestamp
+    （`CURRENT_<ts>` / `CTRL1_<ts>` / `AND-04+AND-06_<ts>` / `*_RETRY<n>`）。
+    原版：`git show 8307b56:qa_aos.py`
+
+    ⚠️ **檔名是雙邊契約，改了要兩邊一起改。** 讀取側 —— `load_captures()`、
+    `capture_candidates()`、`build()`、`_json_file()`、`_traffic()`、`_logcat()`、
+    `read_round_elapsed()` —— 仍然硬編下面這些檔名。只改寫入側的話，報告會一條都
+    對不上、全部被判 BLOCKED（而且看起來像「這輪沒做」，不像「檔名改了」）。
+
+    原版寫進 capture 資料夾的東西（重新設計時的對照表）：
+
+      判定必需（少了報告就對不上）
+        results.json    {tc_id, captured_at, app, test_type, test_cid, test_mode,
+                        test_executor, environment, results[]}
+                        ← `load_captures()` 靠 glob `*/results.json` 找 capture；
+                          `tc_id` 宣告這批跑了哪些 TC（`declared()` 讀它）；
+                          `captured_at` 是時間敏感 check 的基準（**不可**退回檔案
+                          mtime，搬過 evidence 就失真）
+        bid_request.json  原始 bid。報告端一律用當前規則重算，不信 results.json
+                          裡的舊判定值
+      bid 相關
+        first_bid_request.json  冷啟第一發（`FIRST_BID_TCS` 的 TC 用這份）
+        bid_response.json       200 才有
+        bid_ids.json            {bidobjid, cid, crid, crpid}
+        ext_enc_raw.txt / ext_enc_decoded.json / ext_enc_all_fields.json /
+        ext_enc_compare.txt     由 `apr_xorenc.write_evidence()` 產出
+      裝置與環境
+        environment.json  `collect_environment()` 的輸出；報告的 ground truth 來源
+        device_state.txt  `snapshot_device_state()` 的文字快照
+      畫面
+        phone.png                     bid 當下的 app 畫面
+        ad_ui.xml                     廣告渲染的 UI dump（用 driver.page_source，
+                                      不能用外部 uiautomator dump —— Appium session
+                                      活著時會搶不到 accessibility）
+        state_proof_<group>.png/.txt/.xml/_meta.json
+        state_proof_captions.json     {group: 這張截圖證明什麼}
+      流程
+        privacy_landing.png / privacy_click.json      `do_privacy_click()`
+        e2e_step_render.png / e2e_step_click.png / e2e_step_landing.png /
+        e2e_flow.json                                 `do_e2e_flow()`
+        session_case.json / session_bid_a.json / logcat_session_a.txt
+                                                      `do_session_case()`
+        state_action.txt   本次實際做了什麼（實機設定／adb 模擬 real→mock）
+      log
+        logcat.txt / logcat_appier.txt
+        traffic.jsonl      detector 的全流量
+      round 層級（寫在 round_dir，不在 capture 資料夾裡）
+        round_report.txt   `aggregate_round()` + `format_round_report()`
+        e2e_results.json   `evaluate()` 的輸出
+        round_timing.txt   由 `__main__` 累寫
+
+    重建時要保留的兩個順序約束（原版踩出來的）：
+      1. privacy 點擊與 E2E 點擊都必須在 traffic.jsonl 歸檔**之前**做，否則點擊
+         產生的流量不會進證據。
+      2. mediation 模式**先跑 E2E 點擊再跑 privacy** —— mediation 的 privacy 連結會
+         開外部 Chrome，round-trip 回來後廣告 view 不再 render，之後就找不到版位
+         可點。standalone 相反（privacy 先、E2E 後）。
+    """
     round_dir = resolve_round_dir()
     capture_name = (CAPTURE_LABEL or
                     ("CURRENT" if TC_ID == "CURRENT" else TC_ID.replace(",", "+")))
     folder = round_dir / f"{capture_name}_{ts}"
     folder.mkdir(parents=True, exist_ok=True)
-
-    environment = collect_environment()
-    with open(folder / "environment.json", "w") as f:
-        json.dump(environment, f, ensure_ascii=False, indent=2)
-
-    # 關掉 Appium 的指標位置 debug 疊層，證據截圖才乾淨
-    adb("shell", "settings", "put", "system", "pointer_location", "0")
-
-    # 1. phone screenshot（bid 當下的 app 畫面 + 狀態列，證明這一 session）
-    screenshot_path = str(folder / "phone.png")
-    driver.get_screenshot_as_file(screenshot_path)
-    print(f"  screenshot  → {screenshot_path}")
-
-    # 1a. 廣告渲染 UI dump（E2E TC-06：畫面文字 ↔ response native 逐項比對）。
-    # Appium session 活著時外部 uiautomator dump 會搶不到 accessibility，
-    # 改用 driver.page_source（同一 session、內容等價）
-    try:
-        ad_ui = driver.page_source
-        if ad_ui and "<hierarchy" in ad_ui:
-            with open(folder / "ad_ui.xml", "w") as f:
-                f.write(ad_ui)
-            print(f"  ad_ui       → {folder / 'ad_ui.xml'}")
-    except Exception as exc:
-        print(f"  [warn] ad_ui dump 失敗：{exc}")
-
-    # 1a-2 / 1a-3. TC-11 privacy 點擊 + E2E 完整流程（都要在 traffic.jsonl 歸檔前做）。
-    # 順序關鍵：mediation 的 privacy 連結開「外部 Chrome」，round-trip 回來後廣告 view
-    # 不再 render → 之後的 ⑤ 廣告點擊會找不到版位。故 mediation 先跑 E2E 點擊（趁廣告
-    # 還新鮮），privacy 擺後面（次要，失敗不影響主流程）。standalone 的 privacy 開內建
-    # 瀏覽器、BACK 回得到仍在 render 的廣告，維持原順序（privacy 先、E2E 後）。
-    def _run_privacy():
-        if DO_PRIVACY_CLICK:
-            try:
-                do_privacy_click(driver, folder)
-            except Exception as exc:
-                print(f"  [warn] privacy click 失敗（不影響其他證據）：{exc}")
-
-    def _run_e2e():
-        if DO_E2E_FLOW:
-            try:
-                do_e2e_flow(driver, folder)
-            except Exception as exc:
-                print(f"  [warn] E2E flow 失敗（不影響其他證據）：{exc}")
-
-    if TEST_MODE in ("admob-mediation", "applovin-mediation"):
-        _run_e2e()
-        _run_privacy()
-    else:
-        _run_privacy()
-        _run_e2e()
-
-    # 1b. state-proof screenshot（叫出看得見該狀態的系統畫面，肉眼證據）
-    proof_captions = capture_state_proof(folder)
-    if proof_captions:
-        with open(folder / "state_proof_captions.json", "w") as f:
-            json.dump(proof_captions, f, ensure_ascii=False, indent=2)
-
-    # 1c. 本次實際執行（實機設定 / adb 模擬 real→mock），供報告老實標明
-    if STATE_ACTION:
-        with open(folder / "state_action.txt", "w") as f:
-            f.write(STATE_ACTION + "\n")
-
-    # 2. raw bid request JSON (+ response if the bid won)
-    if os.path.exists(BID_FILE):
-        shutil.copy(BID_FILE, folder / "bid_request.json")
-        print(f"  bid_request → {folder / 'bid_request.json'}")
-        # 2a. ext_enc 暗碼欄位：存原始 blob + 解碼 JSON + 明文↔解碼對照（TC-17）
-        try:
-            from apr_xorenc import write_evidence as decode_ext_enc_evidence
-            with open(BID_FILE) as bf:
-                _decoded, _cmp_rows = decode_ext_enc_evidence(json.load(bf), str(folder))
-            if _decoded is not None:
-                _revealed = sum(1 for r in _cmp_rows if r["revealed"])
-                print(f"  ext_enc     → ext_enc_raw.txt / ext_enc_decoded.json / "
-                      f"ext_enc_all_fields.json / ext_enc_compare.txt"
-                      f"（暗碼揭露 {_revealed}/{len(_cmp_rows)} 個重點欄）")
-        except Exception as exc:
-            print(f"  [warn] ext_enc 解碼失敗（不影響其他證據）：{exc}")
-    if os.path.exists(FIRST_BID_FILE):
-        shutil.copy(FIRST_BID_FILE, folder / "first_bid_request.json")
-        print(f"  first_bid   → {folder / 'first_bid_request.json'}")
-    # session case 對照證據（bid_request.json＝bid B；A 與判定另存）
-    if SESSION_CASE and os.path.exists(SESSION_CASE_FILE):
-        shutil.copy(SESSION_CASE_FILE, folder / "session_case.json")
-        print(f"  session_case→ {folder / 'session_case.json'}")
-    if SESSION_CASE and os.path.exists(SESSION_BID_A_FILE):
-        shutil.copy(SESSION_BID_A_FILE, folder / "session_bid_a.json")
-    if SESSION_CASE and os.path.exists(SESSION_LOGCAT_A):
-        shutil.copy(SESSION_LOGCAT_A, folder / "logcat_session_a.txt")
-    if os.path.exists(BID_RESPONSE_FILE):
-        shutil.copy(BID_RESPONSE_FILE, folder / "bid_response.json")
-        print(f"  bid_response→ {folder / 'bid_response.json'}")
-    if os.path.exists(TRAFFIC_FILE):
-        shutil.copy(TRAFFIC_FILE, folder / "traffic.jsonl")
-        print(f"  traffic     → {folder / 'traffic.jsonl'}")
-
-    # 3. device state at capture time
-    state_str = snapshot_device_state()
-    state_path = folder / "device_state.txt"
-    with open(state_path, "w") as f:
-        f.write(f"Device State — TC: {TC_ID} — {ts}\n")
-        f.write("=" * 50 + "\n")
-        f.write(state_str + "\n")
-    print(f"  device_state→ {state_path}")
-
-    # 4. logcat（session 同步側錄：app 啟動 → bid capture 全程）
-    stop_logcat()
-    if os.path.exists(LOGCAT_TMP):
-        shutil.copy(LOGCAT_TMP, folder / "logcat.txt")
-        log_txt = open(LOGCAT_TMP, errors="ignore").read()
-        appier_lines = [l for l in log_txt.splitlines(keepends=True)
-                        if re.search(r"appier|argus|datasignal", l, re.IGNORECASE)]
-        with open(folder / "logcat_appier.txt", "w") as f:
-            f.writelines(appier_lines)
-        print(f"  logcat      → {folder / 'logcat.txt'}  (appier-only: logcat_appier.txt, {len(appier_lines)} lines)")
-
-        # 4b. bid 識別碼（比廣告截圖有意義）：從 impression tracker URL 解 bidobjid/cid/crid/crpid
-        ids = extract_bid_ids(log_txt)
-        if ids:
-            with open(folder / "bid_ids.json", "w") as f:
-                json.dump(ids, f, indent=2)
-            print("  bid_ids     → " + ", ".join(f"{k}={v}" for k, v in ids.items()))
-
-    # 5. field validation report + structured results (round 彙總用)
-    report_path = folder / "report.txt"
-    if os.path.exists(BID_FILE):
-        with open(BID_FILE) as f:
-            bid = json.load(f)
-        if TC_ID != "CURRENT":
-            tc_filter = set(TC_ID.split(","))
-        else:
-            # CURRENT 批次只記標準狀態範圍：互斥狀態 TC 由同 round 內其他
-            # state captures 提供，避免彙總「取最新 capture」時蓋掉正確結果。
-            tc_filter = set(CURRENT_TCS)
-        results = run_inspection(bid, tc_filter)
-        header  = (f"Round: {round_dir.name}  |  Mode: {TEST_MODE}  |  Type: {TEST_TYPE}  |  "
-                   f"CID: {TEST_CID}  |  Executor: {TEST_EXECUTOR}  |  "
-                   f"TC: {TC_ID}  |  App: {APP_PACKAGE}")
-        report  = format_report(results, str(folder / "bid_request.json"), header)
-        with open(report_path, "w") as f:
-            f.write(report + "\n")
-        print(f"  report      → {report_path}")
-        with open(folder / "results.json", "w") as f:
-            json.dump({"tc_id": TC_ID, "captured_at": ts, "app": APP_PACKAGE,
-                       "test_type": TEST_TYPE, "test_cid": TEST_CID,
-                       "test_mode": TEST_MODE,
-                       "test_executor": TEST_EXECUTOR,
-                       "environment": environment,
-                       "results": results}, f, indent=2)
-        print()
-        print(report)
-
-        # 5. refresh round report
-        rows = aggregate_round(str(round_dir))
-        round_report = format_round_report(rows, round_dir.name)
-        with open(round_dir / "round_report.txt", "w") as f:
-            f.write(round_report + "\n")
-        print(f"\n  round report → {round_dir / 'round_report.txt'}")
-
-        # 6. E2E flow 自動評估（依 TEST_MODE/TEST_TYPE 決定適用性 + 跑驗證器）
-        try:
-            e2e_rows = evaluate(str(round_dir), TEST_MODE, TEST_TYPE)
-            with open(round_dir / "e2e_results.json", "w") as f:
-                json.dump({"generated_at": ts, "test_mode": TEST_MODE,
-                           "test_type": TEST_TYPE, "results": e2e_rows},
-                          f, ensure_ascii=False, indent=2)
-            print(f"  e2e results → {round_dir / 'e2e_results.json'}")
-        except Exception as exc:
-            print(f"  [warn] E2E 評估失敗（不影響 signal 證據）：{exc}")
-    else:
-        print("  [warn] bid_request.json not found — no bid captured this run")
-
+    print("  [骨架] 證據落地未實作：只建了 capture 資料夾，沒寫入任何檔案。")
+    print("         沒有 results.json，報告端不會把它當成 capture（見本函式 docstring）。")
     return folder
 
 

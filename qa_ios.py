@@ -953,28 +953,18 @@ def _tap_settings_row(driver, label):
 
 
 def capture_state_proof_ios(driver, folder, groups):
-    """狀態 TC：導航到對應 iOS 設定頁截圖 state_proof_<group>.png（設定當下畫面）。"""
-    for group in groups:
-        nav = IOS_SETTINGS_NAV.get(group)
-        if not nav:
-            continue
-        try:
-            driver.terminate_app("com.apple.Preferences")
-            time.sleep(0.5)
-            driver.activate_app("com.apple.Preferences")
-            time.sleep(1.2)
-            reached = all(_tap_settings_row(driver, row) for row in nav)
-            time.sleep(0.6)
-            path = str(folder / f"state_proof_{group}.png")
-            driver.get_screenshot_as_file(path)
-            print(f"  state_proof → {path}" + ("" if reached else "（部分導航未命中，截目前畫面）"))
-        except Exception as exc:
-            print(f"  [warn] state_proof {group} 擷取失敗：{exc}")
-    try:
-        driver.activate_app(BUNDLE_ID)   # 回到受測 app
-        time.sleep(0.8)
-    except Exception:
-        pass
+    """iOS 的狀態證據截圖（骨架）：導航到設定頁後截圖 → `state_proof_<group>.png`。
+
+    與 AOS 的差別：iOS 沒有 adb 這種 CLI 可以直接開設定頁，只能用 Appium 一層層點
+    設定 App（`IOS_SETTINGS_NAV` 是各組的導航路徑，`_tap_settings_row()` 負責點）。
+    這兩個**保留未清** —— 那是裝置知識而不是 TC 定義。
+
+    刻意留空，與 AOS 的 `capture_state_proof()` 一起重新設計。
+    注意：原版**本來就沒有任何呼叫者**（iOS 沒有 round 排程，狀態類 TC 要人工佈），
+    要用得先在 `save_evidence()` 裡接起來。
+    原版：`git show 8307b56:qa_ios.py`
+    """
+    return {}
 
 
 def ideviceinfo(key=None, domain=None):
@@ -1048,58 +1038,29 @@ def extract_bid_ids(logtext):
 
 
 def collect_environment_ios():
-    """iOS 環境快照。key 盡量對齊 Android 版（下游報告卡共用），值改自 ideviceinfo。
-    Android 專有欄位（root/battery_saver…）在 iOS 無對應，標 n/a 或 iOS 對應概念。"""
-    if not _have("ideviceinfo"):
-        note = "ideviceinfo 未安裝（brew install libimobiledevice）— 環境欄位多為空"
-    else:
-        note = "ideviceinfo (libimobiledevice)"
-    tz = ideviceinfo("TimeZone")
-    return {
-        "platform": "ios",
-        "bundle_id": BUNDLE_ID,
-        "package": BUNDLE_ID,                       # 對齊下游 key
-        "version_name": "—",                         # app 版本待 Phase 2 由 syslog/ipa 補
-        "version_code": "—",
-        "device": ideviceinfo("ProductType") or ideviceinfo("DeviceName"),
-        "device_name": ideviceinfo("DeviceName"),
-        "device_kind": "實體機",                      # iOS 這條流程只跑實機
-        "os_name": ideviceinfo("ProductName") or "iOS",
-        "os_version": ideviceinfo("ProductVersion"),
-        "android": "—",                              # 下游模板欄位，iOS 無
-        "build_fingerprint": ideviceinfo("BuildVersion"),
-        "timezone": tz,
-        "dark_mode": "n/a (iOS：需 XCUITest 讀 UITraitCollection，Phase 2)",
-        "battery_saver": "n/a (iOS Low Power Mode，Phase 2)",
-        "brightness": "n/a (Phase 2)",
-        "font_scale": "n/a (iOS Dynamic Type，Phase 2)",
-        "locale": ideviceinfo("Locale", domain="com.apple.international")
-                  or ideviceinfo("Language", domain="com.apple.international"),
-        "media_volume": "n/a (Phase 2)",
-        "battery": "n/a (iOS，Phase 2)",
-        "battery_source": "n/a",
-        "root": "n/a (iOS jailbreak 偵測，Phase 2)",
-        "vpn_active": None,
-        "env_source": note,
-    }
+    """iOS capture 當下的環境快照 → `environment.json`（骨架）。
+
+    刻意留空，與 AOS 的 `collect_environment()` 一起重新設計。
+    原版走 `ideviceinfo`（需 libimobiledevice + 已配對），拿不到時退回 Appium
+    capabilities，並用 `env_source` 記下這份快照是哪個來源 —— 這個誠實標註要保留，
+    不然沒法分辨「值是真的」和「值是 Appium 猜的」。
+    原版：`git show 8307b56:qa_ios.py`
+
+    讀取側（`qa_ios.render_html()` 的測試環境面板）目前預期的 key：
+      bundle_id device device_name os_version build_fingerprint
+      timezone locale env_source
+    """
+    return {}
 
 
 def snapshot_device_state_ios():
-    """capture 當下的 iOS 裝置狀態文字（對照 Android snapshot_device_state）。"""
-    raw = {
-        "device":       ideviceinfo("ProductType"),
-        "device_name":  ideviceinfo("DeviceName"),
-        "os_version":   ideviceinfo("ProductVersion"),
-        "build":        ideviceinfo("BuildVersion"),
-        "timezone":     ideviceinfo("TimeZone"),
-        "wifi_mac":     ideviceinfo("WiFiAddress"),
-        # 以下需 Phase 2 由 XCUITest / 其他工具補（iOS 無直接等價）
-        "dark_mode":    "n/a (Phase 2)",
-        "battery":      "n/a (Phase 2)",
-        "vpn_active":   "n/a (Phase 2)",
-        "root":         "n/a (Phase 2)",
-    }
-    return "\n".join(f"  {k:<14}: {v}" for k, v in raw.items())
+    """iOS capture 當下的裝置狀態文字快照 → `device_state.txt`（骨架）。
+
+    對照 AOS 的 `snapshot_device_state()`：結構化的給報告讀（environment.json），
+    這份全文的給人看。刻意留空，一起重新設計。
+    原版：`git show 8307b56:qa_ios.py`
+    """
+    return ""
 
 
 # ── evidence bundle（Phase 1：擷取＋摘要，不做 AND-xx 驗證）─────────────────────
@@ -1124,164 +1085,35 @@ SAVE_STEPS = ["環境快照", "app 截圖", "UI dump", "bid / 流量", "裝置�
 
 
 def save_evidence(driver, ts):
+    """把這一次 iOS capture 的證據落地（骨架）。
+
+    刻意留空，與 AOS 的 `save_evidence()` 一起重新設計；結構保留：
+    一次 capture ＝ 一個資料夾（掛在 `IOS_` 前綴的 round 底下）。
+    原版：`git show 8307b56:qa_ios.py`
+
+    ⚠️ 檔名是雙邊契約：讀取側 `qa_ios.load_captures()` 硬編 `results.json`（靠它認
+    capture）、`bid_request.json`、`phone.png`、`state_proof_<group>.png`。
+    完整檔名對照表寫在 `qa_aos.save_evidence()` 的 docstring，兩平台共用同一套命名。
+
+    iOS 專屬的差異（重建時別漏）：
+      ios_syslog.txt        取代 AOS 的 logcat.txt
+      impression_ids.json   iOS 常常只抓到 impression callback 而拿不到 bid body
+                            （cert pinning／時序）。那種情況原版**仍然**會把
+                            cid/crid 這些識別碼落地，讓這一輪不算白跑 —— 這個行為
+                            要保留，`qa_ios.build()` 也有對應的「無 bid body」分支。
+      bid_fields.txt        `summarize_bid_fields()` 的攤平清單。重建 IOS_VALIDATORS
+                            時就是靠它看 bid 到底有哪些欄位可驗。
+
+    `SAVE_STEPS`（環境快照 / app 截圖 / UI dump / bid·流量 / 裝置狀態 / syslog /
+    TC 驗證·報告）保留著，是原版的 7 個落地步驟，可以當重建的檢查表。
+    """
     round_dir = resolve_round_dir()
     capture_name = (CAPTURE_LABEL or
                     ("AUTO" if TC_ID == "AUTO" else TC_ID.replace(",", "+")))
     folder = round_dir / f"{capture_name}_{ts}"
     folder.mkdir(parents=True, exist_ok=True)
-
-    progress(1, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[0])
-    environment = collect_environment_ios()
-    with open(folder / "environment.json", "w") as f:
-        json.dump(environment, f, ensure_ascii=False, indent=2)
-
-    # 1. app 畫面截圖（bid 當下）
-    progress(2, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[1])
-    screenshot_path = str(folder / "phone.png")
-    try:
-        driver.get_screenshot_as_file(screenshot_path)
-        print(f"  screenshot  → {screenshot_path}")
-    except Exception as exc:
-        print(f"  [warn] screenshot 失敗：{exc}")
-
-    # 1a. 廣告 UI dump（XCUITest page_source）
-    progress(3, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[2])
-    try:
-        ad_ui = driver.page_source
-        if ad_ui:
-            with open(folder / "ad_ui.xml", "w") as f:
-                f.write(ad_ui)
-            print(f"  ad_ui       → {folder / 'ad_ui.xml'}")
-    except Exception as exc:
-        print(f"  [warn] ad_ui dump 失敗：{exc}")
-
-    if STATE_ACTION:
-        with open(folder / "state_action.txt", "w") as f:
-            f.write(STATE_ACTION + "\n")
-
-    # 2. detector 擷取的 bid / response / 全流量
-    progress(4, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[3])
-    if os.path.exists(BID_FILE):
-        shutil.copy(BID_FILE, folder / "bid_request.json")
-        print(f"  bid_request → {folder / 'bid_request.json'}")
-    if os.path.exists(FIRST_BID_FILE):
-        shutil.copy(FIRST_BID_FILE, folder / "first_bid_request.json")
-    if os.path.exists(BID_RESPONSE_FILE):
-        shutil.copy(BID_RESPONSE_FILE, folder / "bid_response.json")
-        print(f"  bid_response→ {folder / 'bid_response.json'}")
-    if os.path.exists(IMPRESSION_FILE):
-        shutil.copy(IMPRESSION_FILE, folder / "impression_ids.json")
-        print(f"  impression  → {folder / 'impression_ids.json'}"
-              " (bid body 因 cert pinning 無法取得時的識別碼備援)")
-    if os.path.exists(TRAFFIC_FILE):
-        shutil.copy(TRAFFIC_FILE, folder / "traffic.jsonl")
-        print(f"  traffic     → {folder / 'traffic.jsonl'}")
-
-    # 3. 裝置狀態
-    progress(5, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[4])
-    state_path = folder / "device_state.txt"
-    with open(state_path, "w") as f:
-        f.write(f"Device State (iOS) — TC: {TC_ID} — {ts}\n")
-        f.write("=" * 50 + "\n")
-        f.write(snapshot_device_state_ios() + "\n")
-    print(f"  device_state→ {state_path}")
-
-    # 4. syslog（idevicesyslog 側錄）
-    progress(6, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[5])
-    stop_syslog()
-    if os.path.exists(SYSLOG_TMP):
-        shutil.copy(SYSLOG_TMP, folder / "syslog.txt")
-        log_txt = open(SYSLOG_TMP, errors="ignore").read()
-        appier_lines = [l for l in log_txt.splitlines(keepends=True)
-                        if re.search(r"appier|argus|datasignal", l, re.IGNORECASE)]
-        with open(folder / "syslog_appier.txt", "w") as f:
-            f.writelines(appier_lines)
-        print(f"  syslog      → {folder / 'syslog.txt'} (appier-only: {len(appier_lines)} lines)")
-        ids = extract_bid_ids(log_txt)
-        if ids:
-            with open(folder / "bid_ids.json", "w") as f:
-                json.dump(ids, f, indent=2)
-            print("  bid_ids     → " + ", ".join(f"{k}={v}" for k, v in ids.items()))
-
-    # 5. iOS bid 欄位盤點（校準 IOS_VALIDATORS 用）＋ iOS TC 驗證報告
-    progress(7, len(SAVE_STEPS), "存證 · " + SAVE_STEPS[6])
-    if os.path.exists(BID_FILE):
-        with open(BID_FILE) as f:
-            bid = json.load(f)
-        # ext_enc / req_enc 解碼：存明文供人看，盤點也用解碼後結構（不是不透明 blob）
-        normalized = normalize_ios_bid(bid)
-        if normalized is not bid:
-            with open(folder / "bid_decoded.json", "w") as f:
-                json.dump(normalized, f, ensure_ascii=False, indent=2)
-            print(f"  bid_decoded → {folder / 'bid_decoded.json'} (ext_enc/req_enc 已解碼)")
-        rows = summarize_bid_fields(normalized)
-        with open(folder / "ios_bid_summary.txt", "w") as f:
-            f.write(f"iOS bid request 欄位盤點（{len(rows)} 個路徑，ext_enc/req_enc 已解碼）\n")
-            f.write("=" * 60 + "\n")
-            for path, sample in rows:
-                f.write(f"{path:<48} = {sample}\n")
-        print(f"  bid_summary → {folder / 'ios_bid_summary.txt'} ({len(rows)} 欄位)")
-
-        # iOS TC 驗證（ios_bid_inspector：IOS-xx；run_inspection 內部會自動解碼）
-        tc_filter = (AUTO_TCS if TC_ID == "AUTO"
-                     else set(TC_ID.split(",")))
-        results = run_inspection(bid, tc_filter)
-        header = (f"Round: {round_dir.name}  |  Mode: {TEST_MODE}  |  Type: {TEST_TYPE}  |  "
-                  f"CID: {TEST_CID}  |  By: {TEST_EXECUTOR}  |  TC: {TC_ID}  |  App: {BUNDLE_ID}")
-        report = format_report(results, str(folder / "bid_request.json"), header)
-        with open(folder / "report.txt", "w") as f:
-            f.write(report + "\n")
-        print(f"  report      → {folder / 'report.txt'}")
-
-        cal_fails = sum(1 for r in results if not r["passed"] and "[待校準]" in r.get("note", ""))
-        with open(folder / "results.json", "w") as f:
-            json.dump({
-                "tc_id": TC_ID, "captured_at": ts, "platform": "ios",
-                "app": BUNDLE_ID, "test_type": TEST_TYPE, "test_cid": TEST_CID,
-                "test_mode": TEST_MODE, "test_executor": TEST_EXECUTOR,
-                "environment": environment,
-                "note": ("iOS TC 驗證（ios_bid_inspector）。標 [待校準] 的欄位路徑/期望值"
-                         "需對照 ios_bid_summary.txt 修正後再判讀。"),
-                "results": results,
-            }, f, ensure_ascii=False, indent=2)
-        print(f"  results     → {folder / 'results.json'} "
-              f"({sum(r['passed'] for r in results)} pass / "
-              f"{sum(not r['passed'] for r in results)} fail；其中 {cal_fails} 條疑似待校準)")
-        print()
-        print(report)
-
-        # round 彙總
-        rows2 = aggregate_round(str(round_dir))
-        round_report = format_round_report(rows2, round_dir.name)
-        with open(round_dir / "round_report.txt", "w") as f:
-            f.write(round_report + "\n")
-        print(f"\n  round report → {round_dir / 'round_report.txt'}")
-    elif os.path.exists(IMPRESSION_FILE):
-        # bid 端點本身因 cert pinning 看不到內容（2026-07-20 實機確認：Charles/mitmdump
-        # 皆無法解密 apx.appier.net；syslog 也沒有 Appier 自訂 subsystem 可撈）。
-        # 這種情況下不對空資料硬跑 IOS-xx 驗證（那只會產生一堆誤導性 FAIL）——
-        # 老實記錄「中獎了、中的是哪個 creative」，其餘欄位待 bid body 有辦法取得再驗。
-        impression_ids = json.load(open(IMPRESSION_FILE))
-        note = ("bid request body 因 SDK-level cert pinning 無法取得（Charles/mitmdump "
-                "皆看不到 apx.appier.net 內容，syslog 亦無 SDK log）；本次僅能從「已展示」"
-                "callback URL 取得識別碼，Signal 欄位（device.ext.* 等）暫無法驗證。"
-                "identifiers 見同資料夾 impression_ids.json。")
-        with open(folder / "results.json", "w") as f:
-            json.dump({
-                "tc_id": TC_ID, "captured_at": ts, "platform": "ios",
-                "app": BUNDLE_ID, "test_type": TEST_TYPE, "test_cid": TEST_CID,
-                "test_mode": TEST_MODE, "test_executor": TEST_EXECUTOR,
-                "environment": environment,
-                "impression_ids": impression_ids,
-                "note": note,
-                "results": [],
-            }, f, ensure_ascii=False, indent=2)
-        print(f"  results     → {folder / 'results.json'} (無 bid body；"
-              f"cid={impression_ids.get('cid')} crid={impression_ids.get('crid')} 已記錄)")
-        print(f"  [note] {note}")
-    else:
-        print("  [warn] bid_request.json / impression_ids 都不存在 — 這輪沒擷到任何中獎證據")
-
+    print("  [骨架] 證據落地未實作：只建了 capture 資料夾，沒寫入任何檔案。")
+    print("         沒有 results.json，報告端不會把它當成 capture（見本函式 docstring）。")
     return folder
 
 
