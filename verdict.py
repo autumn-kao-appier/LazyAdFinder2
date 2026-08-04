@@ -178,9 +178,12 @@ def _decode_ext_enc(bid):
     """Decode the real AOS Signal payload embedded in the request, if present."""
     if not isinstance(bid, dict) or not bid.get("ext_enc"):
         return None
-    from apr_xorenc import decode_ext_enc
-    _raw, decoded = decode_ext_enc(bid)
-    return decoded
+    from apr_xorenc import decrypt
+    try:
+        return json.loads(decrypt(bid["ext_enc"]))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[warn] ext_enc 解密失敗（該包欄位會全部讀成缺值）：{exc}")
+        return None
 
 
 def _unwrap(bid):

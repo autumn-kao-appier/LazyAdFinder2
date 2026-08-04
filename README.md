@@ -198,8 +198,8 @@ python3 qa_ios.py --inspect-round evidence/<ios-round-directory>
 python3 qa_ios.py --report evidence/<ios-round-directory> --out report.html
 ```
 
-bid 裡的 `ext_enc`（data-signal）與 `req_enc`（ads SDK 的 req 區塊）都由 `apr_xorenc.py`
-以同一套 `ae1` XOR 解碼後才驗證 —— 兩平台共用這一個解密入口。
+bid 裡的 `ext_enc`（data-signal）與 `req_enc`（ads SDK 的 req 區塊）都由呼叫端取出密文，
+交給 `apr_xorenc.decrypt()` 以同一套 `ae1` XOR 解成明文字串，再由呼叫端解析 JSON。
 
 ## Evidence
 
@@ -262,7 +262,7 @@ GitHub Pages 重建約需 1–2 分鐘，剛推完看到舊版重整即可。`OP
 | `qa_aos.py` | 3763 | Android runner：佈狀態、capture、證據落地 ＋ AOS 的 TC 目錄（AND-xx） | TC 目錄空、HTML 版面骨架；其餘照搬 |
 | `qa_ios.py` | 1491 | iOS runner：同上 ＋ iOS 的 TC 目錄（IOS-xx） | 同上 |
 | `verdict.py` | 470 | **判定與報告的共用契約**：check 實作、`classify()`、卡片/CSS/JS 版面 | check 通過標準與版面留空（`CHECKS` 詞彙表與 `classify()` 保留） |
-| `apr_xorenc.py` | 220 | SDK 的 `ae1` 加解密（`ext_enc` / `req_enc`） | 照搬，可用 |
+| `apr_xorenc.py` | 約 60 | SDK 的 `ae1` 字串解碼（密文進、明文出） | 已清理，可用 |
 | `mitmdump_addon.py` | 189 | mitmproxy addon，攔 bid、impression 與 E2E traffic | 照搬，可用 |
 | `page.py` | 785 | 跨平台整合頁 ＋ 發佈 `gh-pages` | 照搬（`--publish` 需先設 remote） |
 

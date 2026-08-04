@@ -75,9 +75,6 @@ from verdict import (                                          # 共用判定/�
     fmt_val,
     js_block,
 )
-import apr_xorenc  # noqa: F401  （單一解密入口；下方以 from 匯入具名函式）
-
-
 # ════════════════════════════════════════════════════════════════════════════
 # E2E TC 目錄、適用矩陣與自動判定
 #   （原 e2e_catalog.py）
@@ -234,8 +231,12 @@ def normalize_bid(body):
         return body
     if isinstance(body.get("req"), dict) or not body.get("req_enc"):
         return body
-    from apr_xorenc import decode_bid          # 單一解密入口
-    req = decode_bid(body).get("req")
+    from apr_xorenc import decrypt
+    try:
+        req = json.loads(decrypt(body["req_enc"]))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[warn] req_enc 解密失敗（該包欄位會全部讀成缺值）：{exc}")
+        return body
     if not isinstance(req, dict):
         return body
     out = dict(body)
@@ -2775,7 +2776,7 @@ def save_evidence(driver, ts):
         bid_response.json       200 才有
         bid_ids.json            {bidobjid, cid, crid, crpid}
         ext_enc_raw.txt / ext_enc_decoded.json / ext_enc_all_fields.json /
-        ext_enc_compare.txt     由 `apr_xorenc.write_evidence()` 產出
+        ext_enc_compare.txt     由 evidence 層取密文、呼叫 `apr_xorenc.decrypt()` 後產出
       裝置與環境
         environment.json  `collect_environment()` 的輸出；報告的 ground truth 來源
         device_state.txt  `snapshot_device_state()` 的文字快照

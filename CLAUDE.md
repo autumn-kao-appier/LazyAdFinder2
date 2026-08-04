@@ -11,7 +11,7 @@
 qa_aos.py          Android runner：佈狀態 → capture → 證據落地 ＋ AOS 的 TC 目錄（AND-xx）
 qa_ios.py          iOS runner：同上 ＋ iOS 的 TC 目錄（IOS-xx）
 verdict.py         判定與報告的**共用契約**：check 實作、classify()、卡片/CSS/JS 版面
-apr_xorenc.py      SDK 的 ae1 加解密（ext_enc / req_enc）
+apr_xorenc.py      SDK 的 ae1 字串解碼（密文字串進、明文字串出）
 mitmdump_addon.py  mitmdump addon（攔 /v2/sdk/{aos,ios}/ad、impression、全流量）
 page.py            跨平台整合頁 ＋ 發佈 gh-pages
 ```
@@ -37,7 +37,8 @@ page.py            跨平台整合頁 ＋ 發佈 gh-pages
 > 為什麼要有第 3 條與這整條邊界：check 實作與版面是**共同語義**，兩平台各留一份就會出現
 > 「同一個值在 AOS 判 PASS、在 iOS 判 FAIL」的靜默不一致。2026-08 的 `req_enc` 事故正是
 > 同一類：解密被複製成 6 份，SDK 一改只有其中幾份壞掉、AOS 靜默產生 52 條假 FAIL。
-> 解密同理只准一個入口 `apr_xorenc.decode_bid()`（`ENC_FIELDS` 加一行即支援新的 `xxx_enc`）。
+> 解密同理只准一個入口 `apr_xorenc.decrypt()`。它不認識 bid 欄位或 JSON；呼叫端負責選擇
+> 要解的欄位並解析明文字串。
 
 ## 關鍵字「刷」＝啟動整條自刷 QA 流程
 

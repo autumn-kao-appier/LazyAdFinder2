@@ -97,9 +97,12 @@ def _decode_ext_enc(bid):
     """Decode the real AOS Signal payload embedded in the request, if present."""
     if not isinstance(bid, dict) or not bid.get("ext_enc"):
         return None
-    from apr_xorenc import decode_ext_enc
-    _raw, decoded = decode_ext_enc(bid)
-    return decoded
+    from apr_xorenc import decrypt
+    try:
+        return json.loads(decrypt(bid["ext_enc"]))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[warn] ext_enc 解密失敗（該包欄位會全部讀成缺值）：{exc}")
+        return None
 
 
 
@@ -229,13 +232,20 @@ AUTO_TCS = set()
 def normalize_ios_bid(body):
     if not isinstance(body, dict) or "ext_enc" not in body:
         return body
-    from apr_xorenc import decode_bid          # 單一解密入口（與 AOS 共用）
+    from apr_xorenc import decrypt
     out = {}
     for k in ("zone_id", "req_ver", "test_mode"):
         if k in body:
             out[k] = body[k]
-    parts = decode_bid(body)
-    ext, req = parts.get("ext"), parts.get("req")   # ext={device,user}／req={compliance,app,device,skadn}
+    def decode_json(field):
+        try:
+            return json.loads(decrypt(body[field])) if body.get(field) else None
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"[warn] {field} 解密失敗（該包欄位會全部讀成缺值）：{exc}")
+            return None
+
+    ext = decode_json("ext_enc")
+    req = decode_json("req_enc")
     if isinstance(ext, dict):
         out["ext"] = ext
     if isinstance(req, dict):
