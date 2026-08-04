@@ -57,16 +57,16 @@ baseline 或任何預設狀態。
 
 ## Evidence 契約
 
-一次 capture 對應一個不可覆寫的資料夾。最低限度包含：
+一次 capture 對應一個不可覆寫、適合人工審查的資料夾：
 
-- `bid_request.json`（iOS impression-only capture 可能因 TLS/pinning 無法取得）
-- `metadata.json`
-- `logcat.txt`（AOS）或 `ios_syslog.txt`（iOS；工具可用時）
-- `phone.png`
-- `ui.xml`
+- `traffic.log`：本次 capture 從啟動到結束的裝置 log（AOS logcat／iOS syslog）。
+- `bid_raw.json`：未修改的 request（iOS impression-only capture 可能沒有）。
+- `bid_decoded.json`：分別解開 `req_enc` 與 `ext_enc` 的衍生資料。
+- `screenshot.png`：結束畫面（driver 尚未建立的早期失敗可能沒有）。
+- `summary.json`：執行狀態、時間、CID、creative、裝置；失敗時含 Step 與錯誤。
 
-依實際事件可增加 `bid_response.json`、`bid_status.txt`、`impression.json`。判定結果不屬於
-raw evidence，不得寫入上述檔案。
+不產生 `ui.xml` 或零散的 status/impression 檔。原始與明文必須分檔，解密不得改寫
+`bid_raw.json`。不得為了格式完整而偽造沒有實際捕獲的 Charles/HAR 流量。
 
 ## 實機安全
 
@@ -82,4 +82,7 @@ raw evidence，不得寫入上述檔案。
 - mitmdump：只輸出 bid request、bid response、impression callback。
 - AprXorEnc：只提供 `decrypt(encrypted: str) -> str`。
 - Verdict：舊 validator 與報告版面已清除，只保留三態契約；TC answer key 尚未加入。
-- Page：舊平台/E2E/發布邏輯已清除，只讀 `verdicts.json` 並呈現三態結果。
+- Page：舊平台/E2E 邏輯已清除，只讀 `verdicts.json` 並呈現三態結果。
+- 發布：單次 `capture` 不發布。`round` 結束時自動呼叫一次 `page.py --publish`；某個 Step
+  失敗時仍發布當下結果，接著以非零狀態結束，且錯誤必須標出 Round 與 Step，不可靜默。
+  可用 `AUTO_PUBLISH=0` 停用。手動發布仍使用 `page.py --publish`。

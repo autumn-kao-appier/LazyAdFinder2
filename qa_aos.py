@@ -25,11 +25,10 @@ import getpass
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -37,6 +36,7 @@ from typing import Callable, Optional
 from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
+from evidence_bundle import finalize_bundle
 
 
 # Testcases and their correct expectations will be added manually.  Keep these
@@ -338,36 +338,16 @@ def round_directory(config):
     return config.evidence_dir / f"{prefix}_{timestamp}"
 
 
-def save_evidence(driver, config, request, status, identity, source, capture_name):
+def create_capture_folder(config, capture_name):
     round_dir = round_directory(config)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     folder = round_dir / f"{_safe_label(capture_name, 'CAPTURE')}_{timestamp}"
     folder.mkdir(parents=True, exist_ok=False)
+    return folder
 
-    (folder / "bid_request.json").write_text(
-        json.dumps(request, ensure_ascii=False, indent=2) + "\n"
-    )
-    if BID_RESPONSE_FILE.exists():
-        shutil.copy2(BID_RESPONSE_FILE, folder / "bid_response.json")
-    if status:
-        (folder / "bid_status.txt").write_text(str(status) + "\n")
-    if identity:
-        (folder / "impression.json").write_text(
-            json.dumps(identity, ensure_ascii=False, indent=2) + "\n"
-        )
-    if LOGCAT_FILE.exists():
-        shutil.copy2(LOGCAT_FILE, folder / "logcat.txt")
 
-    try:
-        driver.get_screenshot_as_file(str(folder / "phone.png"))
-    except Exception as exc:
-        (folder / "phone.error.txt").write_text(str(exc) + "\n")
-    try:
-        (folder / "ui.xml").write_text(driver.page_source)
-    except Exception as exc:
-        (folder / "ui.error.txt").write_text(str(exc) + "\n")
-
-    device = {
+def device_evidence(config):
+    return {
         "model": adb(config.udid, "shell", "getprop", "ro.product.model", check=False),
         "manufacturer": adb(config.udid, "shell", "getprop", "ro.product.manufacturer", check=False),
         "android_version": adb(config.udid, "shell", "getprop", "ro.build.version.release", check=False),
@@ -376,36 +356,43 @@ def save_evidence(driver, config, request, status, identity, source, capture_nam
         "locale": adb(config.udid, "shell", "getprop", "persist.sys.locale", check=False),
         "timezone": adb(config.udid, "shell", "getprop", "persist.sys.timezone", check=False),
     }
-    metadata = {
-        "platform": "aos",
-        "captured_at": datetime.now().astimezone().isoformat(),
-        "capture_name": capture_name,
-        "source": source,
-        "status": status,
-        "identity": identity,
-        "config": {**asdict(config), "evidence_dir": str(config.evidence_dir)},
-        "device": device,
-    }
-    (folder / "metadata.json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
+
+
+def save_evidence(driver, config, folder, started_at, request, status, identity, source):
+    return finalize_bundle(
+        folder,
+        driver=driver,
+        platform="aos",
+        config=config,
+        device=device_evidence(config),
+        started_at=started_at,
+        request=request,
+        status=status,
+        identity=identity,
+        source=source,
+        capture_log=LOGCAT_FILE,
     )
-    return folder
 
 
 def capture(config, capture_name="MANUAL", setup=None):
-    if setup is not None:
-        setup(config)
-
+    started_at = datetime.now().astimezone().isoformat()
+    folder = create_capture_folder(config, capture_name)
     clear_detector_state()
-    adb(config.udid, "shell", "am", "force-stop", config.app_package)
     driver = None
+    request = status = identity = source = None
+    failed_step = "setup"
     started = time.monotonic()
     try:
+        if setup is not None:
+            setup(config)
+        failed_step = "launch-app"
+        adb(config.udid, "shell", "am", "force-stop", config.app_package)
         with LogcatRecorder(config.udid):
             driver = create_driver(config)
             time.sleep(2)
             driver.activate_app(config.app_package)
             time.sleep(1)
+            failed_step = "select-placement"
             select_tab(driver, config.tab_text, config.trigger_text)
 
             attempt = 0
@@ -422,6 +409,7 @@ def capture(config, capture_name="MANUAL", setup=None):
                     time.sleep(1)
 
                 print(f"[capture] attempt {attempt}: tap {config.trigger_text!r}")
+                failed_step = f"capture-attempt-{attempt}"
                 if not tap_placement(driver, config):
                     driver.activate_app(config.app_package)
                     time.sleep(config.retry_delay)
@@ -429,8 +417,8 @@ def capture(config, capture_name="MANUAL", setup=None):
 
                 request, status, identity, source = wait_for_bid(config)
                 if eligible(config, request, status, identity):
-                    folder = save_evidence(
-                        driver, config, request, status, identity, source, capture_name
+                    save_evidence(
+                        driver, config, folder, started_at, request, status, identity, source
                     )
                     print(f"[captured] {folder}")
                     return folder
@@ -438,6 +426,27 @@ def capture(config, capture_name="MANUAL", setup=None):
                 actual_cid = identity.get("cid") if identity else None
                 print(f"[retry] status={status or 'unknown'}, cid={actual_cid or 'unknown'}")
                 time.sleep(config.retry_delay)
+    except Exception as exc:
+        try:
+            finalize_bundle(
+                folder,
+                driver=driver,
+                platform="aos",
+                config=config,
+                device=device_evidence(config),
+                started_at=started_at,
+                request=request,
+                status=status,
+                identity=identity,
+                source=source,
+                result="INTERRUPTED",
+                failed_step=failed_step,
+                error=str(exc),
+                capture_log=LOGCAT_FILE,
+            )
+        except Exception as bundle_exc:
+            print(f"[warn] failed to finalize interrupted evidence: {bundle_exc}", file=sys.stderr)
+        raise
     finally:
         if driver is not None:
             try:
@@ -456,22 +465,37 @@ def run_round(config, name):
         if not isinstance(step, RoundStep):
             raise CaptureError(f"Round {name!r} contains an invalid step: {step!r}")
         print(f"\n[round {name}] {step.name}")
-        folders.append(capture(config, capture_name=step.name, setup=step.setup))
+        try:
+            folders.append(capture(config, capture_name=step.name, setup=step.setup))
+        except Exception as exc:
+            raise CaptureError(
+                f"Round {name!r} failed at step {step.name!r}: {exc}"
+            ) from exc
     return folders
 
 
-def auto_publish(evidence_dir):
-    if os.environ.get("AUTO_PUBLISH", "1") == "0":
+def publish_completed_round(evidence_dir):
+    """Publish once, only after every capture in a Round has completed."""
+    if _env("AUTO_PUBLISH", "1") == "0":
         print("[publish] AUTO_PUBLISH=0; skipped")
-        return
+        return None
     try:
-        subprocess.run(
-            [sys.executable, str(Path(__file__).parent / "page.py"),
-             "--evidence", str(evidence_dir), "--publish"],
+        return subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).parent / "page.py"),
+                "--evidence",
+                str(evidence_dir),
+                "--publish",
+            ],
             check=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
-        print(f"[warn] publishing failed; evidence is preserved: {exc}", file=sys.stderr)
+        print(
+            f"[warn] Round completed, but report publishing failed: {exc}",
+            file=sys.stderr,
+        )
+        return None
 
 
 def build_parser():
@@ -568,8 +592,10 @@ def main(argv=None):
     if args.command == "capture":
         capture(config, capture_name=args.capture_name)
     else:
-        run_round(config, args.name)
-    auto_publish(config.evidence_dir)
+        try:
+            run_round(config, args.name)
+        finally:
+            publish_completed_round(config.evidence_dir)
     return 0
 
 

@@ -24,7 +24,8 @@ from verdict import Status
 
 
 VERDICTS_FILE = "verdicts.json"
-METADATA_FILE = "metadata.json"
+SUMMARY_FILE = "summary.json"
+LEGACY_METADATA_FILE = "metadata.json"
 VALID_STATUSES = {status.value for status in Status}
 STATUS_ORDER = (Status.FAILED.value, Status.BLOCKED.value, Status.PASS.value)
 PLATFORMS = (("aos", "AOS", "Android"), ("ios", "iOS", "Apple"))
@@ -54,7 +55,9 @@ def _load_json(path):
 
 
 def _metadata_for(verdict_path):
-    metadata_path = verdict_path.parent / METADATA_FILE
+    metadata_path = verdict_path.parent / SUMMARY_FILE
+    if not metadata_path.exists():
+        metadata_path = verdict_path.parent / LEGACY_METADATA_FILE
     if not metadata_path.exists():
         return {}
     document = _load_json(metadata_path)
@@ -84,7 +87,7 @@ def _verdict_rows(document, path):
         raise ReportError(f"{path} must contain a list or {{\"verdicts\": [...]}}")
 
     metadata = _metadata_for(path)
-    config = metadata.get("config") if isinstance(metadata.get("config"), dict) else {}
+    config = metadata.get("config") if isinstance(metadata.get("config"), dict) else metadata
     platform = _platform_of(metadata, path)
     normalized = []
     for index, row in enumerate(rows):
@@ -125,7 +128,7 @@ def _verdict_rows(document, path):
             "platform": platform,
             "test_mode": str(config.get("test_mode", "")).strip().lower(),
             "test_type": str(config.get("test_type", "")).strip().lower(),
-            "captured_at": str(metadata.get("captured_at", "")),
+            "captured_at": str(metadata.get("captured_at") or metadata.get("finished_at", "")),
             "capture_name": str(metadata.get("capture_name", "")),
             "device": metadata.get("device") if isinstance(metadata.get("device"), dict) else {},
         })
@@ -138,7 +141,9 @@ def discover(evidence_dirs):
         root = Path(root_value).expanduser().resolve()
         if not root.exists():
             continue
-        captures.extend(path.parent for path in sorted(root.rglob(METADATA_FILE)))
+        summary_captures = {path.parent for path in root.rglob(SUMMARY_FILE)}
+        legacy_captures = {path.parent for path in root.rglob(LEGACY_METADATA_FILE)}
+        captures.extend(sorted(summary_captures | legacy_captures))
         for path in sorted(root.rglob(VERDICTS_FILE)):
             resolved = path.resolve()
             if resolved in seen:
@@ -475,21 +480,6 @@ def publish(evidence_dirs, remote=None, open_page=True):
     if url and open_page and os.environ.get("OPEN_PAGES", "1") != "0":
         subprocess.run(["open", url], check=False)
     return url or remote
-
-
-def auto_publish(evidence_dir):
-    if os.environ.get("AUTO_PUBLISH", "1") == "0":
-        print("[publish] AUTO_PUBLISH=0; skipped")
-        return None
-    try:
-        return subprocess.run(
-            [sys.executable, str(Path(__file__).parent / "page.py"),
-             "--evidence", str(evidence_dir), "--publish"],
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        print(f"[warn] report publishing failed; evidence is preserved: {exc}", file=sys.stderr)
-        return None
 
 
 def build_parser():

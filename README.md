@@ -103,21 +103,22 @@ python3 qa_aos.py list-rounds
 
 ## Raw evidence
 
-成功 capture 會建立：
+每次 capture 會建立一包適合人工審查的 Evidence：
 
 ```text
-evidence/<round>/MANUAL_<timestamp>/
-  bid_request.json
-  bid_response.json       # 有 response body 時
-  bid_status.txt
-  impression.json         # 有 impression callback 時
-  logcat.txt
-  phone.png
-  ui.xml
-  metadata.json
+evidence/<round>/<capture>_<timestamp>/
+  traffic.log             # 本次 capture 從啟動到結束的裝置 log
+  bid_raw.json            # 原始 request；req_enc/ext_enc 不改寫
+  bid_decoded.json        # req_enc/ext_enc 分別呼叫 decrypt() 的結果
+  screenshot.png          # capture 結束時畫面
+  summary.json            # 狀態、CID、creative、時間、裝置與失敗位置
 ```
 
-Evidence 保留原始觀察；判定層未來從 evidence 讀取，不回寫或改造原始 request。
+Evidence 保留原始觀察；`bid_decoded.json` 是獨立的衍生檔，不回寫 `bid_raw.json`。
+若 capture 中途失敗，仍完成同一包 Evidence，並在 `summary.json` 寫入
+`result: INTERRUPTED`、`failed_step` 與 `error`。正式 Evidence 不保存 `ui.xml`。AOS 使用
+本輪 logcat，iOS 使用本輪 syslog，統一落成 `traffic.log`；Charles/mitmdump 仍負責拆出
+原始 bid 與 impression 事件，但不偽造實際未取得的 HAR。
 
 ## iOS raw capture
 
@@ -142,7 +143,8 @@ export WDA_BUNDLE_ID='<unique WDA bundle id>'
 ```
 
 iOS 可能因 TLS／pinning 只觀察到 impression callback、沒有 bid body。標準 CID capture
-允許保存這種 evidence，並在 `metadata.json` 明確記錄 `request_available: false`；
+允許保存這種 evidence；此時 `summary.json` 仍記錄 impression 身分，但不會假裝產生
+`bid_raw.json`／`bid_decoded.json`；
 `--accept-request` 則仍要求確實取得 request body。
 
 ## Verdict contract
@@ -172,7 +174,7 @@ TC answer key 與 validator 仍為空；加入 TC 時才逐條補上。`page.py`
       "reason": "",
       "expected": "android",
       "actual": "android",
-      "evidence": "bid_request.json"
+      "evidence": "bid_raw.json"
     }
   ]
 }
@@ -185,5 +187,25 @@ python3 page.py
 python3 page.py --evidence evidence /path/to/more/evidence --out report.html
 ```
 
-Page 只驗證並呈現 `BLOCKED`／`PASS`／`FAILED`，不 import platform runner、不重新比較
-expected/actual，也不負責發布。沒有 `verdicts.json` 時會顯示「尚無 TC 判定」。
+Page 只驗證並呈現 `BLOCKED`／`PASS`／`FAILED`，不 import platform runner，也不重新比較
+expected/actual。沒有 `verdicts.json` 時會顯示「尚無 TC 判定」。
+
+## 發布
+
+手動發布由 `page.py` 執行：
+
+```bash
+python3 page.py --publish          # 產報告並推上 origin 的 gh-pages
+python3 page.py --publish --no-open
+```
+
+單次 `capture` 不發布。使用 `round` 時，runner 會在整輪結束時自動呼叫一次
+`page.py --publish`；即使某個 Step 失敗，也會先發布當下已有的結果，再以非零狀態結束，
+並在錯誤訊息標出 Round 與 Step。需要停用 round 的自動發布時，設定 `AUTO_PUBLISH=0`。
+
+完整流程是：
+
+```text
+capture（raw evidence）→ 分別解密需要檢視的 req_enc／ext_enc → 寫入 TC 與判定（verdicts.json）
+→ python3 page.py --publish
+```
