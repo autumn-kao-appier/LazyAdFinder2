@@ -7,8 +7,8 @@ Bid endpoints:
     POST https://ad3.apx.appier.net/v2/sdk/ios/ad      (iOS production)
     request body 為未壓縮 UTF-8 JSON；response 200 = bid、204 = no-bid
 
-只有 bid request 與 impression callback 會寫 FLAG_FILE。其他流量直接忽略，
-避免誤觸發 runner 停止。
+只有 bid request 會寫 FLAG_FILE。Impression callback 另寫自己的事件檔；其他流量
+直接忽略，避免不同事件共用同一個狀態語意。
 
 用法（terminal 1）:
     mitmdump -s ~/LazyAdFinder2/mitmdump_addon.py --listen-port 8081
@@ -63,13 +63,11 @@ def _is_impression_win(flow: http.HTTPFlow) -> bool:
 
 def _save_json(path, content):
     parsed = _parse_body(content)
-    if parsed is not None:
-        with open(path, "w") as f:
-            _json.dump(parsed, f, indent=2)
-        return True
-    with open(path, "wb") as f:
-        f.write(content)
-    return False
+    if parsed is None:
+        return False
+    with open(path, "w") as f:
+        _json.dump(parsed, f, indent=2)
+    return True
 
 
 class AppierDetector:
@@ -104,7 +102,10 @@ class AppierDetector:
         if _is_bid(flow):
             if flow.request.content:
                 as_json = _save_json(BID_FILE, flow.request.content)
-                print(f">>> BID SAVED{'' if as_json else ' (raw, not JSON)'} → {BID_FILE}")
+                if as_json:
+                    print(f">>> BID SAVED → {BID_FILE}")
+                else:
+                    print(">>> BID REQUEST body is not valid JSON; evidence not written")
             with open(FLAG_FILE, "w") as f:
                 f.write(entry)
             print(f"\n>>> APPIER BID REQUEST: {entry}\n")
@@ -115,10 +116,6 @@ class AppierDetector:
             ids = {k: v[0] for k, v in qs.items() if v and v[0]}
             with open(IMPRESSION_FILE, "w") as f:
                 _json.dump(ids, f, indent=2)
-            with open(FLAG_FILE, "w") as f:
-                f.write(entry)
-            with open(BID_STATUS_FILE, "w") as f:
-                f.write("200")
             print(f">>> IMPRESSION WIN (from tracker callback, bid body unavailable) "
                   f"→ {IMPRESSION_FILE}  cid={ids.get('cid')} crid={ids.get('crid')}")
 
@@ -129,8 +126,10 @@ class AppierDetector:
         with open(BID_STATUS_FILE, "w") as f:
             f.write(str(status))
         if status == 200 and flow.response.content:
-            _save_json(BID_RESPONSE_FILE, flow.response.content)
-            print(f">>> BID RESPONSE 200 (ad won) → {BID_RESPONSE_FILE}")
+            if _save_json(BID_RESPONSE_FILE, flow.response.content):
+                print(f">>> BID RESPONSE 200 → {BID_RESPONSE_FILE}")
+            else:
+                print(">>> BID RESPONSE 200 body is not valid JSON; evidence not written")
         else:
             print(f">>> BID RESPONSE {status}" + (" (no-bid)" if status == 204 else ""))
 

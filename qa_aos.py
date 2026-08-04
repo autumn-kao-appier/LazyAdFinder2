@@ -309,13 +309,19 @@ def wait_for_bid(config):
     deadline = time.monotonic() + config.bid_timeout
     while time.monotonic() < deadline:
         request, status, identity, source = observe_bid()
-        if request is not None:
-            if config.accept_request:
-                return request, status, identity, source
-            if status == "200" and identity and identity.get("cid") == config.test_cid:
-                return request, status, identity, source
+        if eligible(config, request, status, identity):
+            return request, status, identity, source
         time.sleep(0.2)
     return observe_bid()
+
+
+def eligible(config, request, status, identity):
+    """AOS always needs a request; an impression proves which CID actually rendered."""
+    if request is None:
+        return False
+    if config.accept_request:
+        return True
+    return bool(identity and identity.get("cid") == config.test_cid)
 
 
 def round_directory(config):
@@ -371,6 +377,7 @@ def save_evidence(driver, config, request, status, identity, source, capture_nam
         "timezone": adb(config.udid, "shell", "getprop", "persist.sys.timezone", check=False),
     }
     metadata = {
+        "platform": "aos",
         "captured_at": datetime.now().astimezone().isoformat(),
         "capture_name": capture_name,
         "source": source,
@@ -421,10 +428,7 @@ def capture(config, capture_name="MANUAL", setup=None):
                     continue
 
                 request, status, identity, source = wait_for_bid(config)
-                if request is not None and (
-                    config.accept_request
-                    or (status == "200" and identity and identity.get("cid") == config.test_cid)
-                ):
+                if eligible(config, request, status, identity):
                     folder = save_evidence(
                         driver, config, request, status, identity, source, capture_name
                     )
@@ -454,6 +458,20 @@ def run_round(config, name):
         print(f"\n[round {name}] {step.name}")
         folders.append(capture(config, capture_name=step.name, setup=step.setup))
     return folders
+
+
+def auto_publish(evidence_dir):
+    if os.environ.get("AUTO_PUBLISH", "1") == "0":
+        print("[publish] AUTO_PUBLISH=0; skipped")
+        return
+    try:
+        subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "page.py"),
+             "--evidence", str(evidence_dir), "--publish"],
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"[warn] publishing failed; evidence is preserved: {exc}", file=sys.stderr)
 
 
 def build_parser():
@@ -551,6 +569,7 @@ def main(argv=None):
         capture(config, capture_name=args.capture_name)
     else:
         run_round(config, args.name)
+    auto_publish(config.evidence_dir)
     return 0
 
 

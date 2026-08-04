@@ -59,9 +59,9 @@ baseline 或任何預設狀態。
 
 一次 capture 對應一個不可覆寫的資料夾。最低限度包含：
 
-- `bid_request.json`
+- `bid_request.json`（iOS impression-only capture 可能因 TLS/pinning 無法取得）
 - `metadata.json`
-- `logcat.txt`
+- `logcat.txt`（AOS）或 `ios_syslog.txt`（iOS；工具可用時）
 - `phone.png`
 - `ui.xml`
 

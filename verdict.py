@@ -7,6 +7,7 @@ This module currently defines only the three externally visible outcomes and
 the structured result consumed by ``page.py``.
 """
 
+import json
 from dataclasses import asdict, dataclass
 from enum import Enum
 from operator import eq
@@ -52,6 +53,12 @@ class Verdict:
     def to_dict(self):
         result = asdict(self)
         result["status"] = self.status.value
+        try:
+            json.dumps(result)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"Verdict {self.tc!r} contains values that cannot be written to verdicts.json"
+            ) from exc
         return result
 
 

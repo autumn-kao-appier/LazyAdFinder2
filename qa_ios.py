@@ -207,6 +207,13 @@ def clear_detector_state():
             pass
 
 
+def clear_syslog_state():
+    try:
+        SYSLOG_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def create_driver(config):
     options = XCUITestOptions()
     options.bundle_id = config.bundle_id
@@ -249,26 +256,10 @@ def tap_placement(driver, trigger_label):
         return False
 
 
-IMPRESSION_RE = re.compile(r"[?&]cid=([^&\s]+).*?[&]crid=([^&\s]+)")
-
-
-def scan_syslog_identity():
-    try:
-        lines = SYSLOG_FILE.read_text(errors="replace").splitlines()
-    except OSError:
-        return None
-    identity = None
-    for line in lines:
-        match = IMPRESSION_RE.search(line)
-        if match:
-            identity = {"cid": match.group(1), "crid": match.group(2)}
-    return identity
-
-
 def observe_bid():
     request = _read_json(BID_FILE)
     status = _read_text(BID_STATUS_FILE) or None
-    identity = _read_json(IMPRESSION_FILE) or scan_syslog_identity()
+    identity = _read_json(IMPRESSION_FILE)
     if request is not None:
         source = "proxy"
     elif identity is not None:
@@ -281,11 +272,7 @@ def observe_bid():
 def eligible(config, request, status, identity):
     if config.accept_request:
         return request is not None
-    return bool(
-        status == "200"
-        and identity
-        and identity.get("cid") == config.test_cid
-    )
+    return bool(identity and identity.get("cid") == config.test_cid)
 
 
 def wait_for_bid(config):
@@ -357,6 +344,7 @@ def save_evidence(driver, config, request, status, identity, source, capture_nam
         "timezone": ideviceinfo(config, "TimeZone"),
     }
     metadata = {
+        "platform": "ios",
         "captured_at": datetime.now().astimezone().isoformat(),
         "capture_name": capture_name,
         "source": source,
@@ -377,6 +365,7 @@ def capture(config, capture_name="MANUAL", setup=None):
         setup(config)
 
     clear_detector_state()
+    clear_syslog_state()
     driver = None
     started = time.monotonic()
     try:
@@ -444,6 +433,20 @@ def run_round(config, name):
         print(f"\n[round {name}] {step.name}")
         folders.append(capture(config, capture_name=step.name, setup=step.setup))
     return folders
+
+
+def auto_publish(evidence_dir):
+    if os.environ.get("AUTO_PUBLISH", "1") == "0":
+        print("[publish] AUTO_PUBLISH=0; skipped")
+        return
+    try:
+        subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "page.py"),
+             "--evidence", str(evidence_dir), "--publish"],
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"[warn] publishing failed; evidence is preserved: {exc}", file=sys.stderr)
 
 
 def build_parser():
@@ -544,6 +547,7 @@ def main(argv=None):
         capture(config, capture_name=args.capture_name)
     else:
         run_round(config, args.name)
+    auto_publish(config.evidence_dir)
     return 0
 
 
