@@ -1,0 +1,91 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LazyAdFinder2 · TestCase Report</title><style>
+:root{--bg:#eef1f4;--panel:#fff;--panel-2:#f6f8fa;--ink:#131a21;--soft:#516069;
+--faint:#7d8b94;--line:#dbe2e8;--accent:#0e7c86;--accent-soft:#e2eff1;
+--aos:#2e9e5b;--aos-soft:#e4f4ea;--ios:#3a6ea5;--ios-soft:#e6eef7;
+--pass:#2f7d3a;--pass-bg:#e5f4e8;--failed:#c0392b;--failed-bg:#fbe9e7;
+--blocked:#b5761a;--blocked-bg:#fff2dc;--shadow:0 1px 2px #131a210f,0 8px 24px #131a210f;
+--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1216;--panel:#151d23;--panel-2:#111820;
+--ink:#e7edf1;--soft:#a6b6c1;--faint:#71828d;--line:#243039;--accent:#38bdc9;
+--accent-soft:#123037;--aos:#4cc57d;--aos-soft:#12281b;--ios:#6ba6dd;--ios-soft:#132132;
+--pass:#5cc46a;--pass-bg:#163520;--failed:#f0766a;--failed-bg:#3b1c1a;
+--blocked:#e0a94a;--blocked-bg:#392b13;--shadow:0 10px 30px #0006}}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark;
+--bg:#0d1216;--panel:#151d23;--panel-2:#111820;--ink:#e7edf1;--soft:#a6b6c1;
+--faint:#71828d;--line:#243039;--accent:#38bdc9;--accent-soft:#123037;
+--aos:#4cc57d;--aos-soft:#12281b;--ios:#6ba6dd;--ios-soft:#132132;
+--pass:#5cc46a;--pass-bg:#163520;--failed:#f0766a;--failed-bg:#3b1c1a;
+--blocked:#e0a94a;--blocked-bg:#392b13;--shadow:0 10px 30px #0006}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}body{background:var(--bg);color:var(--ink);
+font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}.top{position:sticky;top:0;z-index:20;
+height:52px;display:flex;align-items:center;padding:0 18px;background:color-mix(in srgb,var(--panel) 88%,transparent);
+backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:10px}
+.sig{width:25px;height:25px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#0a5c64);position:relative}
+.sig:after{content:"";position:absolute;inset:7px;border:2px solid #fff;border-right-color:transparent;
+border-bottom-color:transparent;transform:rotate(45deg)}.brand strong{display:block;font-size:13px}.brand small{color:var(--faint);font-size:10px;letter-spacing:.08em}
+.theme{margin-left:auto;width:30px;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--ink);cursor:pointer}
+main{max-width:1180px;margin:auto;padding:26px 20px 48px}.lead{color:var(--soft);max-width:72ch;margin:3px 0 24px}.overview h1{font-size:22px;margin:0}
+.summary{display:flex;gap:16px;flex-wrap:wrap;color:var(--faint);font-size:12px;margin-bottom:18px}.summary b{color:var(--ink)}
+.tc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:15px}.tc-card{
+font:inherit;color:inherit;text-align:left;cursor:pointer;background:var(--panel);border:1px solid var(--line);
+border-radius:14px;padding:17px;box-shadow:var(--shadow);transition:.14s;position:relative;overflow:hidden}
+.tc-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
+.tc-card:hover{transform:translateY(-2px);border-color:var(--accent)}.card-top{display:flex;justify-content:space-between;gap:12px}.tc-id{font:700 13px var(--mono);color:var(--accent)}
+.tc-title{font-weight:700;font-size:15px;margin-top:3px}.result-count{font-size:11px;color:var(--faint);white-space:nowrap}.tc-description{color:var(--soft);min-height:42px}
+.platform-chips{display:flex;gap:6px}.platform-chip{font:700 11px var(--mono);padding:3px 9px;border-radius:7px}.platform-chip.aos{color:var(--aos);background:var(--aos-soft)}
+.platform-chip.ios{color:var(--ios);background:var(--ios-soft)}.platform-chip.unknown{color:var(--faint);background:var(--panel-2)}
+.status-bar{display:flex;height:7px;background:var(--panel-2);border-radius:5px;overflow:hidden;margin-top:13px}.status-bar i{height:100%}.status-bar .pass{background:var(--pass)}
+.status-bar .failed{background:var(--failed)}.status-bar .blocked{background:var(--blocked)}.card-counts{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;margin-top:7px}
+.pass-text{color:var(--pass)}.failed-text{color:var(--failed)}.blocked-text{color:var(--blocked)}.card-open{margin-top:14px;color:var(--accent);font-weight:650;font-size:12px}
+.empty{padding:52px;text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:14px}.empty p{color:var(--soft)}
+.detail-bar{display:flex;align-items:center;gap:14px}.back{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}.detail-id{font:700 12px var(--mono);color:var(--accent);margin-right:9px}
+.detail-description{color:var(--soft)}.detail-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0 17px;border-bottom:1px solid var(--line)}
+.seg{display:flex;padding:2px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2)}.seg button{border:0;background:transparent;color:var(--soft);padding:6px 14px;border-radius:7px;cursor:pointer;font:650 12px var(--sans)}
+.seg button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px}
+.detail-tools label{font-size:10px;color:var(--faint);letter-spacing:.04em}.detail-tools select{display:block;margin-top:2px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink);padding:5px 8px}
+.platform-pane{padding-top:18px}.pane-title{display:flex;align-items:center;gap:9px;margin-bottom:12px}.pane-title>span:last-child{color:var(--faint);font-size:12px}
+.result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:14px}.result-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px;box-shadow:var(--shadow)}
+.result-head,.result-foot{display:flex;justify-content:space-between;gap:10px;align-items:center}.status{font:750 11px var(--mono);padding:4px 9px;border-radius:999px}.status.pass{color:var(--pass);background:var(--pass-bg)}
+.status.failed{color:var(--failed);background:var(--failed-bg)}.status.blocked{color:var(--blocked);background:var(--blocked-bg)}.capture,time{font-size:11px;color:var(--faint)}
+.context{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.context span{font-size:11px;background:var(--panel-2);border-radius:6px;padding:4px 7px}.context b{color:var(--faint);margin-right:5px}
+.answer-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answer-grid label{font-size:10px;color:var(--faint);text-transform:uppercase}.answer-grid pre{margin:3px 0 0;padding:9px;background:var(--panel-2);border-radius:7px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 var(--mono);min-height:50px}
+.reason{color:var(--soft);font-size:12px}.reason b{color:var(--ink)}.ev{color:var(--accent);font-size:12px}.missing{color:var(--failed);text-decoration:line-through}.platform-empty{display:flex;flex-direction:column;gap:5px;padding:35px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:12px;color:var(--soft)}
+.meta{margin-top:22px;color:var(--faint);font-size:11px;overflow-wrap:anywhere}[hidden]{display:none!important}@media(max-width:620px){main{padding:20px 12px}.answer-grid{grid-template-columns:1fr}.detail-tools{align-items:flex-end}}
+</style></head><body>
+<header class="top"><div class="brand"><div class="sig"></div><div><strong>SDK TestCase Report</strong><small>Appier · LazyAdFinder2</small></div></div><button class="theme" id="theme" aria-label="切換深淺色">◐</button></header>
+<main><section class="overview" id="overview"><h1>TestCase 清單</h1>
+<p class="lead">卡片依實際 Verdict 動態產生。點入 TestCase 後，可分別查看 AOS／iOS，並用 TEST_MODE 與 TEST_TYPE 篩選結果。</p>
+<div class="summary"><span><b>0</b> TestCases</span><span><b>0</b> Results</span><span class="failed-text">0 FAILED</span><span class="blocked-text">0 BLOCKED</span><span class="pass-text">0 PASS</span></div>
+<div class="tc-grid"><section class="empty"><h2>TestCase 清單尚未建立</h2><p>加入第一條 TC 並產生 <code>verdicts.json</code> 後，這裡才會出現第一張卡片。<br>Page 不會預建或硬編任何 TestCase。</p></section></div></section>
+<p class="meta">Raw captures: 1 · Verdict files: 0 · Generated: 2026-08-04T15:55:06+08:00<br>Evidence roots: evidence</p></main>
+<script>
+(function(){
+  var root=document.documentElement,key="laf2-theme";
+  try{var saved=localStorage.getItem(key);if(saved)root.dataset.theme=saved}catch(e){}
+  function theme(){return root.dataset.theme||(matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light")}
+  document.getElementById("theme").onclick=function(){root.dataset.theme=theme()==="dark"?"light":"dark";try{localStorage.setItem(key,root.dataset.theme)}catch(e){}};
+  var overview=document.getElementById("overview"),details=[].slice.call(document.querySelectorAll(".detail"));
+  function filter(detail){
+    var platform=detail.querySelector(".platform-tabs button.on").dataset.platform;
+    var mode=detail.querySelector(".mode-filter").value,type=detail.querySelector(".type-filter").value;
+    detail.querySelectorAll(".platform-pane").forEach(function(pane){pane.hidden=pane.dataset.platform!==platform});
+    var pane=detail.querySelector('.platform-pane[data-platform="'+platform+'"]'),visible=0;
+    if(!pane)return;
+    pane.querySelectorAll(".result-card").forEach(function(card){
+      var show=(!mode||card.dataset.mode===mode)&&(!type||card.dataset.type===type);card.hidden=!show;if(show)visible++;
+    });
+    var count=pane.querySelector(".visible-count");if(count)count.textContent=visible?visible+" 筆符合":"沒有符合篩選的結果";
+  }
+  function openDetail(id){overview.hidden=true;details.forEach(function(d){d.hidden=d.id!==id});var d=document.getElementById(id);if(d){d.hidden=false;filter(d)}scrollTo(0,0)}
+  function home(){details.forEach(function(d){d.hidden=true});overview.hidden=false;scrollTo(0,0)}
+  document.querySelectorAll(".tc-card").forEach(function(card){card.onclick=function(){openDetail(card.dataset.detail)}});
+  document.querySelectorAll(".detail").forEach(function(detail){
+    detail.querySelector(".back").onclick=home;
+    detail.querySelectorAll(".platform-tabs button").forEach(function(button){button.onclick=function(){detail.querySelectorAll(".platform-tabs button").forEach(function(b){b.classList.toggle("on",b===button)});filter(detail)}});
+    detail.querySelector(".mode-filter").onchange=function(){filter(detail)};detail.querySelector(".type-filter").onchange=function(){filter(detail)};
+  });
+  addEventListener("keydown",function(e){if(e.key==="Escape")home()});
+})();
+</script></body></html>
