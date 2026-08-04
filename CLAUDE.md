@@ -24,7 +24,8 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 
 ## TC 重建規則
 
-`TC_DEFINITIONS` 與 `ROUND_DEFINITIONS` 預設保持空白。每次只加入使用者正在人工確認的 TC。
+`TC_DEFINITIONS` 與 `ROUND_DEFINITIONS` 只註冊使用者已逐條確認的 TC，不得批次搬回舊規則。
+目前 AOS 已註冊 `AND-01`，由 `R1` 執行。
 
 加入一條 TC 前必須明確知道：
 
@@ -44,6 +45,32 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 - 把沒有執行當成 PASS。
 - 在 automation engine 內硬編 TC 編號或 expected value。
 - 為了讓報告好看而改造 raw evidence。
+
+## TC Quality Gate
+
+AND-01 確立以下品質門檻。後續每一條 Signal／E2E TC 在 commit 前都必須逐項滿足：
+
+1. **先寫規格再定案**：討論中的 TC 立即加入 `testcases/catalog.json` 並標記 `DRAFT`；
+   確認後建立獨立 Markdown，記錄 Purpose、Setup、Evidence、PASS、FAILED、BLOCKED。
+2. **人眼可見 Evidence 優先**：能以設定頁、App 畫面或系統狀態直接證明的項目，必須保存
+   清楚可讀的截圖。UI hierarchy 只可用於執行時定位，不得把難以人工理解的 `ui.xml`
+   當作主要 Evidence。
+3. **使用獨立 ground truth**：不得拿待測 request 的值證明 request 自己正確。例如 AND-01
+   以 Android Ads 頁面直接顯示的 GAID，對照 `req.device.ia` 與 `ext.device.ia`。
+4. **Raw 與 derived 分離**：`bid_raw.json` 永不改寫；解碼、正規化與比較資料另存於
+   `bid_decoded.json`／`verdicts.json`。
+5. **已執行必有答案**：比較完成只能是 `PASS` 或 `FAILED`；環境／Round 導致根本無法執行
+   才是 `BLOCKED`，且必須保存 interrupted Evidence、具體 Step 與原因，不可靜默。
+6. **正向與負向測試**：至少驗證一組 PASS，並針對每項規則驗證錯值確實 FAILED；格式、
+   缺欄位、大小寫、全零、跨來源不一致等條件不可只靠閱讀 Code 推測。
+7. **完整實機閉環**：mock 只驗接口；TC 完成前必須在目標實機跑完 setup → capture →
+   validator → `verdicts.json` → Page。主要人工 Evidence 必須實際開圖確認。
+8. **同一 Round 同時容納 Signal/E2E**：Page 依 AOS/iOS、Standalone/Mediation、三種投放
+   類型進入 Round；Round 內同時呈現 Signal 與 E2E，尚未實作的區塊留空，不另造假結果。
+9. **Regression 不可破壞舊 TC**：新增 TC 時要重跑所有已實作 TC 的 contract tests；受影響
+   平台還要重跑實機 Round。Catalog、TC 文件、runner registry、Verdict 與 Page 必須同步。
+10. **通過後才 commit**：只有上述門檻全部有證據通過，Catalog 才能從 `DRAFT` 改為
+    `IMPLEMENTED` 並提交 Code。
 
 ## Round engine
 
@@ -77,11 +104,11 @@ baseline 或任何預設狀態。
 
 ## 目前狀態
 
-- AOS：automation 與 raw evidence engine 已清理；TC/round 目錄為空。
+- AOS：automation 與 evidence engine 已清理；R1/AND-01 已實作並通過實機驗證。
 - iOS：獨立的 XCUITest/raw evidence engine 已清理；TC/round 目錄為空。
 - mitmdump：只輸出 bid request、bid response、impression callback。
 - AprXorEnc：只提供 `decrypt(encrypted: str) -> str`。
-- Verdict：舊 validator 與報告版面已清除，只保留三態契約；TC answer key 尚未加入。
+- Verdict：保留三態契約；answer key/validator 只包含已人工確認的 AND-01。
 - Page：舊平台/E2E 邏輯已清除，只讀 `verdicts.json` 並呈現三態結果。
 - 發布：單次 `capture` 不發布。`round` 結束時自動呼叫一次 `page.py --publish`；某個 Step
   失敗時仍發布當下結果，接著以非零狀態結束，且錯誤必須標出 Round 與 Step，不可靜默。

@@ -37,11 +37,10 @@ from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from evidence_bundle import finalize_bundle
+from verdict import blocked
 
 
-# Testcases and their correct expectations will be added manually.  Keep these
-# catalogs empty until each definition has been reviewed.  The capture engine
-# below does not inspect either catalog.
+# Definitions are registered below after RoundStep is declared.
 TC_DEFINITIONS = {}
 ROUND_DEFINITIONS = {}
 
@@ -95,10 +94,17 @@ class RoundStep:
 
     name: str
     setup: Optional[Callable[[CaptureConfig], None]] = None
+    validators: tuple = ()
+
+
+from testcases.and_01 import setup as and_01_setup, validate as and_01_validate
+
+TC_DEFINITIONS.update({"AND-01": and_01_validate})
+ROUND_DEFINITIONS.update({"R1": (RoundStep("AND-01", and_01_setup, (and_01_validate,)),)})
 
 
 class CaptureError(RuntimeError):
-    pass
+    evidence_folder = None
 
 
 def _env(name, fallback=""):
@@ -446,7 +452,9 @@ def capture(config, capture_name="MANUAL", setup=None):
             )
         except Exception as bundle_exc:
             print(f"[warn] failed to finalize interrupted evidence: {bundle_exc}", file=sys.stderr)
-        raise
+        error = exc if isinstance(exc, CaptureError) else CaptureError(str(exc))
+        error.evidence_folder = folder
+        raise error from exc
     finally:
         if driver is not None:
             try:
@@ -466,8 +474,21 @@ def run_round(config, name):
             raise CaptureError(f"Round {name!r} contains an invalid step: {step!r}")
         print(f"\n[round {name}] {step.name}")
         try:
-            folders.append(capture(config, capture_name=step.name, setup=step.setup))
+            folder = capture(config, capture_name=step.name, setup=step.setup)
+            verdicts = [validator(folder) for validator in step.validators]
+            if verdicts:
+                (folder / "verdicts.json").write_text(
+                    json.dumps({"verdicts": verdicts}, ensure_ascii=False, indent=2) + "\n"
+                )
+            folders.append(folder)
         except Exception as exc:
+            evidence_folder = getattr(exc, "evidence_folder", None)
+            if evidence_folder is not None and step.validators:
+                row = blocked(step.name, str(exc)).to_dict()
+                row["layer"] = "Signal"
+                (Path(evidence_folder) / "verdicts.json").write_text(
+                    json.dumps({"verdicts": [row]}, ensure_ascii=False, indent=2) + "\n"
+                )
             raise CaptureError(
                 f"Round {name!r} failed at step {step.name!r}: {exc}"
             ) from exc

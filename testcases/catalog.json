@@ -8,10 +8,10 @@
       "title": "Advertising ID (GAID)",
       "field": "device.ia",
       "priority": "P0",
-      "status": "DRAFT",
+      "status": "IMPLEMENTED",
       "aos": {
         "applicable": true,
-        "setup": "允許個人化廣告後啟動 App 並 capture。Android 16 的實際設定頁路徑與 GAID 是否可見仍待實機確認。",
+        "setup": "開啟 Google Ads 頁，確認 Opt out of Ads Personalization 關閉，截取人眼可見的 GAID，再啟動 App capture。",
         "expected": "req/ext 的 device.ia 皆存在、相同、非全零，且符合全小寫 UUID 8-4-4-4-12；若設定頁能取得 GAID，還必須與其相等。",
         "evidence": "設定頁截圖、bid_decoded.json、summary.json"
       },

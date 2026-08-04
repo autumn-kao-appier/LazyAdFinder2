@@ -84,18 +84,18 @@ python3 qa_aos.py capture --accept-request --max-attempts 1
 
 ## Round 與 TC
 
-`qa_aos.py` 目前刻意保留空目錄：
+`qa_aos.py` 的 TC 與 Round 是明確註冊表。每次只加入一條人工確認完成的 TC。目前：
 
 ```python
-TC_DEFINITIONS = {}
-ROUND_DEFINITIONS = {}
+TC_DEFINITIONS = {"AND-01": ...}
+ROUND_DEFINITIONS = {"R1": (RoundStep("AND-01", ...),)}
 ```
 
 所以：
 
 ```bash
 python3 qa_aos.py list-rounds
-# No rounds defined.
+# R1: AND-01
 ```
 
 只有在人工確認某條 TC 的 setup、證據與正確標準後，才加入定義。Automation engine 不得
@@ -155,8 +155,8 @@ iOS 可能因 TLS／pinning 只觀察到 impression callback、沒有 bid body�
 - `PASS`：TC 已執行，實際值符合人工確認的正確標準。
 - `FAILED`：TC 已執行，實際值不符合正確標準。
 
-TC answer key 與 validator 仍為空；加入 TC 時才逐條補上。`page.py` 未來只呈現結構化
-`Verdict`，不得自行重算答案。
+TC answer key 與 validator 只包含已人工確認的 TC；目前已加入 AND-01。`page.py` 只呈現
+結構化 `Verdict`，不得自行重算答案。
 
 已執行的 TC 呼叫 `evaluate(expected=..., actual=...)`，比較後必然得到 `PASS` 或
 `FAILED`；只有因 Round／環境限制而根本沒執行，才呼叫 `blocked(reason=...)`。
