@@ -7,12 +7,11 @@ Bid endpoints:
     POST https://ad3.apx.appier.net/v2/sdk/ios/ad      (iOS production)
     request body 為未壓縮 UTF-8 JSON；response 200 = bid、204 = no-bid
 
-只有 bid request 會寫 FLAG_FILE。其他 appier.net / appier.com 流量
-（imp/click tracker GET、data-signal 的 signal.appier.com/v1/key）
-不算 bid，只記進 NETWORK_FILE 與 terminal log，避免誤觸發 run script 停止。
+只有 bid request 與 impression callback 會寫 FLAG_FILE。其他流量直接忽略，
+避免誤觸發 runner 停止。
 
 用法（terminal 1）:
-    mitmdump -s ~/LazyAdFinder/mitmdump_addon.py --listen-port 8081
+    mitmdump -s ~/LazyAdFinder2/mitmdump_addon.py --listen-port 8081
 """
 
 import gzip
@@ -22,15 +21,10 @@ from urllib.parse import parse_qs, urlsplit
 from mitmproxy import ctx, http
 
 FLAG_FILE = "/tmp/appier_hit"
-NETWORK_FILE = "/tmp/current_networks"
 BID_FILE = "/tmp/appier_bid.json"
 BID_STATUS_FILE = "/tmp/appier_bid_status"
 BID_RESPONSE_FILE = "/tmp/appier_bid_response.json"
 IMPRESSION_FILE = "/tmp/appier_impression.json"
-# E2E 驗證器用的全流量 log（method/url/status，一行一筆 JSON）
-TRAFFIC_FILE = "/tmp/appier_traffic.jsonl"
-
-APPIER_DOMAINS = ("appier.net", "appier.com")
 BID_HOST_SUFFIX = "apx.appier.net"
 BID_PATHS = ("/v2/sdk/aos/ad", "/v2/sdk/ios/ad")
 # 「已展示」callback（非 bid 端點，未被 cert pinning 排除，明碼 GET）：
@@ -38,27 +32,6 @@ BID_PATHS = ("/v2/sdk/aos/ad", "/v2/sdk/ios/ad")
 # crpid/bidobjid/idfa 等識別碼在 query string——bid 端點本身因 pinning 看不到內容時，
 # 這是唯一能拿到「這輪確實中獎、中的是哪個 creative」證據的地方。
 IMPRESSION_HOST_PATH = ("apn.c.appier.net", "/callback/show_cb")
-
-NETWORK_MAP = {
-    "appier.net":              "Appier",
-    "appier.com":              "Appier",
-    "smadex.com":              "Smadex",
-    "googlesyndication.com":   "Google/AdMob",
-    "doubleclick.net":         "Google/AdMob",
-    "googleads.g.doubleclick": "Google/AdMob",
-    "mintegral.com":           "Mintegral",
-    "applovin.com":            "AppLovin",
-    "unityads.unity3d.com":    "Unity Ads",
-    "ironsrc.com":             "ironSource",
-    "vungle.com":              "Liftoff/Vungle",
-    "chartboost.com":          "Chartboost",
-    "fbcdn.net":               "Meta AN",
-    "facebook.com":            "Meta AN",
-    "amazon-adsystem.com":     "Amazon",
-    "inmobi.com":              "InMobi",
-    "criteo.com":              "Criteo",
-}
-
 
 def _parse_body(content):
     """Try JSON parse with gzip/deflate fallback."""
@@ -148,32 +121,8 @@ class AppierDetector:
                 f.write("200")
             print(f">>> IMPRESSION WIN (from tracker callback, bid body unavailable) "
                   f"→ {IMPRESSION_FILE}  cid={ids.get('cid')} crid={ids.get('crid')}")
-        elif any(d in host for d in APPIER_DOMAINS):
-            # tracker / data-signal key / 其他 appier 流量：只記錄，不觸發 flag
-            print(f"    (appier non-bid) {entry}")
-
-        for domain, name in NETWORK_MAP.items():
-            if domain in host:
-                try:
-                    with open(NETWORK_FILE, "a") as f:
-                        f.write(name + "\n")
-                except Exception:
-                    pass
-                break
 
     def response(self, flow: http.HTTPFlow) -> None:
-        if flow.response is not None:
-            # E2E flow 驗證（init / creative assets / show_cb / xclk / privacy …）
-            # 需要完整的 url+status 對照；全部記進 TRAFFIC_FILE，由 run_qa 歸檔
-            try:
-                with open(TRAFFIC_FILE, "a") as f:
-                    f.write(_json.dumps({
-                        "method": flow.request.method,
-                        "url": f"https://{flow.request.host}{flow.request.path}",
-                        "status": flow.response.status_code,
-                    }) + "\n")
-            except Exception:
-                pass
         if not _is_bid(flow) or flow.response is None:
             return
         status = flow.response.status_code
