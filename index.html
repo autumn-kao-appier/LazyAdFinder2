@@ -10,9 +10,9 @@
 <main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>Round Reports</h1><p>一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid"><button class="type-card" data-slot="aos:standalone:aibid">
-<div><span class="type-id">aibid</span><span class="total">1 results</span></div>
+<div><span class="type-id">aibid</span><span class="total">3 results</span></div>
 <h3>AIBID</h3><p>首購 / 新客競價</p>
-<div class="layer-row"><b>Signal</b><span class="pass-text">1✓</span><span class="failed-text">0✗</span><span class="blocked-text">0 blocked</span><small>1 TC</small></div>
+<div class="layer-row"><b>Signal</b><span class="pass-text">1✓</span><span class="failed-text">0✗</span><span class="blocked-text">2 blocked</span><small>3 TC</small></div>
 <div class="layer-row"><b>E2E</b><span class="pass-text">0✓</span><span class="failed-text">0✗</span><span class="blocked-text">0 blocked</span><small>0 TC</small></div>
 <b class="open">查看結果 →</b></button><button class="type-card" data-slot="aos:standalone:reen-static">
 <div><span class="type-id">reen-static</span><span class="total">0 results</span></div>
@@ -73,6 +73,20 @@
 <div class="detail-bar"><button class="back">← 返回分類</button><div><span class="crumb">AOS / Standalone</span><h2>AIBID</h2></div></div>
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>Signal</h3><p>SDK 欄位、識別碼與事件訊號</p></div></div><div class="result-grid"><article class="result-card">
 <div class="result-head"><div><span class="tc-id">AND-01</span>
+<strong>AND-01</strong></div><span class="status blocked">BLOCKED</span></div>
+<div class="context"><span>standalone</span><span>—</span><span>TRACKING-ALLOWED</span></div>
+<div class="answers"><div><label>Expected</label><pre>—</pre></div>
+<div><label>Actual</label><pre>—</pre></div></div>
+<p><b>Reason</b> adb -s 5B291JEA313953 shell uiautomator dump /sdcard/laf2_and01.xml failed: error: closed</p>
+<footer>—<time>2026-08-05T01:59:11.300595+08:00</time></footer></article><article class="result-card">
+<div class="result-head"><div><span class="tc-id">AND-75</span>
+<strong>AND-75</strong></div><span class="status blocked">BLOCKED</span></div>
+<div class="context"><span>standalone</span><span>—</span><span>TRACKING-ALLOWED</span></div>
+<div class="answers"><div><label>Expected</label><pre>—</pre></div>
+<div><label>Actual</label><pre>—</pre></div></div>
+<p><b>Reason</b> adb -s 5B291JEA313953 shell uiautomator dump /sdcard/laf2_and01.xml failed: error: closed</p>
+<footer>—<time>2026-08-05T01:59:11.300595+08:00</time></footer></article><article class="result-card">
+<div class="result-head"><div><span class="tc-id">AND-01</span>
 <strong>Advertising ID (GAID)</strong></div><span class="status pass">PASS</span></div>
 <div class="context"><span>standalone</span><span>Pixel 10a</span><span>AND-01</span></div>
 <div class="answers"><div><label>Expected</label><pre>{&quot;format&quot;: &quot;lowercase UUID 8-4-4-4-12&quot;, &quot;non_zero&quot;: true, &quot;opt_out&quot;: false, &quot;settings_equals_req_equals_ext&quot;: true}</pre></div>
@@ -113,14 +127,20 @@
 <div class="detail-bar"><button class="back">← 返回分類</button><div><span class="crumb">iOS / Mediation</span><h2>REEN Dynamic</h2></div></div>
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>Signal</h3><p>SDK 欄位、識別碼與事件訊號</p></div></div><div class="result-grid"><div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div></div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>E2E</h3><p>Init → Bid → Render → Impression → Click → Landing</p></div></div><div class="result-grid"><div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div></div></div></section></section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>TestCase Catalog</h1><p>整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</p></div><b>1 TestCases</b></div><div class="table-wrap"><table><thead><tr><th>TestCase</th><th>目的／欄位</th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">DRAFT</span>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>TestCase Catalog</h1><p>整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</p></div><b>2 TestCases</b></div><div class="table-wrap"><table><thead><tr><th>TestCase</th><th>目的／欄位</th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">AND-01</strong><small>R1</small></td>
 <td><b>Advertising ID (GAID)</b><p>Signal · A. Core Identifiers</p>
 <code>device.ia</code><span class="priority">P0</span></td>
-<td><div class="platform-spec"><b>Setup</b><p>允許個人化廣告後啟動 App 並 capture。Android 16 的實際設定頁路徑與 GAID 是否可見仍待實機確認。</p>
+<td><div class="platform-spec"><b>Setup</b><p>開啟 Google Ads 頁，確認 Opt out of Ads Personalization 關閉，截取人眼可見的 GAID，再啟動 App capture。</p>
 <b>Expected</b><p>req/ext 的 device.ia 皆存在、相同、非全零，且符合全小寫 UUID 8-4-4-4-12；若設定頁能取得 GAID，還必須與其相等。</p>
-<b>Evidence</b><p>設定頁截圖、bid_decoded.json、summary.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 對應識別為 IDFA，另立 iOS TestCase。</p></div></td></tr></tbody></table></div></section>
-<p class="meta">Results: 1 · PASS 1 · FAILED 0 · BLOCKED 0<br>Raw captures: 4 · Verdict files: 1 · Generated: 2026-08-04T18:08:09+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main><script>
+<b>Evidence</b><p>設定頁截圖、bid_decoded.json、summary.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 對應識別為 IDFA，另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
+<strong class="catalog-id">AND-75</strong><small>R1</small></td>
+<td><b>Limit Ad Tracking Flag (tracking allowed)</b><p>Signal · A. Core Identifiers</p>
+<code>device.lat</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b>Setup</b><p>沿用 AND-01：Ads 頁面的 Opt out of Ads Personalization 關閉，同一次 capture，不重抓流量。</p>
+<b>Expected</b><p>req/ext 的 device.lat 各自為 JSON 整數 0 或欄位不存在；任一份為 1 或其他值即失敗。</p>
+<b>Evidence</b><p>ads-settings.png、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 對應行為另立 iOS TestCase。</p></div></td></tr></tbody></table></div></section>
+<p class="meta">Results: 3 · PASS 1 · FAILED 0 · BLOCKED 2<br>Raw captures: 5 · Verdict files: 2 · Generated: 2026-08-05T01:59:11+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main><script>
 (function(){
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
  try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
