@@ -1,4 +1,9 @@
-# LazyAdFinder — Claude 專案設定
+# LazyAdFinder2 — Claude 專案設定
+
+> **這是 LazyAdFinder 的架構重建版：機械層（佈狀態／capture／證據落地／發佈）照搬，
+> TC 目錄與判定/版面層留空。** 哪些留空、怎麼把原版拉回來，見文末
+> 〈骨架狀態〉。本文件裡出現的 `AND-xx` / `IOS-xx` 一律是**來自 LazyAdFinder 的先例**，
+> 用來說明規則為什麼存在；LazyAdFinder2 的 TC 目錄目前是空的，這些編號不存在於程式中。
 
 ## 檔案架構（6 個 .py，勿再增加）
 
@@ -44,7 +49,8 @@ page.py            跨平台整合頁 ＋ 發佈 gh-pages
    - **整合模式**：standalone / admob-mediation / applovin-mediation
    - **Test CID**：**一律問自由輸入**。不可把 CID 欄位換成「過去用過的清單」讓人選，
      舊值只能當範例。非互動執行時 `TEST_CID` 不能空。
-   - **範圍**：預設 **Signal + E2E 全驗**（AOS：84 Signal TC + 15 E2E TC；iOS：82 + 15）。
+   - **範圍**：預設 **Signal + E2E 全驗**（＝該平台 TC 目錄的完整集合。
+     **目前目錄是空的，所以完整範圍＝0 條**；填回多少就驗多少）。
      可收窄成 `--signal-only`（跳過 privacy／廣告點擊／landing，快很多）、`--e2e-only`
      （只跑 CURRENT 那一次 capture）、或指定狀態 TC（`AND-04,AND-06`）。
      **收窄時沒驗到的那半會標「本輪未執行 → Blocked」，不可當成通過交付。**
@@ -56,7 +62,7 @@ page.py            跨平台整合頁 ＋ 發佈 gh-pages
      補跑單一批次。env：`TEST_TYPE`/`TEST_MODE`/`TEST_CID`/`TEST_ROUND`。
    - **補跑指定 TC** → `python3 qa_aos.py AND-04,AND-06`（只做那一次 capture、不佈狀態）
    - **iOS** → `python3 qa_ios.py`（`BUNDLE_ID=com.appier.Random`）
-   > ⚠️ 別拿「補跑 TC」去交完整範圍，那 ~34 條狀態類 TC 會全落成「本輪未執行」。
+   > ⚠️ 別拿「補跑 TC」去交完整範圍，所有狀態類 TC 會全落成「本輪未執行」。
    > 完整範圍就是**不帶參數**。對外只有這兩種用法，沒有別的模式。
    > 我從工具端執行、無法回答互動 stdin；所以由我在對話問參數再帶 env 跑
    > （三個 env 未設且非 TTY 時腳本直接 exit，不會卡在 `input()`）。
@@ -104,11 +110,12 @@ page.py            跨平台整合頁 ＋ 發佈 gh-pages
 ## 判定原則：報告只由「本次 scope」決定 pass / fail / block
 
 報告永遠對照**完整 TC 目錄**呈現，但每條 TC 的狀態由本次 run 實際做了什麼決定。
-判定狀態機在 `qa_aos.py` 的 `classify()`：
+判定狀態機是 `verdict.py` 的 `classify()`（**共用契約，只有一份**；兩平台都呼叫它，
+平台資料用參數傳）：
 
 1. **有 eligible capture（這輪有做）**：值符合 → **PASS**；值不符 → **FAIL**。
-   FAIL **失敗一次就算**，不看次數（別把單次 mismatch 降級成 block，否則真失敗如
-   AND-67 `sdk_version=None` 會被藏掉）。
+   FAIL **失敗一次就算**，不看次數（別把單次 mismatch 降級成 block，否則像
+   LazyAdFinder 的 `AND-67 sdk_version=None` 那種真失敗會被藏掉）。
 2. **無 capture（這輪沒做）** → **BLOCKED**。
 
 > signal 判定**只有這三種**。`classify()` 產不出 PENDING／MANUAL，報告端也不該再有那兩條軌。
@@ -116,20 +123,21 @@ page.py            跨平台整合頁 ＋ 發佈 gh-pages
 > **stdout 摘要必須跟報告 scorecard 同一套映射**（曾有兩套並存，終端印 E2E 4 pass、報告寫 7 pass）。
 
 **BLOCKED 的定位非常窄——只有「清楚的限制」或「這輪根本沒做」：**
+（`BLOCKED` / `RD_GAP` / `TYPE_NA_REEN` 這幾張表目前都是空的，下面是它們該收什麼的判準）
 
 - **RD/硬體限制**（`BLOCKED` ∪ `RD_GAP`，恆 block，即使抓到空值也不算 FAIL）：
-  - RD 沒做：SDK 未實作、值恆 null/[]（AND-42/43 感應器、AND-51 impression_history、
-    AND-38 Not in this Release、AND-61 latency、AND-14 vpn…）
-  - 硬體不可得：沒 SIM（AND-39/41/64）、需 AVD（AND-12）、需非 root 機（AND-10）
-- **本輪未執行**：這輪沒佈該狀態／沒跑該情境（狀態類 TC 只跑了 CURRENT 批次；AND-47 未跑 SD）。
+  - RD 沒做：SDK 未實作、值恆 null/[]（LazyAdFinder 的先例：感應器、impression_history、
+    Not in this Release、latency、vpn…）
+  - 硬體不可得：沒 SIM、需 AVD、需非 root 機
+- **本輪未執行**：這輪沒佈該狀態／沒跑該情境（狀態類 TC 只跑了 CURRENT 批次；session TC 未跑 SD）。
   **這不是缺證據**——是這輪沒做。跑 `python3 qa_aos.py`（完整 round）它們就會變 PASS/FAIL。
 - **整合模式/投放目的不適用**：E2E 依 `TEST_MODE`/`TEST_TYPE` 自動判 `na_mode`/`na_type` → BLOCKED
-  （例：standalone 輪的 mediation-only TC-02/03/08/16）。權威在 `qa_aos.py` 的 E2E 目錄區段
+  （例：standalone 輪的 mediation-only E2E TC）。權威在 `qa_aos.py` 的 E2E 目錄區段
   （`E2E_TCS` 的 `modes`/`types` 欄位 + `evaluate()`）；**不要**在報告區段另立硬編 standalone 清單。
   REEN 輪 opt-out signal TC 走 `TYPE_NA_REEN`（標 N/A，計入 Blocked tile）。
 
 > 平台「總覽卡」層級：**完全沒 round 的 cell** 標「未執行 / No run」（`page.render_card`），
-> 不可顯示成 0/0/84 Blocked——那會跟真的 blocked 混淆。
+> 不可顯示成 `0/0/<全部>` Blocked——那會跟真的 blocked 混淆。
 
 > **Signal 與 E2E 的分工**：判定層分開（`VALIDATORS`＋`classify()` vs `evaluate()`＋`E2E_SCORE`，
 > 報告也是兩個分頁）；執行層**共用同一次 capture** —— E2E 要有真廣告可點，那一刻的 bid 同時
@@ -154,13 +162,15 @@ page.py            跨平台整合頁 ＋ 發佈 gh-pages
 | `CTRL1` | 受控：預設／低／允許（GAID opt-in、100% 不充電、VPN off、台北、淺色/最暗/小字/靜音/給定位） | |
 | `CTRL2` | 受控：相反／高／拒絕（GAID opt-out、0%、省電、VPN on、紐約、深色/最亮/大字/最大音量/拒定位） | REEN 輪跳過 opt-out 兩條（與投遞互斥） |
 | `CTRL3` | 受控：充電中／UTC | |
-| `SD` | **Session Duration**（`user.session_duration` 三情境，AND-47-1/2/3） | 不是狀態批次而是行為序列：必須抓兩個 bid 對照（A → 動作 → B）才驗得出累進/重置，故產出 3 個 capture、6 個 bid；情境 2 會 force-stop 殺 App，不能與別的批次共用 capture |
+| `SD` | **Session Duration**（`user.session_duration` 三情境；TC 編號由 `SESSION_TCS` 對照，LazyAdFinder 是 AND-47-1/2/3） | 不是狀態批次而是行為序列：必須抓兩個 bid 對照（A → 動作 → B）才驗得出累進/重置，故產出 3 個 capture、6 個 bid；情境 2 會 force-stop 殺 App，不能與別的批次共用 capture |
 
-> **期望值假設狀態的 TC 不可掛在 `CURRENT`。** `AND-01`（`device.ia` 需合法 UUID）與
-> `AND-75`（`device.lat` 需為 0）假設 GAID opt-in，已移出 CURRENT、只在 CTRL1 驗（CTRL1
-> 會 `ensure_tracking(True)`）。留在 CURRENT 的話，手機平常是 opt-out 就每輪多兩條假 FAIL。
-> `AND-40`（`conntype=wifi`）與 `AND-73`（`country=tw`）仍屬環境假設，改連線方式或地區時
-> 會亮紅燈——那是有用的訊號，刻意保留。
+> **期望值假設狀態的 TC 不可掛在 `CURRENT`（填 `CURRENT_TCS` 時的判準）。**
+> 期望值只有在某個狀態成立時才對的 TC，要掛 CTRL 批次而不是 CURRENT。LazyAdFinder 的
+> 先例：`device.ia` 需合法 UUID、`device.lat` 需為 0 —— 兩者都假設 GAID opt-in，只能在
+> CTRL1 驗（CTRL1 會 `ensure_tracking(True)`）；掛在 CURRENT 的話，手機平常是 opt-out
+> 就每輪多兩條假 FAIL。
+> 反例（刻意留在 CURRENT）：`conntype=wifi`、`country=tw` 這類環境假設，改連線方式或
+> 地區時會亮紅燈 —— 那是有用的訊號。
 
 capture 資料夾名＝批次名：`CURRENT_<ts>`／`CTRL1_<ts>`／`CTRL2_<ts>`／`CTRL3_<ts>`／
 `AND-47-{1,2,3}_<ts>`（SD 的 capture 按 TC 命名），補跑加 `_RETRY<n>`，補跑指定 TC 為
@@ -174,16 +184,58 @@ capture）。
 
 round 標籤 `TEST_ROUND` 未設時是 `R<YYYYMMDD>`，會被消毒成只含英數與 `-_`（上限 24 字）。
 
+## 骨架狀態：哪些留空、怎麼拉回來
+
+baseline commit `8307b56` 是**從 LazyAdFinder 逐字搬入的完整版**（含所有判定與版面實作）。
+之後的 commit 才把下列兩層清空。要拿回任何一塊：
+
+```bash
+git show 8307b56:verdict.py            # 只看內容
+git checkout 8307b56 -- verdict.py     # 整檔拉回
+```
+
+**留空 ①：TC 目錄與判定資料（平台檔，各自一份）**
+
+| 位置 | 空表 |
+|---|---|
+| `qa_aos.py` | `VALIDATORS`（Signal TC）、`E2E_TCS` ＋ `E2E_AUTO_VALIDATORS`、`STEP_OF`、`MODE_NA_REASON`、`REQUIRED_NATIVE`、`CAT_OF`、`STATE`、`STATE_GROUP`、`MOCK_CMD` ＋ `MOCK_NEEDS_RESET`、`BLOCKED`、`RD_GAP`、`TYPE_NA_REEN`、`FIRST_BID_TCS`、`SESSION_TCS` ＋ `SESSION_CASE_SPEC`、批次歸屬（`CURRENT_TCS`／`CTRL1_TCS`／`CTRL2_TCS`／`CTRL3_TCS`）、`capture_state_eligible()` 內的 `checks` |
+| `qa_ios.py` | `IOS_VALIDATORS`、`IOS_STATE`、`AUTO_TCS`、`CAT_OF_IOS`、`IOS_FIELD_SCHEMA` |
+| `verdict.py` | `FIELD_SCHEMA`（欄位的使用者導向 schema） |
+
+**留空 ②：判定的通過標準與 HTML 版面（契約，只有一份）**
+
+- `verdict.run_validator()` —— 每個 check 的通過標準。**`CHECKS` 詞彙表是留著的**：
+  哪些 check 存在、各需要 TC 帶什麼欄位（`expected` / `pattern` / `min`,`max` / `ref_field`）。
+  加新 check 要先在 `CHECKS` 加一行，否則 TC 會靜默落到 unknown check → 假 FAIL。
+- `verdict.CSS` / `verdict.render_card()` / `verdict.js_block()` —— 版面與行為層。
+  卡片 dict 的欄位契約寫在 `render_card` 的 docstring；class 名稱詞彙表寫在 `CSS` 開頭註解。
+- `qa_aos.render_html()` / `qa_aos.render_e2e_pane()` / `qa_ios.render_html()` —— 各平台頁面骨架。
+  **簽名固定**（`build()` 以位置引數呼叫），docstring 列出該有哪些區塊。
+
+**照搬未動（可直接跑）**：`mitmdump_addon.py`、`apr_xorenc.py`、`page.py` 全檔；
+兩個 runner 的 adb 佈狀態／Appium capture／證據落地／round 排程／retry／logcat 與 syslog／
+privacy 與 E2E 點擊流程；`classify()` 與 `tier_of()` 判定狀態機；`get_field` / `_unwrap` /
+`normalize_bid` / `normalize_ios_bid` 解析；`load_captures` / `pick_capture` /
+`batch_prefixes` 批次與歷史命名契約；`build()` 的組卡片資料流；文字報告
+（`format_report` / `format_round_report`）。
+
+已驗證骨架可端到端跑完：`--inspect`、`--report`（合成 evidence → HTML）、
+`page.py --out`（subprocess 呼叫兩平台 CLI 併成整合頁）。填 TC 前判定數字一律是 0。
+
+> `page.py --publish` 從本專案跑會停在「取不到 `origin`」——LazyAdFinder2 還沒有 remote。
+> 這也順便保證它**不會誤推到 LazyAdFinder 的 gh-pages**。要發佈得先設好自己的 remote 與
+> `gh-pages` 分支，並把 `page.PAGES_URL` 改成新網址。
+
 ## 已知落差
 
-- **iOS 沒有 round 排程**：`qa_ios.py` 目前只做單次 capture，所以 iOS「完整範圍 82 條」實際
-  跑不出來，只覆蓋不需佈狀態的欄位；狀態類 TC 要逐條人工佈。待補（AOS 的 CURRENT/CTRL1/CTRL2/CTRL3/SD
-  對應實作）。
-- **沒有測試**。目前唯一的回歸機制是「拿既有 evidence 重算，判定數字必須不變」。動任何判定或
-  報告邏輯前，先跑一次全部 round 的重算並比對逐條 `(tc, field, passed, actual)`。
-- 三條長期真失敗待與 test plan／RD 確認：`AND-67 ext.app.sdk_version`（路徑在任何座標系都不
-  存在）、`AND-44 device.ext.boottime`（SDK 未送）、`AND-48 user.session_duration`（期望 <5 但
-  harness 本身就先花 ~5.5s，測試設計矛盾）。
+- **iOS 沒有 round 排程**：`qa_ios.py` 只做單次 capture，狀態類 TC 要逐條人工佈。
+  待補（AOS 的 CURRENT/CTRL1/CTRL2/CTRL3/SD 對應實作）。
+- **沒有測試**。原本唯一的回歸機制是「拿既有 evidence 重算，判定數字必須不變」；
+  本專案還沒有任何 evidence，所以連這條都還不成立。開始填 TC 後，動任何判定或報告邏輯前，
+  先跑全部 round 重算並比對逐條 `(tc, field, passed, actual)`。
+- LazyAdFinder 有三條長期真失敗待與 test plan／RD 確認，重建對應 TC 時會再遇到：
+  `ext.app.sdk_version`（路徑在任何座標系都不存在）、`device.ext.boottime`（SDK 未送）、
+  `user.session_duration`（期望 <5 但 harness 本身就先花 ~5.5s，測試設計矛盾）。
 
 ## 慣例
 

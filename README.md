@@ -1,17 +1,24 @@
-# LazyAdFinder 🎯
+# LazyAdFinder2 🎯
 
-LazyAdFinder 是 Appier Ads SDK 的實機 SSP Signal QA 工具，支援 Android（AOS）與 iOS。它會透過 Appium 操作 sample app、由 Charles 與 mitmdump 攔截 bid 流量、驗證 Signal/E2E TC，並將 request、response、截圖、裝置狀態與 log 整理成 evidence 和 HTML 報告。
+LazyAdFinder2 是 Appier Ads SDK 的實機 SSP Signal QA 工具，支援 Android（AOS）與 iOS。它會透過 Appium 操作 sample app、由 Charles 與 mitmdump 攔截 bid 流量、驗證 Signal/E2E TC，並將 request、response、截圖、裝置狀態與 log 整理成 evidence 和 HTML 報告。
+
+> ## ⚠️ 目前是骨架
+>
+> 本專案是 LazyAdFinder 的**架構重建版**：機械層（佈狀態／capture／證據落地／解密／
+> 發佈）照搬且可直接跑，**TC 目錄與判定的通過標準、HTML 版面刻意留空**，準備逐條重建。
+>
+> 現在跑起來會抓到真 bid、存下完整 evidence，但判定數字一律是 `0 pass / 0 fail / 0 blocked`。
+> 哪些留空、以及怎麼從 baseline commit `8307b56` 把原版拉回來，見 `CLAUDE.md`
+> 〈骨架狀態〉。本 README 其餘章節描述的是**架構與跑法**，那些都成立。
 
 ## 預設測試範圍
 
-**完整 Signal 範圍是預設範圍，以各平台目前程式實作為準：**
+**完整 Signal 範圍是預設範圍，以各平台目前程式實作為準** —— 也就是該平台 TC 目錄的完整集合。
+**目錄目前是空的，所以完整範圍是 0 條**；填回多少就驗多少。
 
-- AOS：84 個不同 Signal TC + 15 個 E2E TC
-- iOS：82 個不同 Signal TC + 15 個 E2E TC
+除非執行時明確指定較小範圍或特定 TC，否則「完整 Signal 範圍」代表所選平台的完整集合。Android 一輪中的 CURRENT 批次預設也會執行 privacy icon、真實廣告點擊與 landing page 驗證。
 
-除非執行時明確指定較小範圍或特定 TC，否則「完整 Signal 範圍」代表所選平台的上述完整集合。Android 一輪中的 CURRENT 批次預設也會執行 privacy icon、真實廣告點擊與 landing page 驗證。
-
-計數依據是不同 TC ID；AOS 的 91 條 validator 與 iOS 的 89 條 validator 中，有些 TC 會驗證多個欄位，因此 validator 條數不等於 TC 數。
+計數依據是不同 TC ID；有些 TC 會驗證多個欄位，因此 validator 條數不等於 TC 數。
 
 ## 功能
 
@@ -21,7 +28,9 @@ LazyAdFinder 是 Appier Ads SDK 的實機 SSP Signal QA 工具，支援 Android�
 - Evidence 與報告：每次 capture 保存原始證據、重算 round report，並生成整合平台。
 - 自動發布：單次 capture 成功後預設更新 GitHub Pages；完整 round 改為整輪結束後發佈一次；可用 `AUTO_PUBLISH=0` 關閉。
 
-線上報告：<https://autumn-kao-appier.github.io/LazyAdFinder/>
+線上報告：**尚未設定** —— 本專案還沒有 git remote，`page.py --publish` 會停在取不到 `origin`
+（這也保證它不會誤推到 LazyAdFinder 的 Pages）。要發佈得先設好自己的 remote 與 `gh-pages`
+分支，並把 `page.PAGES_URL` 改成新網址。
 
 ## 流量架構
 
@@ -234,6 +243,9 @@ python3 page.py --evidence evidence ~/Desktop/LazyAdFinder_evidence
 python3 page.py --publish
 ```
 
+> ⚠️ 本專案尚未設定 remote，這條指令現在會停在取不到 `origin`。先建好自己的 GitHub repo
+> 與 `gh-pages` 分支、加上 `origin`，並把 `page.PAGES_URL` 改成新網址再用。
+
 發佈成功後會**自動開啟線上頁面**。不再產生本地 preview 檔——唯一的交付就是線上頁。
 GitHub Pages 重建約需 1–2 分鐘，剛推完看到舊版重整即可。`OPEN_PAGES=0` 可關掉自動開啟。
 
@@ -245,14 +257,14 @@ GitHub Pages 重建約需 1–2 分鐘，剛推完看到舊版重整即可。`OP
 
 全部只有 6 個 Python 檔：
 
-| 檔案 | 行數 | 用途 |
-|---|---:|---|
-| `qa_aos.py` | ~4600 | Android runner：佈狀態、capture、證據落地 ＋ AOS 的 TC 目錄（AND-xx） |
-| `qa_ios.py` | ~1760 | iOS runner：同上 ＋ iOS 的 TC 目錄（IOS-xx） |
-| `verdict.py` | ~1130 | **判定與報告的共用契約**：check 實作、`classify()`、卡片/CSS/JS 版面 |
-| `apr_xorenc.py` | ~220 | SDK 的 `ae1` 加解密（`ext_enc` / `req_enc`） |
-| `mitmdump_addon.py` | ~190 | mitmproxy addon，攔 bid、impression 與 E2E traffic |
-| `page.py` | ~790 | 跨平台整合頁 ＋ 發佈 `gh-pages` |
+| 檔案 | 行數 | 用途 | 骨架狀態 |
+|---|---:|---|---|
+| `qa_aos.py` | 3763 | Android runner：佈狀態、capture、證據落地 ＋ AOS 的 TC 目錄（AND-xx） | TC 目錄空、HTML 版面骨架；其餘照搬 |
+| `qa_ios.py` | 1491 | iOS runner：同上 ＋ iOS 的 TC 目錄（IOS-xx） | 同上 |
+| `verdict.py` | 470 | **判定與報告的共用契約**：check 實作、`classify()`、卡片/CSS/JS 版面 | check 通過標準與版面留空（`CHECKS` 詞彙表與 `classify()` 保留） |
+| `apr_xorenc.py` | 220 | SDK 的 `ae1` 加解密（`ext_enc` / `req_enc`） | 照搬，可用 |
+| `mitmdump_addon.py` | 189 | mitmproxy addon，攔 bid、impression 與 E2E traffic | 照搬，可用 |
+| `page.py` | 785 | 跨平台整合頁 ＋ 發佈 `gh-pages` | 照搬（`--publish` 需先設 remote） |
 
 架構原則：**按平台垂直分離 runner，但不複製共同語義。**
 

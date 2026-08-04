@@ -1345,251 +1345,90 @@ E2E_BADGE_LABEL = {"pass": "PASS", "observe": "PASS", "fail": "FAILED",
 
 
 def render_e2e_pane(e2e_data, test_mode, test_type):
-    """E2E 分頁：獨立 scorecard + 依廣告流程步驟排的時間軸，每步一列含逐步截圖。"""
+    """E2E 分頁（骨架）：scorecard ＋ 依 FLOW_STEPS 排的流程時間軸，每步一列含逐步截圖。
+
+    重建時的口徑硬規則：scorecard 一律用 `E2E_SCORE` 這套映射算
+    （observe→PASS；pending/backend/gated/na_* → BLOCKED），而且**必須跟 build()
+    印到 stdout 的摘要同一套** —— 曾經兩套並存，終端印 E2E 4 pass、報告寫 7 pass。
+
+    原版版面：`git show 8307b56:qa_aos.py`
+    """
     # 舊 e2e_results.json 沒有 step 欄位 → 用 STEP_OF 補上（不必等重跑）
     for r in e2e_data:
         if not r.get("step"):
             r["step"] = STEP_OF.get(r["tc"], "")
-    # scorecard
     score = {k: 0 for k in E2E_SCORE_ORDER}
     for r in e2e_data:
         score[E2E_SCORE.get(r["status"], "BLOCKED")] += 1
-    score_tiles = "".join(
+    tiles = "".join(
         f'<div class="e2e-tile e2e-t-{E2E_SCORE_CLS[k]}">'
         f'<span class="e2e-tile-n">{score[k]}</span><span class="e2e-tile-l">{esc(k)}</span></div>'
-        for k in E2E_SCORE_ORDER if score[k] > 0)
-
-    # 依流程步驟分組（FLOW_STEPS 順序）
-    by_step = {}
-    for r in e2e_data:
-        by_step.setdefault(r.get("step") or "other", []).append(r)
-
-    step_blocks = []
-    for key, title, desc in FLOW_STEPS:
-        rows = by_step.get(key, [])
-        if not rows:
-            continue
-        row_html = []
-        for r in rows:
-            cls = E2E_STATUS_CLS.get(r["status"], "blocked")
-            label = E2E_BADGE_LABEL.get(r["status"], "BLOCKED")
-            shot = (f'<button class="shot e2e-step-shot" data-shot="e2e::{esc(r["tc"])}">'
-                    f'<img alt="{esc(r["tc"])} step" src="{esc(r["step_shot_uri"])}"></button>'
-                    if r.get("step_shot_uri") else
-                    '<div class="e2e-noshot">尚無截圖<br><small>重跑 DO_E2E_FLOW 補</small></div>')
-            row_html.append(
-                f'<div class="e2e-row">'
-                f'<div class="e2e-row-shot">{shot}</div>'
-                f'<div class="e2e-row-body">'
-                f'<div class="e2e-row-head"><span class="e2e-tc">{esc(r["tc"])}</span>'
-                f'<b>{esc(r.get("name",""))}</b>'
-                f'<span class="e2e-badge e2e-b-{cls}">{esc(label)}</span></div>'
-                f'<div class="e2e-kv">'
-                f'<div class="e2e-block e2e-expect"><span class="e2e-lbl">應有值</span>'
-                f'<div class="e2e-val">{esc(r.get("expected") or "—")}</div>'
-                f'<code class="e2e-endpoint">{esc(r.get("endpoint",""))}</code></div>'
-                f'<div class="e2e-block e2e-actual"><span class="e2e-lbl">實際 · logcat / proxy</span>'
-                f'<div class="e2e-val">{esc(r.get("note",""))}</div></div>'
-                f'</div>'
-                f'</div></div>')
-        step_blocks.append(
-            f'<section class="e2e-step"><div class="e2e-step-head">'
-            f'<h3>{esc(title)}</h3><span class="e2e-step-desc">{esc(desc)}</span></div>'
-            f'<div class="e2e-step-rows">{"".join(row_html)}</div></section>')
-
-    return (
-        f'<div class="e2e-scorecard">{score_tiles}</div>'
-        f'<p class="lead e2e-lead">E2E 驗整條廣告流程走完，每步一列（截圖＋流量佐證）。'
-        f'依 TEST_MODE=<b>{esc(test_mode or "?")}</b> / TEST_TYPE=<b>{esc(test_type or "?")}</b> '
-        f'自動判定適用性。狀態同 Signal 三種：<b>PASS</b>（含有截圖佐證的步驟）／<b>FAILED</b>／'
-        f'<b>BLOCKED</b>（暫時無法自動判定：本模式不適用、需後端資料、或本輪未跑——原因見每列說明）。</p>'
-        f'<div class="e2e-timeline">{"".join(step_blocks)}</div>')
+        for k in E2E_SCORE_ORDER if score[k])
+    rows = "".join(
+        f'<div class="e2e-row"><span class="e2e-tc">{esc(r["tc"])}</span>'
+        f'<b>{esc(r.get("name", ""))}</b>'
+        f'<span class="e2e-badge e2e-b-{E2E_STATUS_CLS.get(r["status"], "blocked")}">'
+        f'{esc(E2E_BADGE_LABEL.get(r["status"], "BLOCKED"))}</span></div>'
+        for r in e2e_data)
+    return (f'<div class="e2e-scorecard">{tiles}</div>'
+            f'<div class="e2e-timeline">{rows}</div>'
+            f'<!-- TODO(版面): 依 FLOW_STEPS 分段、逐步截圖、應有值/實際並排、endpoint -->')
 
 
 def render_html(round_name, generated, counts, total, verified, by_cat, shots_js, model,
                 consistency, test_type="", test_mode="", test_cid="", test_executor="",
                 environment=None, e2e_ad_shot=None, e2e_data=None, elapsed=None, progress=None):
+    """單輪 AOS 報告 HTML（骨架）。**簽名固定** —— build() 以位置引數呼叫。
+
+    版面契約（重建時該有的區塊，原版：`git show 8307b56:qa_aos.py`）：
+
+      header    round / 類型 / 整合模式 / Test CID / 執行人 / device / Signal+E2E 數
+                / 整體耗時 / generated，外加「本輪流程」banner
+                （compute_round_progress 的 complete / stall：跑完＝綠、卡關＝琥珀並指出卡在哪段）
+      分頁      Signal / E2E 兩個 .tab-pane，分頁鈕各帶數字
+      tiles     Signal 的 Pass / Fail / Blocked / All。**只算 Signal**（E2E 有自己的
+                scorecard），且以 TC 去重計數，不是 validator 列數
+      面板      測試環境·APK ／ Capture 前置狀態 ／ 跨 capture 一致性（consistency）
+      未完成    Blocked 面板要列出**全部** Blocked TC、數字與 tile 一致，並分三類：
+                  RD/硬體限制（BLOCKED ∪ RD_GAP）· 本輪未執行 · 投放目的不適用
+      卡片      依 CATEGORIES 分段，每段 .grid 內逐張 render_card()
+      lightbox  #lb / #lb-img / #lb-x（js_block 綁事件）
+    """
     environment = environment or {}
     e2e_data = e2e_data or []
-    assertion_count = sum(len(items) for items in by_cat.values())
-    e2e_total = len(e2e_data)
-    # Signal 頂部 tile 只算 Signal（E2E 有自己的 scorecard 在 E2E 分頁）
-    tiles = [
-        ("Pass", counts["PASS"], "pass"),
-        ("Fail", counts["FAIL"], "fail"),
-        ("Blocked", counts["BLOCKED"], "blocked"),
-    ]
-    tiles_html = "".join(
-        f'<button class="tile" data-filter="{cls}"><span class="tile-n">{n}</span>'
-        f'<span class="tile-l">{esc(label)}</span></button>'
-        for label, n, cls in tiles
-    )
-    e2e_pane_html = render_e2e_pane(e2e_data, test_mode, test_type)
-
-    sections = []
-    for letter in [k for k in CATEGORIES if k in by_cat]:
-        cat_cards = by_cat[letter]
-        cards_html = "".join(render_card(c) for c in cat_cards)
-        sections.append(
-            f'<section class="cat" id="cat-{letter}" data-cat="{letter}">'
-            f'<h2 class="cat-h"><span class="cat-k">Cat {letter}</span>'
-            f'{esc(CATEGORIES[letter])}<span class="cat-n">{len(cat_cards)}</span></h2>'
-            f'<div class="grid">{cards_html}</div></section>'
-        )
-    sections_html = "\n".join(sections)
-
-    # 後續測試者清單只列「本次最終狀態」仍為 Blocked/Pending 的 TC；
-    # metadata 內即使留有環境限制說明，也不得把已判 Pass/Fail 的 TC 再列進來。
-    tc_status = {}
-    status_rank = {"PASS": 0, "BLOCKED": 1, "FAIL": 2}
-    for items in by_cat.values():
-        for card in items:
-            old = tc_status.get(card["tc"])
-            if old is None or status_rank[card["status"]] > status_rank[old]:
-                tc_status[card["tc"]] = card["status"]
-    # Blocked 面板必須列出「全部」目前 Blocked 的 TC（數字要跟 tile 一致），依原因分兩類：
-    #   RD/硬體限制（BLOCKED∪RD_GAP：RD 未實作或沒 SIM/AVD/非 root）——清楚限制，恆 block；
-    #   本輪未執行（無 eligible capture：未佈狀態／未跑該情境）——這輪根本沒做。
-    hw_blocked, ev_blocked, na_blocked = {}, {}, {}
-    for items in by_cat.values():
-        for card in items:
-            tc = card["tc"]
-            if tc_status.get(tc) == "BLOCKED" and card["status"] == "BLOCKED" \
-                    and tc not in hw_blocked and tc not in ev_blocked \
-                    and tc not in na_blocked:
-                if card.get("type_na"):
-                    na_blocked[tc] = (card.get("blocked_reason")
-                                      or "本輪投放目的不適用")
-                elif tc in BLOCKED or tc in RD_GAP:
-                    hw_blocked[tc] = BLOCKED.get(tc) or RD_GAP.get(tc)
-                else:
-                    ev_blocked[tc] = (card.get("blocked_reason")
-                                      or "本輪未執行：未佈該狀態／未跑該情境（非缺證據，這輪沒做）")
-    blk_rows = "".join(
-        f'<tr><td class="mtc">{esc(tc)}</td><td class="mtag mtag-blk">RD/硬體限制</td>'
-        f'<td>{esc(reason)}</td></tr>'
-        for tc, reason in sorted(hw_blocked.items()))
-    evb_rows = "".join(
-        f'<tr><td class="mtc">{esc(tc)}</td><td class="mtag mtag-blk">本輪未執行</td>'
-        f'<td>{esc(reason)}</td></tr>'
-        for tc, reason in sorted(ev_blocked.items()))
-    nab_rows = "".join(
-        f'<tr><td class="mtc">{esc(tc)}</td><td class="mtag mtag-blk">投放目的不適用</td>'
-        f'<td>{esc(reason)}</td></tr>'
-        for tc, reason in sorted(na_blocked.items()))
-    # E2E 已獨立成分頁，此清單只列 Signal TC
-    checklist = (
-        '<details class="chklist" id="checklist" open><summary>未完成項目與環境限制（Signal）'
-        f'（{len(hw_blocked)} RD/硬體限制 · {len(ev_blocked)} 本輪未執行'
-        f' · {len(na_blocked)} 投放目的不適用）</summary>'
-        f'<p class="chklist-lead">Signal Blocked tile = 本表 '
-        f'{len(hw_blocked) + len(ev_blocked) + len(na_blocked)} 個 Signal TC'
-        f'（RD/硬體限制＋本輪未執行＋投放目的不適用）；E2E 未完成項見「E2E」分頁。'
-        f'每列附「為什麼沒完成／缺什麼」：</p>'
-        '<div class="mwrap"><table class="mtable"><tbody>'
-        + blk_rows + evb_rows + nab_rows +
-        '</tbody></table></div></details>')
-
-    # E2E 已改成獨立分頁（render_e2e_pane），此處不再產舊表格
-
-    # 跨 capture 一致性面板
-    con_rows = "".join(
-        f'<div class="con-row"><span class="con-ok con-{"y" if c["ok"] else "n"}">'
-        f'{"✓" if c["ok"] else "✗"}</span>'
-        f'<span class="con-lab">{esc(c["label"])}</span>'
-        f'<span class="con-msg">{c["distinct"]} 種值 / {c["n"]} 次 capture'
-        f'{" — 跨啟動恆定" if c["ok"] else " — 不一致，需查"}</span>'
-        f'<code class="con-val">{esc(c["value"])}</code></div>'
-        for c in consistency)
-    con_panel = (f'<section class="con"><h2 class="con-h">跨 capture 一致性</h2>'
-                 f'<p class="con-lead">同一裝置每次 bid 的識別碼應恆定；用本輪所有 capture 自動比對。</p>'
-                 f'{con_rows}</section>')
-
-    shots_json = json.dumps(shots_js)
-
-    # 舊 evidence 沒有 test_type；維持既有 AIBID 標題以確保向後相容。
-    default_title = "SDK_AUTOMATION - " + " · ".join(
-        x.upper() for x in (test_mode, test_type or "AIBID") if x
-    )
-    report_title = os.environ.get("REPORT_TITLE", default_title)
-    # 完成階段 banner：完整跑完 = 綠；卡關 = 琥珀 + 指出卡在哪段
-    progress = progress or {"complete": False, "label": "無 E2E 資料", "stall": None}
-    _pg_cls = "ok" if progress.get("complete") else ("stall" if progress.get("stall") else "warn")
-    _pg_icon = "✅" if progress.get("complete") else "⚠️"
-    progress_banner = (
-        f'<div class="progress-banner {_pg_cls}">'
-        f'<span class="pg-icon">{_pg_icon}</span>'
-        f'<span class="pg-label">本輪流程：{esc(progress.get("label", "—"))}</span>'
-        + (f'<span class="pg-stall">卡關段落：{esc(progress["stall"])}</span>'
-           if progress.get("stall") else "")
-        + "</div>"
-    )
-    env_rows = "".join(
-        f'<div><span>{esc(label)}</span><strong>{esc(environment.get(key, "—"))}</strong></div>'
-        for label, key in (("APK", "package"), ("versionName", "version_name"),
-                           ("versionCode", "version_code"), ("Device", "device"),
-                           ("Android", "android"), ("Build", "build_fingerprint"))
-    )
-    condition_rows = "".join(
-        f'<div><span>{esc(label)}</span><strong>{esc(environment.get(key, "—"))}</strong></div>'
-        for label, key in (("Timezone", "timezone"), ("Dark mode", "dark_mode"),
-                           ("Battery Saver", "battery_saver"), ("Battery", "battery"),
-                           ("Brightness", "brightness"), ("Font scale", "font_scale"),
-                           ("Media volume", "media_volume"), ("Root", "root"))
-    )
+    sections = "\n".join(
+        f'<section class="cat" id="cat-{letter}" data-cat="{letter}">'
+        f'<h2 class="cat-h"><span class="cat-k">Cat {letter}</span>'
+        f'{esc(CATEGORIES[letter])}<span class="cat-n">{len(by_cat[letter])}</span></h2>'
+        f'<div class="grid">{"".join(render_card(c) for c in by_cat[letter])}</div></section>'
+        for letter in CATEGORIES if letter in by_cat)
+    title = os.environ.get("REPORT_TITLE", "SDK_AUTOMATION - " + " · ".join(
+        x.upper() for x in (test_mode, test_type) if x))
     return f"""<meta charset="utf-8">
-<title>{esc(report_title)}</title>
+<title>{esc(title)}</title>
 <style>{CSS}</style>
-<header class="top">
-  <div class="top-in">
-    <div class="brand">
-      <div class="sig" aria-hidden="true"></div>
-      <div>
-        <div class="kicker">Appier SDK 開發案 · 自動化測試</div>
-        <h1>{esc(report_title)}</h1>
-      </div>
-    </div>
-    <dl class="meta">
-      <div><dt>Round</dt><dd>{esc(round_name)}</dd></div>
-      <div><dt>類型</dt><dd>{esc(test_type or '—')}</dd></div>
-      <div><dt>整合模式</dt><dd>{esc(test_mode or '—')}</dd></div>
-      <div><dt>Test CID</dt><dd>{esc(test_cid or '—')}</dd></div>
-      <div><dt>執行人</dt><dd>{esc(test_executor or '—')}</dd></div>
-      <div><dt>Device</dt><dd>Android · {esc(model)}</dd></div>
-      <div><dt>Signal / E2E</dt><dd>{total} / {e2e_total}</dd></div>
-      <div><dt>整體耗時</dt><dd>{esc(elapsed or '—')}</dd></div>
-      <div><dt>Generated</dt><dd>{esc(generated)}</dd></div>
-    </dl>
-    {progress_banner}
+<header class="top"><div class="top-in">
+  <div class="brand"><div class="sig" aria-hidden="true"></div>
+    <div><div class="kicker">Appier SDK 開發案 · 自動化測試</div><h1>{esc(title)}</h1></div>
   </div>
-  <div class="tabbar">
-    <button class="tabbtn is-on" data-tab="signal">Signal<span class="tabbtn-n">{total}</span></button>
-    <button class="tabbtn" data-tab="e2e">E2E<span class="tabbtn-n">{e2e_total}</span></button>
-  </div>
-  <div class="tiles" data-tabtiles="signal">{tiles_html}
-    <button class="tile tile-all is-on" data-filter="all"><span class="tile-n">{total}</span><span class="tile-l">All Signal</span></button>
-  </div>
-</header>
+  <dl class="meta">
+    <div><dt>Round</dt><dd>{esc(round_name)}</dd></div>
+    <div><dt>類型</dt><dd>{esc(test_type or '—')}</dd></div>
+    <div><dt>整合模式</dt><dd>{esc(test_mode or '—')}</dd></div>
+    <div><dt>Test CID</dt><dd>{esc(test_cid or '—')}</dd></div>
+    <div><dt>執行人</dt><dd>{esc(test_executor or '—')}</dd></div>
+    <div><dt>Device</dt><dd>Android · {esc(model)}</dd></div>
+    <div><dt>Signal / E2E</dt><dd>{total} / {len(e2e_data)}</dd></div>
+    <div><dt>整體耗時</dt><dd>{esc(elapsed or '—')}</dd></div>
+    <div><dt>Generated</dt><dd>{esc(generated)}</dd></div>
+  </dl>
+</div></header>
 <main>
-  <div class="tab-pane" data-pane="signal">
-  <section class="setup-cards">
-    <article><h2>測試環境 · APK</h2><div class="setup-grid">{env_rows}</div></article>
-    <article><h2>Capture 前置狀態</h2><div class="setup-grid">{condition_rows}</div></article>
-  </section>
-  <p class="lead"><b>Signal TC {total} 個（展開為 {assertion_count} 個欄位 assertions）。</b><br>
-  每張 signal assertion card 都必須顯示精確 JSON path、Golden expected、bid request actual 與 Capture 來源。
-  <b>Pass/Fail</b> 代表 assertion 已依 Capture 的 expected/actual 比對；
-  <b>Blocked</b> 代表本輪暫時無法執行驗證——例如當輪 RD 尚未上對應 code、硬體/SIM 受限、權限或環境未到位；條件補齊後即可重測。每條的實際原因會在理由中標註。mock 欄位會標明「真實值 → 模擬值」。</p>
-  {con_panel}
-  {checklist}
-  {sections_html}
-  </div>
-  <div class="tab-pane" data-pane="e2e" hidden>
-  {e2e_pane_html}
-  </div>
+  <div class="tab-pane" data-pane="signal">{sections}</div>
+  <div class="tab-pane" data-pane="e2e" hidden>{render_e2e_pane(e2e_data, test_mode, test_type)}</div>
 </main>
-<div class="lightbox" id="lb" hidden><img alt="evidence screenshot" id="lb-img"><button class="lb-x" id="lb-x" aria-label="close">×</button></div>
-<script>{js_block(shots_json, json.dumps(round_name))}</script>
+<!-- TODO(版面): 分頁鈕 / tiles / 環境面板 / 一致性面板 / 未完成項目清單 / lightbox -->
+<script>{js_block(json.dumps(shots_js), json.dumps(round_name))}</script>
 """
 
 

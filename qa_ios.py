@@ -579,97 +579,55 @@ def evaluate_round(caps):
 
 
 def render_html(round_name, cards, counts, not_run, caps, environment, meta):
+    """單輪 iOS 報告 HTML（骨架）。
+
+    版面與 AOS 共用同一份 CSS / render_card / js_block（共同語義只有一份）。
+    差別只有兩處：iOS 沒有 E2E 分頁；tile 第三格叫「待補 / 未送」而不是 Blocked。
+
+    分母口徑：total = pass + fail + blocked，**含本輪未執行**，與 AOS 一致。
+    只算「有 capture 的 TC」會讓 iOS 少報總數、兩平台分母不同、平台頁沒法比。
+
+    待重建：tiles、測試環境面板、未擷取 TC 清單（not_run，狀態切換類需單獨 capture）、
+    lightbox、以及把 SHOTS 依 data-shot 填回每張卡的去重腳本。
+    原版版面：`git show 8307b56:qa_ios.py`
+    """
     title = "SDK_AUTOMATION iOS — " + " · ".join(
         x.upper() for x in (meta["test_mode"], meta["test_type"]) if x)
-    # 分母＝完整 validator scope（pass+fail+blocked，含本輪未執行），與 signal_total、
-    # bars 百分比、Android 口徑一致；不再只算「有 capture 的 TC」而少報。
     total = counts.get("pass", 0) + counts.get("fail", 0) + counts.get("blocked", 0)
-    # 所有截圖（phone + state_proof）只各存一份（SHOTS map），卡片依 key 共享
-    shots = {}
-    for name, cap in caps.items():
-        for key, data in cap.get("shots", {}).items():
-            shots[f"{name}::{key}"] = data
-
-    tiles = [("Pass", counts.get("pass", 0), "pass"),
-             ("Fail", counts.get("fail", 0), "fail"),
-             ("待補 / 未送", counts.get("blocked", 0), "blocked")]
-    tiles_html = "".join(
-        f'<button class="tile" data-filter="{cls}"><span class="tile-n">{n}</span>'
-        f'<span class="tile-l">{esc(lbl)}</span></button>'
-        for lbl, n, cls in tiles)
-    tiles_html += (f'<button class="tile tile-all is-on" data-filter="all">'
-                   f'<span class="tile-n">{total}</span><span class="tile-l">All</span></button>')
-
+    # 所有截圖（phone + state_proof）各存一份，卡片依 key 共享（不內嵌到每張卡）
+    shots = {f"{name}::{key}": data
+             for name, cap in caps.items()
+             for key, data in cap.get("shots", {}).items()}
     by_cat = {}
     for c in cards:
         by_cat.setdefault(c["cat"], []).append(c)
-    sections = []
-    for letter in [k for k in CATEGORIES if k in by_cat]:
-        cat_cards = by_cat[letter]
-        cards_html = "".join(render_card(c) for c in cat_cards)
-        sections.append(
-            f'<section class="cat" id="cat-{letter}" data-cat="{letter}">'
-            f'<h2 class="cat-h"><span class="cat-k">Cat {letter}</span>'
-            f'{esc(CATEGORIES[letter])}<span class="cat-n">{len(cat_cards)}</span></h2>'
-            f'<div class="grid">{cards_html}</div></section>')
-    sections_html = "\n".join(sections)
-
-    env_rows = "".join(
-        f'<div><span>{esc(label)}</span><strong>{esc(str(environment.get(key) or "—"))}</strong></div>'
-        for label, key in (("App", "bundle_id"), ("Device", "device"),
-                           ("裝置名稱", "device_name"), ("iOS", "os_version"),
-                           ("Build", "build_fingerprint"), ("Timezone", "timezone"),
-                           ("Locale", "locale"), ("環境來源", "env_source")))
-
-    notrun_html = ""
-    if not_run:
-        notrun_html = (f'<details class="manlist" open><summary>未擷取 TC（{len(not_run)}）'
-                       f'—— 狀態切換類，需以指定 TC 單獨 capture（run_qa_ios.py IOS-xx）</summary>'
-                       f'<p class="manlist-lead">{esc("、".join(not_run))}</p></details>')
-
+    sections = "\n".join(
+        f'<section class="cat" id="cat-{letter}" data-cat="{letter}">'
+        f'<h2 class="cat-h"><span class="cat-k">Cat {letter}</span>'
+        f'{esc(CATEGORIES[letter])}<span class="cat-n">{len(by_cat[letter])}</span></h2>'
+        f'<div class="grid">{"".join(render_card(c) for c in by_cat[letter])}</div></section>'
+        for letter in CATEGORIES if letter in by_cat)
     return f"""<meta charset="utf-8">
 <title>{esc(title)}</title>
 <style>{CSS}</style>
-<header class="top">
-  <div class="top-in">
-    <div class="brand">
-      <div class="sig" aria-hidden="true"></div>
-      <div>
-        <div class="kicker">Appier SDK 開發案 · 自動化測試（iOS）</div>
-        <h1>{esc(title)}</h1>
-      </div>
-    </div>
-    <dl class="meta">
-      <div><dt>Round</dt><dd>{esc(round_name)}</dd></div>
-      <div><dt>類型</dt><dd>{esc(meta['test_type'] or '—')}</dd></div>
-      <div><dt>整合模式</dt><dd>{esc(meta['test_mode'] or '—')}</dd></div>
-      <div><dt>Test CID</dt><dd>{esc(meta['test_cid'] or '—')}</dd></div>
-      <div><dt>執行人</dt><dd>{esc(meta['test_executor'] or '—')}</dd></div>
-      <div><dt>Device</dt><dd>iOS · {esc(meta['model'])}</dd></div>
-      <div><dt>Signal TC</dt><dd>{total}</dd></div>
-      <div><dt>Generated</dt><dd>{esc(meta['generated'])}</dd></div>
-    </dl>
+<header class="top"><div class="top-in">
+  <div class="brand"><div class="sig" aria-hidden="true"></div>
+    <div><div class="kicker">Appier SDK 開發案 · 自動化測試（iOS）</div><h1>{esc(title)}</h1></div>
   </div>
-  <div class="tiles" data-tabtiles="signal">{tiles_html}</div>
-</header>
-<main>
-  <section class="setup-cards">
-    <article><h2>測試環境</h2><div class="setup-grid">{env_rows}</div></article>
-  </section>
-  <p class="lead">iOS Signal 驗證（<b>IOS-xx</b>，由 ios_bid_inspector 自動解 ext_enc / req_enc
-  後比對）。每張卡片正面是判定、<b>翻到背面看證據</b>（含 bid 當下 app 截圖、來源 capture、
-  BID request 實際值）。<b>待補 / 未送</b> = iOS SDK 目前未送出、或期望值待確認的欄位。</p>
-  {notrun_html}
-  {sections_html}
-</main>
-<div class="lightbox" id="lb" hidden><img alt="evidence screenshot" id="lb-img"><button class="lb-x" id="lb-x" aria-label="close">×</button></div>
-<script>{js_block(json.dumps(shots), json.dumps(round_name))}
-// 縮圖去重：每張卡的 .shot 依 data-shot 從 SHOTS 共享填入（圖片只存一份）
-document.querySelectorAll('.shot').forEach(function(b){{
-  var im=b.querySelector('img'), k=b.getAttribute('data-shot');
-  if(im && !im.getAttribute('src') && SHOTS[k]) im.src=SHOTS[k];
-}});
-</script>
+  <dl class="meta">
+    <div><dt>Round</dt><dd>{esc(round_name)}</dd></div>
+    <div><dt>類型</dt><dd>{esc(meta['test_type'] or '—')}</dd></div>
+    <div><dt>整合模式</dt><dd>{esc(meta['test_mode'] or '—')}</dd></div>
+    <div><dt>Test CID</dt><dd>{esc(meta['test_cid'] or '—')}</dd></div>
+    <div><dt>執行人</dt><dd>{esc(meta['test_executor'] or '—')}</dd></div>
+    <div><dt>Device</dt><dd>iOS · {esc(meta['model'])}</dd></div>
+    <div><dt>Signal TC</dt><dd>{total}</dd></div>
+    <div><dt>Generated</dt><dd>{esc(meta['generated'])}</dd></div>
+  </dl>
+</div></header>
+<main>{sections}</main>
+<!-- TODO(版面): tiles / 測試環境面板 / 未擷取 TC 清單（{len(not_run)} 條）/ lightbox -->
+<script>{js_block(json.dumps(shots), json.dumps(round_name))}</script>
 """
 
 
