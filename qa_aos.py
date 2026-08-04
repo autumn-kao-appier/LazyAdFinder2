@@ -83,45 +83,69 @@ import apr_xorenc  # noqa: F401  （單一解密入口；下方以 from 匯入�
 #   （原 e2e_catalog.py）
 # ════════════════════════════════════════════════════════════════════════════
 
+# 適用矩陣的詞彙：E2E_TCS 每條用這些集合表示「哪些整合模式／投放目的適用」
 ALL_MODES = {"standalone", "admob-mediation", "applovin-mediation"}
 ADMOB = {"admob-mediation"}
 REEN = {"reen-static", "reen-dynamic"}
 
-# ── 廣告流程步驟（E2E 分頁時間軸；每步一列，含逐步截圖）───────────────────────────
-# (key, 顯示標題, 這步在做什麼)
-FLOW_STEPS = [
-    ("init",       "① SDK Init",        "App 啟動、init 請求送出"),
-    ("bid",        "② Bid 請求 / 回應",  "送出 bid request、拿到廣告 response"),
-    ("render",     "③ 廣告渲染",         "native 素材（icon/main/title/cta）顯示"),
-    ("impression", "④ Impression 回報",  "曝光 beacon（show_cb → winshowimg）成對"),
-    ("click",      "⑤ 點擊",            "點廣告手勢 → xclk 點擊鏈"),
-    ("landing",    "⑥ 落地",            "deeplink 直開 target app / 落地頁"),
-]
-# 每條 E2E TC 歸到哪個流程步驟
-# E2E TC → 廣告流程步驟（init/bid/render/impression/click/landing）。
-STEP_OF = {}
-# 各流程步驟對應的逐步截圖檔名（run_qa DO_E2E_FLOW 產出）
-STEP_SHOT = {
-    "init":    "e2e_step_init.png",
-    "render":  "e2e_step_render.png",
-    "click":   "e2e_step_click.png",
-    "landing": "e2e_step_landing.png",
-}
+# ── E2E TC 目錄（骨架，全空）──────────────────────────────────────────────────
+#
+# 刻意全空：整條廣告流程要拆成哪幾步、每步的通過標準是什麼、哪些證據算數，
+# 跟 Signal TC 一起重新設計。原版：`git show 8307b56:qa_aos.py`
+#
+# 重建時要填回的五張表：
+#
+#   E2E_TCS   每條 TC 一個 dict：
+#             {tc, name, priority, modes, types, auto, check_kind, expected,
+#              endpoint, step}
+#             `modes`/`types` 就是**適用矩陣** —— evaluate() 依本輪的
+#             TEST_MODE / TEST_TYPE 自動判 na_mode / na_type → 報告歸 BLOCKED。
+#             ⚠️ 適用性的權威只能在這裡。**不要**在報告區段另立硬編的
+#             standalone 清單（原版踩過：兩份清單互相牴觸）。
+#
+#   E2E_AUTO_VALIDATORS   TC 的 `auto` 欄位 → 判定函式（登記在檔案後段）。
+#             簽名：(caps, ids, test_type) -> (status, note, evidence_paths)
+#
+#   FLOW_STEPS  廣告流程步驟，報告的 E2E 時間軸照這個順序排。
+#             原版 6 步：init（SDK init）／bid（請求與回應）／render（native 素材）
+#             ／impression（曝光 beacon 成對）／click（xclk 點擊鏈）／landing（落地）
+#
+#   STEP_OF     TC → 屬於哪一步
+#   STEP_SHOT   步驟 → 逐步截圖檔名。⚠️ 要跟 `do_e2e_flow()` 實際寫出來的檔名對得上
+#             （e2e_step_init.png / e2e_step_render.png / e2e_step_click.png /
+#              e2e_step_landing.png）—— 對不上時時間軸會整排標「尚無截圖」。
+#
+#   STATUS_LABEL  狀態 → 顯示文字。狀態集合不是自由的：新增一個狀態必須同時加進
+#             `E2E_SCORE`（三態映射），否則會被 .get 默默歸成 BLOCKED。
+#
+# 一起清掉的「證據探測」helper —— 重建判定函式時要重寫，原版的語意記在這裡：
+#   _first_logcat / _first_with  新→舊找出第一個 logcat 命中 pattern／滿足條件的 capture
+#   _urls_in                     遞迴收集 JSON 裡所有 http(s) URL
+#   _any_traffic                 這一輪有沒有任何 proxy 流量（沒有時要標明原因：
+#                                capture 走 logcat 偵測、或 VPN 繞過 proxy）
+#   _bid_ad                      bid_response 的第一個 native ad（render 類 TC 用）
+#   _norm_text                   比對前正規化（解 HTML entity、把空白摺成單一空格）——
+#                                「畫面文字 ↔ response 素材逐項比對」少了它會全 FAIL
+#   _find_xclk                   traffic 裡的 /xclk 點擊鏈
+#   _click_evidence              點擊究竟有沒有發生，**不依賴 proxy**：e2e_flow.json 的
+#                                clicked、落地截圖存在、或 logcat 印
+#                                "In-app browser initial loads url"（三者任一）
+#   _admob_traffic               AdMob mediation 專屬 endpoint 的流量
+#   REQUIRED_NATIVE              native 素材必要欄位（render 的通過標準）
+#   MODE_NA_REASON               「為什麼這個模式不適用」的說明文字。⚠️ 措辭不可寫死
+#                                standalone —— applovin-mediation 也會觸發 na_mode
+#   summarize()                  終端的 E2E 摘要。⚠️ 重建時**必須跟 build() 印的那份
+#                                用同一套 E2E_SCORE 映射** —— 曾有兩套並存，
+#                                終端印 E2E 4 pass、報告 scorecard 寫 7 pass。
 
+# （判定函式登記表 E2E_AUTO_VALIDATORS 與 evaluate() 在本檔後段、round 排程之前）
 E2E_TCS = []
-
-# 對外只有三種狀態：PASS / FAIL / BLOCKED（細分原因收進括號說明，不另立分類）
-STATUS_LABEL = {
-    "pass": "PASS",
-    "observe": "PASS（部分證據）",
-    "fail": "FAIL",
-    "pending": "BLOCKED（未執行/證據不足）",
-    "gated": "BLOCKED（需人工核准）",
-    "na_mode": "BLOCKED（整合模式不適用）",
-    "na_type": "BLOCKED（投放目的不適用）",
-    "na_platform": "BLOCKED（平台不適用）",
-    "backend": "BLOCKED（跨系統後端）",
-}
+FLOW_STEPS = []
+STEP_OF = {}
+STEP_SHOT = {}
+STATUS_LABEL = {}
+REQUIRED_NATIVE = []
+MODE_NA_REASON = {}
 
 
 # ── 證據載入 ──────────────────────────────────────────────────────────────────
@@ -168,167 +192,23 @@ def _logcat(folder):
     return _text_file(folder, "logcat_appier.txt") or _text_file(folder, "logcat.txt")
 
 
-def _first_logcat(caps, pattern):
-    """新→舊找出 logcat 命中 pattern 的第一個 capture；回 (name, folder, match) 或 (None,None,None)。"""
-    rx = re.compile(pattern)
-    for name, folder in caps:
-        m = rx.search(_logcat(folder))
-        if m:
-            return name, folder, m
-    return None, None, None
-
-
-def _first_with(caps, predicate):
-    """新→舊找出第一個滿足條件的 capture；回 (name, folder) 或 (None, None)。"""
-    for name, folder in caps:
-        if predicate(folder):
-            return name, folder
-    return None, None
-
-
-def _urls_in(obj):
-    """遞迴收集 JSON 內所有 http(s) URL 字串。"""
-    urls = []
-    if isinstance(obj, dict):
-        for value in obj.values():
-            urls += _urls_in(value)
-    elif isinstance(obj, list):
-        for value in obj:
-            urls += _urls_in(value)
-    elif isinstance(obj, str) and obj.startswith(("http://", "https://")):
-        urls.append(obj)
-    return urls
-
-
-def _any_traffic(caps):
-    return any(_traffic(folder) for _, folder in caps)
-
-
-NO_TRAFFIC_NOTE = ("round 內沒有任何 proxy 流量 log（capture 走 logcat 偵測或 VPN 繞過 proxy）；"
-                   "需在 mitmdump 在線且無 VPN 的 capture 驗證")
-
-
-# ── 驗證器 ────────────────────────────────────────────────────────────────────
-
-
-
-# native 素材必要欄位——render 類 E2E TC 的通過標準，重建時填回。
-REQUIRED_NATIVE = []
-
-
-def _bid_ad(folder):
-    resp = _json_file(folder, "bid_response.json")
-    if not resp:
-        return None
-    try:
-        return resp["adUnits"][0]["ad"]
-    except Exception:
-        return {}
-
-
-
-
-
-
-def _norm_text(s):
-    """比對前正規化：解 HTML entity（&#10; 等）、全部空白摺成單一空格。"""
-    import html as _html
-    return re.sub(r"\s+", " ", _html.unescape(s)).strip()
-
-
-
-
-
-
-# 測試廣告環境，點擊直接執行（DO_E2E_FLOW=1 自動點）；沒跑到就是「本輪未執行」，非核准問題
-CLICK_NOTRUN_NOTE = ("點擊流程本輪未執行；開 DO_E2E_FLOW=1 會自動點廣告 → "
-                     "保存 xclk 點擊鏈與落地截圖")
-
-
-def _find_xclk(caps):
-    for name, folder in caps:
-        for row in _traffic(folder):
-            if "/xclk" in row.get("url", ""):
-                return name, row
-    return None, None
-
-
-def _click_evidence(caps):
-    """點擊有沒有真的發生（不靠 proxy）：do_e2e_flow 存的 e2e_flow.json clicked=true
-    ＋落地截圖，或 logcat 印 "In-app browser initial loads url"（SDK 開落地頁）。
-    回傳 (name, folder, landing_url|None) 或 (None,None,None)。"""
-    for name, folder in caps:
-        flow = _json_file(folder, "e2e_flow.json")
-        clicked = bool(flow and flow.get("clicked"))
-        has_landing = os.path.exists(os.path.join(folder, "e2e_step_landing.png"))
-        m = re.search(r"In-app browser initial loads url:\s*(\S+)", _logcat(folder))
-        if clicked or has_landing or m:
-            return name, folder, (m.group(1) if m else None)
-    return None, None, None
-
-
-
-
-
-
-
-
-
-
-
-
-def _admob_traffic(caps, needle):
-    for name, folder in caps:
-        for row in _traffic(folder):
-            if needle in row.get("url", ""):
-                return name, row
-    return None, None
-
-
-
-
-
-
-# 為何某 TC 在特定模式不適用（跳過原因，寫進報告讓人一眼懂）
-# 措辭與當前 test_mode 無關（standalone 或 applovin-mediation 都可能觸發 na_mode），
-# 只說明「此步驟為 AdMob mediation 專屬」，別寫死「standalone」。
-# E2E TC → 「為什麼這個整合模式不適用」的說明文字。
-MODE_NA_REASON = {}
-
-
-# ── 評估入口 ──────────────────────────────────────────────────────────────────
-
+# ── 證據探測與終端摘要（骨架）─────────────────────────────────────────────────
+# 這一層被清空了；上面 E2E TC 目錄的註解列出原版每支 helper 的語意，重建判定函式時照著寫。
+# 上面保留的 _load_captures / _traffic / _json_file / _text_file / _logcat 是純檔案 I/O、
+# 不含任何 TC 知識，重寫判定時直接拿來用。
 
 
 def summarize(round_dir=None, test_mode="standalone", test_type="reen-dynamic"):
-    from collections import Counter
-    W = 100
-    print("=" * W)
-    if round_dir:
-        rows = evaluate(round_dir, test_mode, test_type)
-        print(f"  Ad-Serving E2E — {len(rows)} TC（mode={test_mode} / type={test_type}）")
-        print("=" * W)
-        for row in rows:
-            print(f"  {row['tc']:<6} [{row['priority']}] {STATUS_LABEL[row['status']]:<28} {row['name']}")
-            print(f"         ↳ {row['note']}")
-        counter = Counter(row["status"] for row in rows)
-    else:
-        print(f"  Ad-Serving E2E catalog — {len(E2E_TCS)} TC 定義（無 round 資料，僅列適用矩陣）")
-        print("=" * W)
-        counter = Counter()
-        for tc in E2E_TCS:
-            modes = "、".join(sorted(tc["modes"])) if tc["modes"] != ALL_MODES else "全部模式"
-            auto = tc["auto"] or "backend"
-            print(f"  {tc['tc']:<6} [{tc['priority']}] auto={auto:<18} 適用：{modes:<28} {tc['name']}")
-    print("-" * W)
-    if counter:
-        # 收斂成三桶統計（PASS / FAIL / BLOCKED），不逐細分狀態列
-        bucket = Counter()
-        for key, count in counter.items():
-            bucket[STATUS_LABEL.get(key, "BLOCKED").split("（")[0]] += count
-        print("  " + " / ".join(f"{count} {label}"
-                                for label, count in bucket.most_common()))
-    print("=" * W)
+    """終端的 E2E 摘要（骨架）。
+
+    ⚠️ 重建時**必須與 `build()` 印到 stdout 的那份用同一套 `E2E_SCORE` 映射**。
+    原版曾有兩套並存：終端印 E2E 4 pass、報告 scorecard 寫 7 pass，對同一輪給出
+    互相矛盾的數字。原版：`git show 8307b56:qa_aos.py`
+    """
+    print("=" * 100)
+    print(f"  Ad-Serving E2E — 目錄為空（骨架）；mode={test_mode} / type={test_type}")
+    print("  填回 E2E_TCS 與 E2E_AUTO_VALIDATORS 後這裡才有東西可印。")
+    print("=" * 100)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -931,51 +811,29 @@ def read_round_elapsed(round_dir):
     return None
 
 
-# flow 段落順序（與 e2e_catalog.FLOW_STEPS 對齊）；判「跑到哪一段 / 卡在哪」
-_FLOW_ORDER = [
-    ("init",       "① SDK Init"),
-    ("bid",        "② Bid 請求/回應"),
-    ("render",     "③ 廣告渲染"),
-    ("impression", "④ Impression 回報"),
-    ("click",      "⑤ 點擊"),
-    ("landing",    "⑥ 落地"),
-]
-
-
 def compute_round_progress(e2e_data):
-    """依 E2E 各段狀態判定這一輪跑到哪 / 卡在哪。
-    回 {'complete': bool, 'reached': '⑥ 落地', 'stall': None|'④ Impression', 'label': str}。
-    段落狀態：只要該段有 TC pass/observe 視為「有進展」；全 pending/fail 視為未達。"""
-    by_step = {}
-    for row in e2e_data or []:
-        by_step.setdefault(row.get("step", ""), []).append(row.get("status"))
+    """這一輪跑到哪一段／卡在哪（骨架）—— 報告頂端的流程 banner 用。
 
-    def step_reached(key):
-        st = by_step.get(key, [])
-        # 該段沒有任何適用 TC（全 na_*）→ 不擋流程，視為 N/A 跳過
-        applicable = [s for s in st if s not in ("na_mode", "na_type", "na_platform")]
-        if not applicable:
-            return None  # N/A：此 mode/type 無此段
-        return any(s in ("pass", "observe") for s in applicable)
+    刻意留空：「跑到哪一段」的定義就是 `FLOW_STEPS`，跟 E2E TC 目錄一起重新設計。
+    原版：`git show 8307b56:qa_aos.py`
 
-    reached_label, stall_label = None, None
-    for key, label in _FLOW_ORDER:
-        r = step_reached(key)
-        if r is None:
-            continue          # N/A 段跳過
-        if r:
-            reached_label = label
-        elif stall_label is None:
-            stall_label = label   # 第一個「有適用 TC 但未達」的段 = 卡關點
-    complete = stall_label is None and reached_label == _FLOW_ORDER[-1][1]
-    if complete:
-        label = f"完整跑完 · 最後到 {reached_label}"
-    elif stall_label:
-        label = f"未完整 · 卡在 {stall_label}（已完成到 {reached_label or '—'}）"
-    else:
-        label = f"部分完成 · 到 {reached_label or '—'}"
-    return {"complete": complete, "reached": reached_label,
-            "stall": stall_label, "label": label}
+    重建時的規則（原版的判準，值得保留）：
+      * 段落狀態：該段只要有任一 TC pass/observe 就算「有進展」
+      * 該段所有 TC 都是 na_*（本模式/投放目的不適用）→ 回 None，**不擋流程**，
+        視為 N/A 跳過。少了這條，standalone 輪會被 mediation-only 的步驟卡住，
+        永遠顯示「卡在 ②」。
+      * 卡關點 = 第一個「有適用 TC 但未達」的段
+      * complete = 沒有卡關段，且 reached 是最後一段
+
+    回傳形狀（`render_html()` 的 progress banner 讀這些 key）：
+      {"complete": bool, "reached": str|None, "stall": str|None, "label": str}
+
+    ⚠️ `page.py` 有一份**自己的** `compute_round_progress`（平台總覽卡用，`page.py`
+    不 import 平台檔）。那份還是原版實作，沒有跟著清 —— 兩邊的判準重建後要對齊，
+    否則同一輪在單輪報告和平台總覽會顯示不同的進度。
+    """
+    return {"complete": False, "reached": None, "stall": None,
+            "label": "E2E 目錄為空（骨架），無流程進度可判"}
 
 
 def build(round_dir, out_path, e2e_round=None):
@@ -1652,7 +1510,10 @@ def run_capture(label, tcs, env, dwell=0, fgbg=False, action=""):
                # 中間狀態推上線）→ round 期間關掉，收尾在 run() 統一發佈一次。
                "AUTO_PUBLISH": "0"}
     print(f"\n{'='*18} {label}: Capture {'='*18}")
-    cmd = [sys.executable, str(ROOT / "run_qa.py")] + ([",".join(tcs)] if tcs else [])
+    # 用 __file__ 而不是寫死檔名：六檔整併時 run_qa.py 併進了本檔，但這行還指著舊名，
+    # 導致完整 round 的每一批都因「檔案不存在」exit 2，又被下面翻譯成
+    # 「Sample App 沒有觸發 Appier bid request」——錯誤訊息會把人帶去查投放而不是查檔名。
+    cmd = [sys.executable, str(Path(__file__).resolve())] + ([",".join(tcs)] if tcs else [])
     try:
         # 子行程自己會在 PHASE_TIMEOUT_SEC 到點時乾淨收尾（exit 5）；這裡的硬 timeout
         # 只是備援，防它卡在 loop 以外的地方（例如 Appium 連線 hang）。
@@ -1896,7 +1757,7 @@ def retry_failed_rounds(env):
                         action=f"Auto {phase} retry {attempt}：{','.join(tcs)}")
 
 
-# ── 入口（由 run_qa.py 呼叫）───────────────────────────────────────────────────
+# ── 入口（由本檔的 __main__ 呼叫；每個 capture 是 run_capture 開的新 process）──────
 
 def run_round(env, scope="all"):
     """跑一輪；回傳 exit code（0＝所有批次都完成）。
@@ -2231,7 +2092,8 @@ def detect_udid():
     if not devices:
         sys.exit("No Android device found. Connect device or start emulator.")
     if len(devices) > 1:
-        sys.exit(f"Multiple devices: {devices}\nSpecify: python run_qa.py {TC_ID} <UDID>")
+        sys.exit(f"Multiple devices: {devices}\n"
+                 f"Specify: python3 {Path(__file__).name} {TC_ID} <UDID>")
     return devices[0]
 
 

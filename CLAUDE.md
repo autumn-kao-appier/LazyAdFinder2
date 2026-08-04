@@ -241,7 +241,30 @@ git checkout 8307b56 -- verdict.py     # 整檔拉回
 > `qa_aos.save_evidence()` 的 docstring（含 privacy／E2E 點擊必須在 traffic.jsonl 歸檔前做、
 > mediation 要先 E2E 後 privacy 這兩個順序約束）。
 
-**留空 ④：判定的通過標準與 HTML 版面（契約，只有一份）**
+**留空 ④：E2E 判定層（`qa_aos.py`，約 240 行）**
+
+清空 `E2E_TCS` ＋ `E2E_AUTO_VALIDATORS` ＋ `evaluate()`、`FLOW_STEPS`／`STEP_OF`／
+`STEP_SHOT`／`STATUS_LABEL`／`MODE_NA_REASON`／`REQUIRED_NATIVE`、證據探測 helper
+（`_first_logcat`／`_first_with`／`_urls_in`／`_any_traffic`／`_bid_ad`／`_norm_text`／
+`_find_xclk`／`_click_evidence`／`_admob_traffic`）、`summarize()`、
+`_FLOW_ORDER` ＋ `compute_round_progress()`。
+
+保留：`ALL_MODES`／`ADMOB`／`REEN`（適用矩陣詞彙）、`_load_captures`／`_traffic`／
+`_json_file`／`_text_file`／`_logcat`（純檔案 I/O、零 TC 知識，重寫判定時直接用）、
+**`E2E_SCORE`／`E2E_SCORE_ORDER`／`E2E_SCORE_CLS`／`E2E_STATUS_CLS`／`E2E_BADGE_LABEL`
+（三態口徑，與 `classify()` 同級的契約）**、`do_e2e_flow()`／`do_privacy_click()`／
+`do_session_case()`（裝置動作，屬 capture 層）。
+
+原版每支 helper 的語意記在 `qa_aos.py` 的 E2E 目錄註解裡（重建判定函式時照著寫），
+包含幾條踩過的坑：`_click_evidence` 要能**不依賴 proxy** 判斷點擊是否發生；
+`_norm_text` 少了會讓「畫面文字 ↔ response 素材」比對全 FAIL；`MODE_NA_REASON` 的
+措辭不可寫死 standalone（applovin 也會觸發 `na_mode`）。
+
+> ⚠️ `page.py` 有一份**自己的** `compute_round_progress`（平台總覽卡用，`page.py` 不
+> import 平台檔）。那份仍是原版實作、沒跟著清 —— 重建後兩邊判準要對齊，否則同一輪在
+> 單輪報告與平台總覽會顯示不同進度。
+
+**留空 ⑤：判定的通過標準與 HTML 版面（契約，只有一份）**
 
 - `verdict.run_validator()` —— 每個 check 的通過標準。**`CHECKS` 詞彙表是留著的**：
   哪些 check 存在、各需要 TC 帶什麼欄位（`expected` / `pattern` / `min`,`max` / `ref_field`）。
@@ -271,14 +294,14 @@ logcat 與 syslog 側錄／`scan_logcat_bid`／`diagnose_no_ad`／刷到指定 C
 
 ## 已知落差
 
-- **`run_capture()` 指向不存在的 `run_qa.py`（承襲自 LazyAdFinder 的既有 bug，尚未修）。**
-  六檔整併時 `run_qa.py` 併進了 `qa_aos.py`，但 `run_capture()` 仍然
-  `subprocess.run([sys.executable, ROOT / "run_qa.py"])`。所以**完整 round（不帶參數）
-  每一批都會立刻失敗**，而且錯誤訊息會誤導 —— 子行程因為檔案不存在 exit 2，
-  run_capture 把 exit 2 翻譯成「Sample App 沒有觸發 Appier bid request」。
-  補跑指定 TC（`python3 qa_aos.py AND-04`）走的是同一個 process，不受影響。
-  一行可修（改成 `qa_aos.py` 或 `Path(__file__)`），但原專案也有同一個問題，
-  修之前先確認要不要兩邊一起修。
+- **⚠️ `LazyAdFinder`（原專案）的 `run_capture()` 仍指向不存在的 `run_qa.py`。**
+  六檔整併時 `run_qa.py` 併進了 `qa_aos.py`，但那邊的 `run_capture()` 還是
+  `subprocess.run([sys.executable, ROOT / "run_qa.py"])`（`qa_aos.py:2061`）——
+  所以**原專案的完整 round（不帶參數）每一批都會立刻失敗**，而且訊息會誤導：
+  子行程因檔案不存在 exit 2，`run_capture` 把 exit 2 翻譯成「Sample App 沒有觸發
+  Appier bid request」，看起來像投放問題。補跑指定 TC 走同一個 process，不受影響。
+  **本專案已修**（改用 `Path(__file__).resolve()`，順便讓它不會再因改名而失聯），
+  原專案尚未修。
 - **iOS 沒有 round 排程**：`qa_ios.py` 只做單次 capture，狀態類 TC 要逐條人工佈。
   待補（AOS 的 CURRENT/CTRL1/CTRL2/CTRL3/SD 對應實作）。
 - **沒有測試**。原本唯一的回歸機制是「拿既有 evidence 重算，判定數字必須不變」；
