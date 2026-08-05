@@ -500,16 +500,29 @@ def run_round(config, name):
                 verdict_path.write_text(
                     json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
                 )
-        raise CaptureError(
+        error = CaptureError(
             f"Round {name!r} failed at {phase} {round_definition.capture_name!r}: {exc}"
-        ) from exc
+        )
+        error.evidence_folder = evidence_folder
+        raise error from exc
 
 
-def publish_completed_round(evidence_dir):
-    """Publish once, only after every capture in a Round has completed."""
+def publish_completed_round(evidence_dir, folders):
+    """Publish only after this Round's finalized verdict files are on disk."""
+    folders = [Path(folder) for folder in folders if folder is not None]
+    if not folders:
+        print("[publish] skipped; this Round produced no Evidence folder", file=sys.stderr)
+        return None
+    missing = [folder for folder in folders if not (folder / "verdicts.json").is_file()]
+    if missing:
+        joined = ", ".join(str(folder) for folder in missing)
+        print(f"[publish] skipped; verdicts.json is not finalized: {joined}", file=sys.stderr)
+        return None
     if _env("AUTO_PUBLISH", "1") == "0":
         print("[publish] AUTO_PUBLISH=0; skipped")
         return None
+    sys.stdout.flush()
+    sys.stderr.flush()
     try:
         return subprocess.run(
             [
@@ -625,9 +638,16 @@ def main(argv=None):
         capture(config, capture_name=args.capture_name)
     else:
         try:
-            run_round(config, args.name)
-        finally:
-            publish_completed_round(config.evidence_dir)
+            folders = run_round(config, args.name)
+        except Exception as exc:
+            evidence_folder = getattr(exc, "evidence_folder", None)
+            publish_completed_round(
+                config.evidence_dir,
+                [evidence_folder] if evidence_folder is not None else [],
+            )
+            raise
+        else:
+            publish_completed_round(config.evidence_dir, folders)
     return 0
 
 

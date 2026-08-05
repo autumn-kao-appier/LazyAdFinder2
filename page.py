@@ -218,6 +218,15 @@ DISPLAY_LABELS = {
     "ext_device_lat": "Extended LAT",
     "req_app_sdk_version": "Request SDK version",
     "build_sdk_version": "Build SDK version",
+    "collection_status": "Collection status",
+    "package_count": "Package count",
+    "packages": "Packages",
+    "field_present": "Field present",
+    "product_count": "Product count",
+    "product_ids": "Product IDs",
+    "timestamp_count": "Timestamp count",
+    "current_boot_reference_ms": "Current boot reference (ms)",
+    "pot": "Boot timestamps",
     "source": "Answer key source",
 }
 
@@ -262,7 +271,13 @@ def _evidence_content(row, guidance=""):
 <figcaption>{html.escape(reference)}</figcaption></figure>'''
     if target.suffix.lower() == ".json":
         document = _load_json(target)
-        return guidance_html + f'''<div class="evidence-data"><b>{html.escape(reference)}</b><label>Expected build</label>{_fact_list(document.get("expected", {}))}<label>Captured request</label>{_fact_list(document.get("actual", {}))}</div>'''
+        expected_html = ""
+        if "expected" in document:
+            expected_html = f'<label>Expected</label>{_fact_list(document.get("expected"))}'
+        note_html = ""
+        if document.get("note"):
+            note_html = f'<div class="result-note"><b>Note</b><p>{html.escape(str(document["note"]))}</p></div>'
+        return guidance_html + f'''<div class="evidence-data"><b>{html.escape(reference)}</b>{expected_html}<label>Captured evidence</label>{_fact_list(document.get("actual", {}))}{note_html}</div>'''
     return guidance_html + f'<pre class="evidence-text">{html.escape(target.read_text(errors="replace"))}</pre>'
 
 
@@ -274,13 +289,21 @@ def _result_card(row, catalog_by_key):
     result_note = ""
     if row["reason"]:
         result_note = f'<div class="result-note"><b>Result note</b><p>{html.escape(row["reason"])}</p></div>'
-    return f'''<article class="result-card" data-result-status="{row["status"].lower()}">
+    override_key = ":".join((
+        row["platform"], row["mode_group"], row["test_type"], row["captured_at"], row["tc"]
+    ))
+    return f'''<article class="result-card" data-result-status="{row["status"].lower()}" data-automation-status="{row["status"].lower()}" data-layer="{html.escape(row["layer"])}" data-override-key="{html.escape(override_key, quote=True)}">
 <div class="result-head"><div><strong>{html.escape(row["title"])}</strong>
 <span class="tc-id">{html.escape(_tc_label(row["tc"], catalog_by_key))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
 <div class="card-tabs"><button class="on" data-card-tab="summary">Result</button><button data-card-tab="evidence">Evidence</button></div>
 <div class="card-page" data-card-page="summary"><section class="expected-block"><label>Expected</label><p>{html.escape(expected_text)}</p></section>
 <section class="actual-block"><label>Actual</label>{_fact_list(row["actual"])}</section>{result_note}</div>
-<div class="card-page" data-card-page="evidence" hidden>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""))}</div></article>'''
+<div class="card-page" data-card-page="evidence" hidden>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""))}
+<details class="manual-review"><summary><span>Manual override</span><span class="manual-indicator" hidden>MANUAL</span></summary><div class="manual-form"><small>Automation status：{row["status"]}</small>
+<label>Status<select data-manual-status><option value="">Use automation result</option><option value="PASS">PASS</option><option value="FAILED">FAILED</option><option value="BLOCKED">BLOCKED</option></select></label>
+<label>Reason<textarea data-manual-reason rows="2" placeholder="請填寫人工修改理由"></textarea></label>
+<div class="manual-actions"><button data-manual-save>Save override</button><button data-manual-reset>Clear override</button></div>
+<div class="manual-saved" hidden></div></div></details></div></article>'''
 
 
 def _run_information(rows):
@@ -330,8 +353,8 @@ def _slot_card(platform, mode, kind, label, description, rows):
     return f'''<button class="type-card" data-slot="{platform}:{mode}:{kind}">
 <div><span class="type-id">{html.escape(kind)}</span><span class="total">{len(rows)} results</span></div>
 <h3>{html.escape(label)}</h3><p>{html.escape(description)}</p>
-<div class="layer-row"><b>E2E</b><span class="pass-text">{e2e[Status.PASS.value]}✓</span><span class="failed-text">{e2e[Status.FAILED.value]}✗</span><span class="blocked-text">{e2e[Status.BLOCKED.value]} blocked</span><small>{len(e2e_rows)} TC</small></div>
-<div class="layer-row"><b>Signal</b><span class="pass-text">{signal[Status.PASS.value]}✓</span><span class="failed-text">{signal[Status.FAILED.value]}✗</span><span class="blocked-text">{signal[Status.BLOCKED.value]} blocked</span><small>{len(signal_rows)} TC</small></div>
+<div class="layer-row" data-layer-row="e2e"><b>E2E</b><span class="pass-text">{e2e[Status.PASS.value]}✓</span><span class="failed-text">{e2e[Status.FAILED.value]}✗</span><span class="blocked-text">{e2e[Status.BLOCKED.value]} blocked</span><small>{len(e2e_rows)} TC</small></div>
+<div class="layer-row" data-layer-row="signal"><b>Signal</b><span class="pass-text">{signal[Status.PASS.value]}✓</span><span class="failed-text">{signal[Status.FAILED.value]}✗</span><span class="blocked-text">{signal[Status.BLOCKED.value]} blocked</span><small>{len(signal_rows)} TC</small></div>
 <b class="open">查看結果 →</b></button>'''
 
 
@@ -385,14 +408,35 @@ CSS = r"""
 .report-section{margin:22px 0 32px}.section-title{display:flex;align-items:center;gap:11px;margin-bottom:12px}.section-title>span{font:800 11px var(--mono);color:var(--accent);background:var(--accent2);padding:6px;border-radius:7px}.section-title h3,.section-title p{margin:0}.section-title p{color:var(--faint);font-size:11px}
 .result-badges{align-items:flex-end;gap:5px}.priority-tag{font:800 11px var(--mono);padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent)}.card-tabs{display:flex;gap:4px;margin:14px 0 11px;border-bottom:1px solid var(--line)}.card-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--faint);padding:6px 9px;cursor:pointer}.card-tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:750}.card-page{min-height:250px}.expected-block,.actual-block{background:var(--panel2);border-radius:9px;padding:11px 12px;margin-bottom:10px}.expected-block label,.actual-block label,.run-info label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.expected-block p{margin:5px 0 0;color:var(--ink);line-height:1.6}.facts{margin:5px 0 0}.facts>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.facts>div:first-child{border-top:0}.facts dt{color:var(--soft)}.facts dd{margin:0;text-align:right;font:650 11px var(--mono);overflow-wrap:anywhere}.result-note{border-left:3px solid var(--block);padding:7px 10px}.result-note p{margin:3px 0}.evidence-guidance{border-left:3px solid var(--accent);background:var(--accent2);border-radius:0 9px 9px 0;padding:10px 12px;margin-bottom:10px}.evidence-guidance p{margin:4px 0 0;line-height:1.55}.evidence-image{margin:0;display:flex;flex-direction:column;align-items:center}.evidence-image img{display:block;max-width:100%;height:390px;object-fit:contain;border-radius:9px;background:#000}.evidence-image figcaption{color:var(--faint);font:10px var(--mono);margin-top:6px}.evidence-data,.evidence-text{background:var(--panel2);border-radius:9px;padding:12px;overflow:auto}.evidence-data>b{display:block;margin-bottom:8px}.evidence-missing{padding:45px 10px;text-align:center;color:var(--fail)}.run-info{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:24px}.run-info-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.run-info-title span{font:750 10px var(--mono);color:var(--accent)}.run-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}.run-info-grid>div{background:var(--panel2);padding:10px}.run-info-grid b{display:block;margin-top:3px;font-size:12px;overflow-wrap:anywhere}
 .status-filters{display:flex;justify-content:space-between;align-items:center;gap:15px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 15px;box-shadow:var(--shadow);margin-bottom:12px}.status-filters>div:first-child{display:flex;flex-direction:column}.status-filters>div:first-child>span{font-weight:800}.status-filters small{color:var(--faint)}.status-filter-buttons{display:flex;gap:7px;flex-wrap:wrap}.status-filter{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;background:var(--panel2);color:var(--soft);padding:6px 10px;cursor:pointer}.status-filter span{font:750 10px var(--mono)}.status-filter b{min-width:20px;text-align:center;border-radius:999px;background:var(--panel);padding:1px 5px}.status-filter.pass{color:var(--pass)}.status-filter.failed{color:var(--fail)}.status-filter.blocked{color:var(--block)}.status-filter.on{color:#fff;border-color:transparent}.status-filter.pass.on{background:var(--pass)}.status-filter.failed.on{background:var(--fail)}.status-filter.blocked.on{background:var(--block)}.status-filter.on b{color:var(--ink)}.status-filter:disabled{opacity:.4;cursor:not-allowed}@media(max-width:650px){.status-filters{align-items:flex-start;flex-direction:column}.status-filter-buttons{width:100%}.status-filter{flex:1;justify-content:center}}
+.manual-review{margin-top:10px}.manual-review summary{display:flex;align-items:center;gap:6px;width:max-content;margin-left:auto;color:var(--faint);font:700 9px var(--mono);cursor:pointer;list-style:none}.manual-review summary::-webkit-details-marker{display:none}.manual-review summary:before{content:"＋"}.manual-review[open] summary:before{content:"−"}.manual-form{margin-top:7px;padding:9px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}.manual-form>small{color:var(--faint);font-size:9px}.manual-indicator{font:800 8px var(--mono);color:#fff;background:var(--block);padding:2px 5px;border-radius:999px}.manual-review label{display:block;color:var(--faint);font-size:9px;font-weight:750;margin-top:6px}.manual-review select,.manual-review textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);padding:5px 6px}.manual-review textarea{resize:vertical;font:11px var(--sans)}.manual-actions{display:flex;gap:6px;margin-top:7px}.manual-actions button,.export-overrides{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;padding:5px 8px;cursor:pointer}.manual-actions button:first-child{background:var(--accent);border-color:var(--accent);color:#fff}.manual-saved{margin-top:7px;padding:6px 8px;border-left:3px solid var(--block);background:var(--panel);font-size:10px;white-space:pre-wrap}.export-overrides{margin-left:auto}.theme{margin-left:0}
 """
 
 
 SCRIPT = r"""
 (function(){
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
+ var overrideStorageKey="laf2-manual-overrides-v1",overrides={};
  try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
+ try{overrides=JSON.parse(localStorage.getItem(overrideStorageKey)||"{}")||{}}catch(e){overrides={}}
  document.getElementById("theme").onclick=function(){var dark=root.dataset.theme==="dark";root.dataset.theme=dark?"light":"dark";try{localStorage.setItem("laf2-theme",root.dataset.theme)}catch(e){}};
+ function persistOverrides(){try{localStorage.setItem(overrideStorageKey,JSON.stringify(overrides));return true}catch(e){alert("無法儲存 manual override："+e);return false}}
+ function applyManualOverride(card){
+  var item=overrides[card.dataset.overrideKey],automation=card.dataset.automationStatus,status=item&&item.status?item.status.toLowerCase():automation;
+  card.dataset.resultStatus=status;
+  var badge=card.querySelector(".result-badges .status");badge.classList.remove("pass","failed","blocked");badge.classList.add(status);badge.textContent=status.toUpperCase();
+  var select=card.querySelector("[data-manual-status]"),reason=card.querySelector("[data-manual-reason]"),indicator=card.querySelector(".manual-indicator"),saved=card.querySelector(".manual-saved");
+  select.value=item?item.status:"";reason.value=item?item.reason:"";indicator.hidden=!item;saved.hidden=!item;
+  if(item)saved.textContent=item.status+" — "+item.reason+"\nUpdated "+item.updated_at;
+ }
+ function refreshCounts(){
+  document.querySelectorAll(".slot-detail").forEach(function(detail){
+   var cards=Array.from(detail.querySelectorAll(".result-card")),counts={pass:0,failed:0,blocked:0};cards.forEach(function(card){counts[card.dataset.resultStatus]=(counts[card.dataset.resultStatus]||0)+1});
+   detail.querySelectorAll("[data-status-filter]").forEach(function(button){var count=counts[button.dataset.statusFilter]||0;button.querySelector("b").textContent=count;button.disabled=count===0});
+   applyStatusFilter(detail,detail.dataset.statusFilter||"");
+   var typeCard=Array.from(document.querySelectorAll(".type-card")).find(function(card){return card.dataset.slot===detail.dataset.slot});
+   if(typeCard){typeCard.querySelector(".total").textContent=cards.length+" results";["e2e","signal"].forEach(function(layer){var rows=cards.filter(function(card){return card.dataset.layer===layer}),row=typeCard.querySelector('[data-layer-row="'+layer+'"]'),layerCounts={pass:0,failed:0,blocked:0};rows.forEach(function(card){layerCounts[card.dataset.resultStatus]++});row.querySelector(".pass-text").textContent=layerCounts.pass+"✓";row.querySelector(".failed-text").textContent=layerCounts.failed+"✗";row.querySelector(".blocked-text").textContent=layerCounts.blocked+" blocked";row.querySelector("small").textContent=rows.length+" TC"})}
+  })
+ }
  document.querySelectorAll(".main-nav button").forEach(function(b){b.onclick=function(){activePage=b.dataset.page;document.querySelectorAll(".main-nav button").forEach(function(x){x.classList.toggle("on",x===b)});document.querySelectorAll(".app-page").forEach(function(p){p.hidden=p.id!==activePage+"-page"});if(activePage==="reports")showOverview()}});
  function select(group,value){document.querySelectorAll('.seg.'+group+' button').forEach(function(b){b.classList.toggle("on",b.dataset.value===value)})}
  function update(){select("platform",platform);select("mode",mode);document.querySelectorAll(".type-card").forEach(function(c){c.hidden=!c.dataset.slot.startsWith(platform+":"+mode+":")});document.getElementById("result-context").textContent=(platform==="aos"?"AOS":"iOS")+" · "+(mode==="standalone"?"Standalone":"Mediation")}
@@ -405,6 +449,10 @@ SCRIPT = r"""
  document.querySelectorAll(".type-card").forEach(function(c){c.onclick=function(){overview.hidden=true;details.forEach(function(d){var active=d.dataset.slot===c.dataset.slot;d.hidden=!active;if(active)applyStatusFilter(d,"")});scrollTo(0,0)}});
  document.querySelectorAll(".back").forEach(function(b){b.onclick=function(){showOverview();scrollTo(0,0)}});
  document.querySelectorAll("[data-card-tab]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),target=button.dataset.cardTab;card.querySelectorAll("[data-card-tab]").forEach(function(item){item.classList.toggle("on",item===button)});card.querySelectorAll("[data-card-page]").forEach(function(page){page.hidden=page.dataset.cardPage!==target})}});
+ document.querySelectorAll("[data-manual-save]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),status=card.querySelector("[data-manual-status]").value,reason=card.querySelector("[data-manual-reason]").value.trim();if(!status){delete overrides[card.dataset.overrideKey];persistOverrides();applyManualOverride(card);refreshCounts();return}if(!reason){alert("Manual override 必須填寫理由");card.querySelector("[data-manual-reason]").focus();return}overrides[card.dataset.overrideKey]={status:status,reason:reason,updated_at:new Date().toISOString(),automation_status:card.dataset.automationStatus.toUpperCase()};if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
+ document.querySelectorAll("[data-manual-reset]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card");delete overrides[card.dataset.overrideKey];if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
+ document.getElementById("export-overrides").onclick=function(){var payload={schema_version:1,exported_at:new Date().toISOString(),page:location.href,overrides:overrides},blob=new Blob([JSON.stringify(payload,null,2)+"\n"],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="lazyadfinder2-manual-overrides.json";a.click();setTimeout(function(){URL.revokeObjectURL(url)},1000)};
+ document.querySelectorAll(".result-card").forEach(applyManualOverride);refreshCounts();
  addEventListener("keydown",function(e){if(e.key==="Escape")showOverview()});update();
 })();
 """
@@ -423,7 +471,7 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
     roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
     return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
-<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">Round Reports</button><button data-page="catalog">TestCase Catalog</button></nav><button class="theme" id="theme">◐</button></header>
+<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">Round Reports</button><button data-page="catalog">TestCase Catalog</button></nav><button class="export-overrides" id="export-overrides">Export overrides</button><button class="theme" id="theme">◐</button></header>
 <main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>Round Reports</h1><p>一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid">{"".join(cards)}</div></div>{"".join(details)}</section>
@@ -473,11 +521,15 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
         if changed:
             subprocess.run(["git", "commit", "-m", f"publish: QA report {datetime.now():%Y-%m-%d %H:%M:%S}"], cwd=checkout, check=True)
             subprocess.run(["git", "push", "origin", "HEAD:gh-pages"], cwd=checkout, check=True)
+        published_revision = subprocess.check_output(
+            ["git", "rev-parse", "--short=12", "HEAD"], cwd=checkout, text=True
+        ).strip()
     url = _pages_url(remote)
-    print(f"[publish] {'updated' if changed else 'unchanged'} · {url or remote}")
+    public_url = f"{url}?build={published_revision}" if url else remote
+    print(f"[publish] {'updated' if changed else 'unchanged'} · {public_url}")
     if url and open_page and os.environ.get("OPEN_PAGES", "1") != "0":
-        subprocess.run(["open", url], check=False)
-    return url or remote
+        subprocess.run(["open", public_url], check=False)
+    return public_url
 
 
 def build_parser():
@@ -485,6 +537,7 @@ def build_parser():
     parser.add_argument("--evidence", nargs="+", default=[str(ROOT / "evidence")])
     parser.add_argument("--catalog", default=str(DEFAULT_CATALOG))
     parser.add_argument("--out", default="report.html")
+    parser.add_argument("--local", action="store_true", help="render and open the local report without publishing")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--no-open", action="store_true")
     return parser
@@ -499,6 +552,9 @@ def main(argv=None):
     verdicts = current_verdicts(verdicts, catalog)
     output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog))
     print(f"[report] {output} · catalog={len(catalog)} verdicts={len(verdicts)} captures={len(captures)}")
+    if args.local and not args.no_open:
+        subprocess.run(["open", output.as_uri()], check=False)
+        print(f"[local] {output.as_uri()}")
     return 0
 
 

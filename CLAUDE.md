@@ -30,8 +30,10 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 ## TC 重建規則
 
 `TC_DEFINITIONS` 與 `ROUND_DEFINITIONS` 只註冊使用者已逐條確認的 TC，不得批次搬回舊規則。
-目前 AOS 已註冊 `advertising-id`、`app-set-id`、`tracking-allowed`、`sdk-version`，由 `R1` 的同一次
-capture 執行。這些是穩定語意 key，不代表顯示順序或最終 TC 編號。
+目前 AOS 已註冊 `advertising-id`、`app-set-id`、`installed-app-list`、
+`in-app-purchase-history`、`boot-timestamps`、`ram-total`、`ram-available`、`disk-total`、
+`disk-free`、`tracking-allowed`、`sdk-version`，由 `R1` 的同一次 capture 執行。這些是穩定語意
+key，不代表顯示順序或最終 TC 編號。
 正式編號 `display_id` 與排序 `order` 只在 `testcases/testcase_catalog.json` 維護；未決定時
 保持 `null`，不得先猜編號。Page 必須直接讀取這份單一來源。
 
@@ -112,14 +114,18 @@ baseline 或任何預設狀態。
 
 ## 目前狀態
 
-- AOS：automation 與 evidence engine 已清理；R1 同一次 capture 驗證四條已確認的 Signal TC。
+- AOS：automation 與 evidence engine 已清理；R1 同一次 capture 驗證十一條已確認的 Signal TC。
 - iOS：獨立的 XCUITest/raw evidence engine 已清理；TC/round 目錄為空。
 - mitmdump：只輸出 bid request、bid response、impression callback。
 - AprXorEnc：只提供 `decrypt(encrypted: str) -> str`。
 - Verdict：保留三態契約；answer key/validator 只包含已人工確認的 Signal TC。
 - Page：舊平台/E2E 邏輯已清除，只讀 `verdicts.json` 並呈現三態結果。
+- 本地查看：使用 `python3 page.py --local` 生成並打開 repo 根目錄的 `report.html`，不需要等待
+  GitHub Pages；本地與公開頁必須共用同一 renderer。
 - 發布：單次 `capture` 不發布。`round` 結束時自動呼叫一次 `page.py --publish`；某個 Step
   失敗時仍發布當下結果，接著以非零狀態結束，且錯誤必須標出 Round 與 Step，不可靜默。
+  只有本輪 Evidence folder 已建立且 `verdicts.json` 完整落盤後才可發布；若在 Evidence 建立前
+  失敗，必須跳過發布，不得把上一輪舊結果冒充本輪更新。
   發布成功後必須自動以系統瀏覽器打開 GitHub Pages 公開 Report，不可只產生本機 HTML 或
   只印出 URL。為避免舊快取，開啟的 URL 應附帶本次 publish commit／timestamp cache-buster。
   即使 Round 中途失敗，也要依序保存失敗 Evidence、產生 Report、publish，最後打開公開頁面；

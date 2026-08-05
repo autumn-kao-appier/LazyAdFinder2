@@ -1,7 +1,7 @@
 # LazyAdFinder2
 
 LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。TC、正確標準、Evidence 與報告
-由人工逐條定義；目前 AOS R1 已有四條 Signal TC。
+由人工逐條定義；目前 AOS R1 已有七條 Signal TC。
 
 ## 目前邊界
 
@@ -102,7 +102,7 @@ ROUND_DEFINITIONS = {"R1": Round("TRACKING-ALLOWED", (...))}
 
 ```bash
 python3 qa_aos.py list-rounds
-# R1: TRACKING-ALLOWED [advertising-id, app-set-id, tracking-allowed, sdk-version]
+# R1: TRACKING-ALLOWED [advertising-id, app-set-id, installed-app-list, in-app-purchase-history, boot-timestamps, ram-total, ram-available, disk-total, disk-free, tracking-allowed, sdk-version]
 ```
 
 只有在人工確認某條 TC 的 setup、證據與正確標準後，才加入定義。Automation engine 不得
@@ -169,7 +169,8 @@ iOS 可能因 TLS／pinning 只觀察到 impression callback、沒有 bid body�
 - `FAILED`：TC 已執行，實際值不符合正確標準。
 
 TC answer key 與 validator 只包含已人工確認的 TC；目前已加入 advertising-id、
-app-set-id、tracking-allowed、sdk-version。`page.py` 只呈現
+app-set-id、installed-app-list、in-app-purchase-history、boot-timestamps、ram-total、
+ram-available、disk-total、disk-free、tracking-allowed、sdk-version。`page.py` 只呈現
 結構化 `Verdict`，不得自行重算答案。
 
 已執行的 TC 呼叫 `evaluate(expected=..., actual=...)`，比較後必然得到 `PASS` 或
@@ -197,9 +198,13 @@ app-set-id、tracking-allowed、sdk-version。`page.py` 只呈現
 產生 report：
 
 ```bash
-python3 page.py
+python3 page.py --local            # 立即生成並打開本機 report，不等 GitHub Pages
+python3 page.py                    # 只生成 report.html
 python3 page.py --evidence evidence /path/to/more/evidence --out report.html
 ```
+
+本地入口固定是 repo 根目錄的 `report.html`；它是生成物，不進 Git。`--local` 與公開頁使用同一份
+renderer、Catalog 和 Evidence，只省略 gh-pages publish／部署等待。
 
 Page 只驗證並呈現 `BLOCKED`／`PASS`／`FAILED`，不 import platform runner，也不重新比較
 expected/actual。沒有 `verdicts.json` 時會顯示「尚無 TC 判定」。
@@ -215,7 +220,9 @@ python3 page.py --publish --no-open
 
 單次 `capture` 不發布。使用 `round` 時，runner 會在整輪結束時自動呼叫一次
 `page.py --publish`；即使某個 Step 失敗，也會先發布當下已有的結果，再以非零狀態結束，
-並在錯誤訊息標出 Round 與 Step。需要停用 round 的自動發布時，設定 `AUTO_PUBLISH=0`。
+並在錯誤訊息標出 Round 與 Step。只有本輪 Evidence folder 與 `verdicts.json` 都完成後才會
+發布；若尚未建立本輪 Evidence 就失敗，不會重新發布上一輪舊結果。需要停用 round 的自動
+發布時，設定 `AUTO_PUBLISH=0`。
 
 完整流程是：
 

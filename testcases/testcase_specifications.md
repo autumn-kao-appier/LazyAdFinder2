@@ -38,6 +38,114 @@ PASS：Opt out 關閉；設定頁、req、ext 三份 GAID 都存在、完全相�
 顯示 App Set ID 與 scope 的測試入口；Evidence 保存該畫面截圖與讀值，並要求畫面值完全等於
 `ext.device.ifv`。在此能力完成前，不得宣稱本 TC 已獨立證明 Google API 原值。
 
+## Installed App List
+
+- Key: `installed-app-list`
+- Signal / R1 / AOS / P1
+- Field: `device.ext.applist`
+
+目的：確認 Extended payload 的 Installed App List 若有傳送，資料形狀可被正確使用；同時允許
+SDK／系統完全拿不到清單，以及使用者裝置經過 Android package visibility 與 Launcher 過濾後
+真的沒有任何可回傳 App。不得把某次觀察到的 15 個套件、數量或順序寫死成答案。
+
+Evidence：Round 開始時開啟 Android Settings 的所有 App 清單、稍微向下滑動並保存
+`installed-apps-settings.png`，作為人眼可見的裝置狀態；`installed-app-list.json` 將抓包解密
+結果整理成 collection status、package count 與完整清單，並保留 `bid_raw.json`、
+`bid_decoded.json`、`verdicts.json`。設定頁使用 App 顯示名稱，而 SDK 受 Android package
+visibility 與 Launcher 過濾影響，因此截圖是輔助 Evidence，不與 payload 做完整一對一比對。
+
+PASS 有三種合法狀態：
+
+1. `UNAVAILABLE`：`device.ext.applist` 欄位不存在。
+2. `EMPTY`：欄位存在且為空陣列 `[]`。
+3. `CAPTURED`：欄位是非空陣列，每項皆為唯一且格式合法的 package-name 字串。
+
+FAILED：欄位存在但為 `null`、非陣列，或陣列包含非字串、空字串或重複套件。沒有取得／解開
+Extended payload，導致 TC 根本無法執行時才是 BLOCKED。
+
+## In App Purchase History
+
+- Key: `in-app-purchase-history`
+- Signal / R1 / AOS / P1
+- Field: `device.ext.iaphistory`
+
+目的：確認 Extended payload 送出 BillingClient 查得的 in-app product IDs 與 subscription
+product IDs 合併去重陣列。這不是包含時間、金額的完整交易歷史。
+
+欄位缺少、`null`、非陣列、空字串、非字串或重複值為 FAILED。合法陣列（包含 `[]`）只能
+證明欄位形狀成立；目前 Sample App 沒有購買流程或獨立 expected product IDs，無法驗證內容
+正確性，因此結果為 BLOCKED。待 RD 增加測試商品、購買入口與可核對答案後，才判定
+PASS／FAILED。
+
+Evidence：`in-app-purchase-history.json` 顯示欄位狀態、數量及 product IDs，並保留 raw、decoded
+與 verdict。SDK 的非同步 Billing 查詢失敗也可能維持空陣列，所以不得把 `[]` 判成 PASS。
+
+## System Boot Timestamps
+
+- Key: `boot-timestamps`
+- Signal / R1 / AOS / P1
+- Field: `device.ext.pot`
+
+目的：確認 SDK 送出最多五筆 power-on timestamp。`pot` 是 epoch milliseconds 的開機時間，
+不是 uptime 時長。
+
+PASS：欄位存在且含 1～5 筆正整數；數列嚴格遞增且不得晚於 capture。Round 在抓包前以裝置
+epoch time 減 `/proc/uptime` 獨立算出本次開機時間，`pot` 最後一筆必須在 ±120 秒內相符。
+欄位缺少、空陣列、格式／順序錯誤或最新值不符為 FAILED；無法取得必要 payload 或獨立裝置
+時間才是 BLOCKED。
+
+Evidence：`boot-time-calculation.png` 上半部是 About phone → Uptime 的原生畫面隱私裁切，只
+保留 Uptime 卡；含 IP、Wi-Fi MAC、Bluetooth address 的完整截圖不得寫入 Evidence。下半部
+列出「裝置目前時間 − Uptime = 推算開機時間」，再與最新 `pot` 比較並顯示毫秒誤差。
+`boot-timestamps.json` 保存精確計算資料。歷史舊值無法由當下系統狀態逐筆還原，只驗格式與順序。
+
+## Resource Status: RAM and Disk
+
+這一組共用一次送出 request 前的 Android 系統採樣與設定頁截圖，但維持四條獨立 Verdict，讓
+單一欄位失敗不會掩蓋其他欄位結果。所有 payload 值的單位都是 bytes。
+
+### RAM Status (Total)
+
+- Key: `ram-total`
+- Field: `device.ext.mem_total`
+
+PASS：值為正整數，且與 `/proc/meminfo` 的 `MemTotal × 1024` 相差不超過 2%。
+
+### RAM Status (Available)
+
+- Key: `ram-available`
+- Field: `device.ext.mem_available`
+
+PASS：值為正整數且不大於同包 payload 的 `mem_total`；與 request 前立即讀取的
+`MemAvailable × 1024` 相差不超過 `max(RAM total 10%, 512 MiB)`。這是動態值，不要求逐 byte
+相等。
+
+### Disk Storage (Total)
+
+- Key: `disk-total`
+- Field: `device.ext.disk_total`
+
+PASS：值為正整數，且與 `df -k /data` 的 1 KiB blocks 換算所得 App data filesystem 總容量
+相差不超過 2%。
+
+### Disk Storage (Free)
+
+- Key: `disk-free`
+- Field: `device.ext.disk_free`
+
+PASS：值為正整數且不大於同包 payload 的 `disk_total`；與 request 前讀取的 `/data` 可用容量
+相差不超過 `max(Disk total 2%, 512 MiB)`。capture 本身會寫檔，所以不要求逐 byte 相等。
+
+四條各有獨立的人眼 Evidence：`mem-total-evidence.png`、`mem-available-evidence.png`、
+`disk-total-evidence.png`、`disk-free-evidence.png`。RAM 圖直接保留 `/proc/meminfo` 的原始
+`MemTotal`／`MemAvailable` 行並列出 `kB × 1024 = bytes`；Pixel Settings 沒有即時 Total／
+Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留 Android Storage 的 Total／Used
+原生畫面；Free 圖明列 `Total − Used ≈ Free`。下半部才使用同一時間的精確 OS bytes 與 SDK
+對答案。`resource-status.json` 保存讀值、來源與容差。
+
+任一欄位缺少、型別錯誤、關係不合法或超出容差為 FAILED；獨立系統讀值或 payload 無法取得，
+導致 TC 未真正執行時才是 BLOCKED。
+
 ## Limit Ad Tracking Flag (tracking allowed)
 
 - Key: `tracking-allowed`

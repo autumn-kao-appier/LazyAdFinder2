@@ -5,11 +5,21 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from evidence_aos import ADS_SETTINGS, APP_SET_ID, BID, SDK_BUILD_INFO
-from verdict import evaluate
+from evidence_aos import (
+    ADS_SETTINGS,
+    APP_SET_ID,
+    BID,
+    BOOT_TIMESTAMPS,
+    IN_APP_PURCHASE_HISTORY,
+    INSTALLED_APP_LIST,
+    RESOURCE_STATUS,
+    SDK_BUILD_INFO,
+)
+from verdict import blocked, evaluate
 
 
 UUID_RE = re.compile(r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+PACKAGE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$")
 ZERO_GAID = "00000000-0000-0000-0000-000000000000"
 ABSENT = "ABSENT"
 
@@ -173,6 +183,221 @@ def validate_app_set_id(folder):
     )
 
 
+def validate_installed_app_list(folder):
+    key = "installed-app-list"
+    title = "Installed App List"
+    description = "Extended payload carries a valid installed-app list or an allowed empty/unavailable state."
+    decoded = _decoded(folder)
+    plaintext = decoded.get("ext", {}).get("plaintext", {})
+    if not isinstance(plaintext, dict):
+        raise ValueError("ext plaintext is unavailable; installed-app-list was not executed")
+    device = plaintext.get("device")
+    if not isinstance(device, dict):
+        raise ValueError("ext.device is unavailable; installed-app-list was not executed")
+    device_ext = device.get("ext") if isinstance(device, dict) else None
+    present = isinstance(device_ext, dict) and "applist" in device_ext
+    value = device_ext.get("applist") if present else None
+    failures = []
+    if not present:
+        state = "UNAVAILABLE"
+        packages = None
+    elif not isinstance(value, list):
+        state = "INVALID"
+        packages = value
+        failures.append(f"ext.device.ext.applist must be an array or absent, got {type(value).__name__}")
+    elif not value:
+        state = "EMPTY"
+        packages = value
+    else:
+        state = "CAPTURED"
+        packages = value
+        invalid = [
+            item
+            for item in value
+            if not isinstance(item, str) or not PACKAGE_NAME_RE.fullmatch(item)
+        ]
+        if invalid:
+            failures.append("ext.device.ext.applist contains an invalid package name")
+        valid_strings = [item for item in value if isinstance(item, str)]
+        if len(valid_strings) != len(set(valid_strings)):
+            failures.append("ext.device.ext.applist contains duplicate package names")
+    return _verdict(
+        key,
+        title,
+        description,
+        {
+            "allowed_states": ["UNAVAILABLE", "EMPTY", "CAPTURED"],
+            "captured_items": "unique syntactically valid package-name strings",
+        },
+        {
+            "collection_status": state,
+            "package_count": len(value) if isinstance(value, list) else 0,
+            "packages": packages,
+        },
+        "installed-apps-settings.png",
+        failures,
+    )
+
+
+def _device_ext_field(decoded, field):
+    plaintext = decoded.get("ext", {}).get("plaintext", {})
+    if not isinstance(plaintext, dict):
+        raise ValueError(f"ext plaintext is unavailable; {field} was not executed")
+    device = plaintext.get("device")
+    if not isinstance(device, dict):
+        raise ValueError(f"ext.device is unavailable; {field} was not executed")
+    device_ext = device.get("ext")
+    if not isinstance(device_ext, dict):
+        return False, None
+    return field in device_ext, device_ext.get(field)
+
+
+def validate_in_app_purchase_history(folder):
+    key = "in-app-purchase-history"
+    title = "In App Purchase History"
+    description = "Extended payload sends a valid product-ID array; an empty Sample App result is allowed."
+    present, value = _device_ext_field(_decoded(folder), "iaphistory")
+    failures = []
+    if not present:
+        failures.append("ext.device.ext.iaphistory is missing")
+    elif not isinstance(value, list):
+        failures.append("ext.device.ext.iaphistory must be an array")
+    else:
+        invalid = [item for item in value if not isinstance(item, str) or not item.strip()]
+        if invalid:
+            failures.append("ext.device.ext.iaphistory contains a non-string or empty product ID")
+        valid_strings = [item for item in value if isinstance(item, str)]
+        if len(valid_strings) != len(set(valid_strings)):
+            failures.append("ext.device.ext.iaphistory contains duplicate product IDs")
+    if failures:
+        return _verdict(
+            key,
+            title,
+            description,
+            {"field_present": True, "value": "array of unique non-empty product-ID strings"},
+            {
+                "field_present": present,
+                "product_count": len(value) if isinstance(value, list) else 0,
+                "product_ids": value,
+            },
+            "in-app-purchase-history.json",
+            failures,
+        )
+    row = blocked(
+        key,
+        "Sample App has no purchase flow or independent expected product IDs; "
+        "the captured array cannot be verified for correctness",
+    ).to_dict()
+    row.update({"layer": "Signal", "title": title, "description": description})
+    return row
+
+
+def validate_boot_timestamps(folder):
+    key = "boot-timestamps"
+    title = "System Boot Timestamps"
+    description = "Power-on timestamps are ordered and the latest matches device clock minus uptime."
+    info = json.loads((Path(folder) / "boot-timestamps.json").read_text())
+    expected_boot = info.get("current_boot_time_ms")
+    captured_epoch = info.get("captured_epoch_ms")
+    present, value = _device_ext_field(_decoded(folder), "pot")
+    failures = []
+    if not present:
+        failures.append("ext.device.ext.pot is missing")
+    elif not isinstance(value, list):
+        failures.append("ext.device.ext.pot must be an array")
+    else:
+        if not 1 <= len(value) <= 5:
+            failures.append(f"ext.device.ext.pot must contain 1 to 5 timestamps, got {len(value)}")
+        if any(type(item) is not int or item <= 0 for item in value):
+            failures.append("ext.device.ext.pot must contain positive integer epoch milliseconds")
+        elif any(left >= right for left, right in zip(value, value[1:])):
+            failures.append("ext.device.ext.pot must be strictly increasing")
+        elif isinstance(captured_epoch, int) and any(item > captured_epoch + 120_000 for item in value):
+            failures.append("ext.device.ext.pot contains a timestamp later than the capture time")
+        if value and isinstance(expected_boot, int) and type(value[-1]) is int:
+            if abs(value[-1] - expected_boot) > 120_000:
+                failures.append("latest pot does not match device clock minus uptime within 120 seconds")
+    return _verdict(
+        key,
+        title,
+        description,
+        {
+            "count": "1 to 5",
+            "format": "strictly increasing positive epoch milliseconds",
+            "latest": "device date - /proc/uptime ±120 seconds",
+        },
+        {
+            "field_present": present,
+            "timestamp_count": len(value) if isinstance(value, list) else 0,
+            "pot": value,
+            "current_boot_reference_ms": expected_boot,
+        },
+        "boot-time-calculation.png",
+        failures,
+    )
+
+
+def _validate_resource_status(folder, key, title, field, dynamic=False):
+    description = f"Extended payload {field} matches an independent Android system snapshot."
+    info = json.loads((Path(folder) / "resource-status.json").read_text())
+    expected = info.get("reference", {}).get(field)
+    actual = info.get("actual", {}).get(field)
+    comparison = info.get("comparisons", {}).get(field, {})
+    failures = []
+    if type(actual) is not int or actual <= 0:
+        failures.append(f"ext.device.ext.{field} must be a positive integer byte count")
+    if field.endswith("available") and type(actual) is int:
+        total = info.get("actual", {}).get("mem_total")
+        if type(total) is int and actual > total:
+            failures.append("mem_available cannot exceed mem_total")
+    if field.endswith("free") and type(actual) is int:
+        total = info.get("actual", {}).get("disk_total")
+        if type(total) is int and actual > total:
+            failures.append("disk_free cannot exceed disk_total")
+    if not comparison.get("within_tolerance"):
+        failures.append(f"{field} differs from the independent system snapshot beyond tolerance")
+    return _verdict(
+        key,
+        title,
+        description,
+        {
+            "system_reference_bytes": expected,
+            "tolerance_bytes": comparison.get("tolerance_bytes"),
+            "policy": "dynamic capture tolerance" if dynamic else "within 2%",
+        },
+        {
+            "payload_bytes": actual,
+            "difference_bytes": comparison.get("difference_bytes"),
+        },
+        "resource-status-calculation.png",
+        failures,
+    )
+
+
+def validate_ram_total(folder):
+    row = _validate_resource_status(folder, "ram-total", "RAM Status (Total)", "mem_total")
+    row["evidence"] = "mem-total-evidence.png"
+    return row
+
+
+def validate_ram_available(folder):
+    row = _validate_resource_status(folder, "ram-available", "RAM Status (Available)", "mem_available", True)
+    row["evidence"] = "mem-available-evidence.png"
+    return row
+
+
+def validate_disk_total(folder):
+    row = _validate_resource_status(folder, "disk-total", "Disk Storage (Total)", "disk_total")
+    row["evidence"] = "disk-total-evidence.png"
+    return row
+
+
+def validate_disk_free(folder):
+    row = _validate_resource_status(folder, "disk-free", "Disk Storage (Free)", "disk_free", True)
+    row["evidence"] = "disk-free-evidence.png"
+    return row
+
+
 TC_DEFINITIONS = {
     "advertising-id": TestCase(
         "advertising-id",
@@ -195,6 +420,31 @@ TC_DEFINITIONS = {
         (APP_SET_ID, BID),
         validate_app_set_id,
     ),
+    "installed-app-list": TestCase(
+        "installed-app-list",
+        "Installed App List",
+        "Extended payload carries a valid installed-app list or an allowed empty/unavailable state.",
+        (INSTALLED_APP_LIST, BID),
+        validate_installed_app_list,
+    ),
+    "in-app-purchase-history": TestCase(
+        "in-app-purchase-history",
+        "In App Purchase History",
+        "Extended payload sends a valid product-ID array; an empty Sample App result is allowed.",
+        (IN_APP_PURCHASE_HISTORY, BID),
+        validate_in_app_purchase_history,
+    ),
+    "boot-timestamps": TestCase(
+        "boot-timestamps",
+        "System Boot Timestamps",
+        "Power-on timestamps are ordered and the latest matches device clock minus uptime.",
+        (BOOT_TIMESTAMPS, BID),
+        validate_boot_timestamps,
+    ),
+    "ram-total": TestCase("ram-total", "RAM Status (Total)", "Total RAM matches the Android system snapshot.", (RESOURCE_STATUS, BID), validate_ram_total),
+    "ram-available": TestCase("ram-available", "RAM Status (Available)", "Available RAM is valid and matches the near-time system snapshot.", (RESOURCE_STATUS, BID), validate_ram_available),
+    "disk-total": TestCase("disk-total", "Disk Storage (Total)", "Total app-data filesystem storage matches the Android system snapshot.", (RESOURCE_STATUS, BID), validate_disk_total),
+    "disk-free": TestCase("disk-free", "Disk Storage (Free)", "Free app-data filesystem storage is valid and matches the near-time system snapshot.", (RESOURCE_STATUS, BID), validate_disk_free),
     "sdk-version": TestCase(
         "sdk-version",
         "SDK Version (sdk_version)",
@@ -207,6 +457,18 @@ TC_DEFINITIONS = {
 ROUND_DEFINITIONS = {
     "R1": Round(
         "TRACKING-ALLOWED",
-        ("advertising-id", "app-set-id", "tracking-allowed", "sdk-version"),
+        (
+            "advertising-id",
+            "app-set-id",
+            "installed-app-list",
+            "in-app-purchase-history",
+            "boot-timestamps",
+            "ram-total",
+            "ram-available",
+            "disk-total",
+            "disk-free",
+            "tracking-allowed",
+            "sdk-version",
+        ),
     ),
 }

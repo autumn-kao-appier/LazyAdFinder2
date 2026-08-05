@@ -6,4 +6,5 @@ __pycache__/
 
 # 生成物與測試資料（不進 repo；報告平台部署在 gh-pages）
 artifact-*.html
+report.html
 evidence/

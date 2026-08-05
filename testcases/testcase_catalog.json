@@ -51,9 +51,84 @@
       }
     },
     {
-      "key": "sdk-version",
+      "key": "installed-app-list",
+      "display_id": null,
+      "order": 30,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Installed App List",
+      "field": "device.ext.applist",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture。不可寫死套件數量、清單內容或順序。",
+        "expected": "欄位不存在、空陣列或合法的非空套件陣列都允許；有內容時每項必須是唯一且格式合法的 package-name 字串。",
+        "evidence": "installed-apps-settings.png、installed-app-list.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "設定頁 App 清單截圖提供人眼可見的裝置狀態；payload 清單來自抓包解密。兩者因 Android package visibility 與顯示名稱不同，不進行完整一對一比對。"
+      },
+      "ios": {
+        "applicable": false,
+        "setup": "N/A",
+        "expected": "iOS 不適用 Android Installed App List。",
+        "evidence": "N/A"
+      }
+    },
+    {
+      "key": "in-app-purchase-history",
       "display_id": null,
       "order": 40,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "C. App Activity",
+      "title": "In App Purchase History",
+      "field": "device.ext.iaphistory",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；目前 Sample App 沒有購買流程。",
+        "expected": "欄位缺少或格式錯誤為 FAILED；合法陣列在 Sample App 尚無購買流程與 expected product IDs 時為 BLOCKED，待 RD 提供可核對答案後才判 PASS／FAILED。",
+        "evidence": "in-app-purchase-history.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "目前 Sample App 無購買入口，也沒有獨立 expected product IDs，因此無法驗證陣列內容正確性，結果為 BLOCKED。需請 RD 增加測試商品、購買入口與可核對答案。"
+      },
+      "ios": {
+        "applicable": false,
+        "setup": "N/A",
+        "expected": "iOS StoreKit 購買訊號需另立 iOS TestCase。",
+        "evidence": "N/A"
+      }
+    },
+    {
+      "key": "boot-timestamps",
+      "display_id": null,
+      "order": 50,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "System Boot Timestamps",
+      "field": "device.ext.pot",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture，並在 capture 前讀取裝置 epoch time 與 /proc/uptime。",
+        "expected": "pot 必須有 1～5 筆嚴格遞增的正整數 epoch milliseconds；最後一筆須符合裝置時間減 uptime，誤差不超過 120 秒。",
+        "evidence": "boot-time-calculation.png、boot-timestamps.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 圖上半部是 About phone 的 Uptime 原生畫面隱私裁切，下半部列出目前時間減 Uptime 的算式，再與最新 pot 對答案；不保存含 IP／MAC 的完整原圖。"
+      },
+      "ios": {
+        "applicable": false,
+        "setup": "N/A",
+        "expected": "iOS boot／uptime 訊號需另立 iOS TestCase。",
+        "evidence": "N/A"
+      }
+    },
+    {
+      "key": "sdk-version",
+      "display_id": null,
+      "order": 70,
       "layer": "Signal",
       "round": "R1",
       "category": "D. App State - Format",
@@ -75,9 +150,89 @@
       }
     },
     {
+      "key": "ram-total",
+      "display_id": null,
+      "order": 51,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "RAM Status (Total)",
+      "field": "device.ext.mem_total",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture，送出 request 前讀取 /proc/meminfo。",
+        "expected": "必須是正整數 bytes，且與 MemTotal × 1024 的獨立系統讀值誤差不超過 2%。",
+        "evidence": "mem-total-evidence.png、resource-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Pixel Settings 不顯示即時 Total RAM；Evidence 直接保留 Android kernel 的 MemTotal 原始行，再列 ×1024 算式與 SDK 對答案。"
+      },
+      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS memory signal 另立 iOS TestCase。", "evidence": "N/A"}
+    },
+    {
+      "key": "ram-available",
+      "display_id": null,
+      "order": 52,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "RAM Status (Available)",
+      "field": "device.ext.mem_available",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture，送出 request 前立即讀取 /proc/meminfo。",
+        "expected": "必須是正整數 bytes、不得大於 mem_total，且與近時間 MemAvailable 的差異不超過 max(RAM total 10%, 512 MiB)。",
+        "evidence": "mem-available-evidence.png、resource-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 直接保留 Android kernel 的 MemAvailable 原始行，再列 ×1024 算式與 SDK 對答案；動態值不要求逐 byte 相等。"
+      },
+      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS memory signal 另立 iOS TestCase。", "evidence": "N/A"}
+    },
+    {
+      "key": "disk-total",
+      "display_id": null,
+      "order": 53,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Disk Storage (Total)",
+      "field": "device.ext.disk_total",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture，以 df -k /data 換算 bytes，對照 App data 所在 filesystem。",
+        "expected": "必須是正整數 bytes，且與 /data filesystem 總容量誤差不超過 2%。",
+        "evidence": "disk-total-evidence.png、storage-settings.png、resource-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 上半部直接顯示 Android Storage 的 Total／Used 原生畫面；下半部以同一 /data filesystem 的精確 bytes 與 SDK 對答案。"
+      },
+      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS storage signal 另立 iOS TestCase。", "evidence": "N/A"}
+    },
+    {
+      "key": "disk-free",
+      "display_id": null,
+      "order": 54,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Disk Storage (Free)",
+      "field": "device.ext.disk_free",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture，以 df -k /data 換算 bytes，對照 App data 所在 filesystem。",
+        "expected": "必須是正整數 bytes、不得大於 disk_total，且與近時間 /data 可用容量差異不超過 max(Disk total 2%, 512 MiB)。",
+        "evidence": "disk-free-evidence.png、storage-settings.png、resource-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 上半部直接顯示 Android Storage 原生畫面，下半部列 Total − Used ≈ Free，再用 /data 精確 bytes 與 SDK 對答案。"
+      },
+      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS storage signal 另立 iOS TestCase。", "evidence": "N/A"}
+    },
+    {
       "key": "tracking-allowed",
       "display_id": null,
-      "order": 30,
+      "order": 60,
       "layer": "Signal",
       "round": "R1",
       "category": "A. Core Identifiers",
