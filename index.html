@@ -845,7 +845,7 @@
 
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Bid → Render → Impression → Click → Landing</p></div></div><div class="result-grid"><div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div></div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p><span class="lang-en">SDK fields, identifiers, and event signals</span><span class="lang-zh">SDK 欄位、識別碼與事件訊號</span></p></div></div><div class="result-grid"><div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div></div></div></section></section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1><span class="lang-en">TestCase Catalog</span><span class="lang-zh">TestCase 目錄</span></h1><p><span class="lang-en">All Signal and E2E TestCases. A Draft is not a test result; only a Verdict can be PASS, FAILED, or BLOCKED.</span><span class="lang-zh">整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</span></p></div><b>39 TestCases</b></div><div class="table-wrap"><table><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1><span class="lang-en">TestCase Catalog</span><span class="lang-zh">TestCase 目錄</span></h1><p><span class="lang-en">All Signal and E2E TestCases. A Draft is not a test result; only a Verdict can be PASS, FAILED, or BLOCKED.</span><span class="lang-zh">整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</span></p></div><b>44 TestCases</b></div><div class="table-wrap"><table><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">advertising-id</strong><small>R1</small></td>
 <td><b><span class="lang-en">Advertising ID (GAID)</span><span class="lang-zh">廣告識別碼（GAID）</span></b><p>Signal · A. Core Identifiers</p>
 <code>device.ia</code><span class="priority">P0</span></td>
@@ -1079,8 +1079,46 @@
 <code>user.session_duration</code><span class="priority">P2</span></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>本輪尚未由 SampleApp 暴露 session start。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：需先確認單位並取得獨立 session start timestamp。</p>
-<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS session duration 另立 TC。</p></div></td></tr></tbody></table></div></section>
-<p class="meta"><span class="lang-en">Results</span><span class="lang-zh">結果</span>: 39 · PASS 31 · FAILED 1 · BLOCKED 7<br><span class="lang-en">Raw captures</span><span class="lang-zh">原始擷取</span>: 18 · <span class="lang-en">Verdict files</span><span class="lang-zh">Verdict 檔案</span>: 15 · <span class="lang-en">Generated</span><span class="lang-zh">產生時間</span>: 2026-08-05T20:24:06+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main>
+<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS session duration 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
+<strong class="catalog-id">last-foreground-times</strong><small>R1</small></td>
+<td><b><span class="lang-en">Last Foreground Times</span><span class="lang-zh">最近前景時間</span></b><p>Signal · F. User Session</p>
+<code>user.last_foreground_time</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪第一個廣告 capture。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>非空陣列；每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。</p>
+<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用對應 iOS capture。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>與 AOS 相同：非空、正整數 epoch milliseconds、嚴格遞增。</p>
+<b>Evidence</b><p>iOS lifecycle evidence 待接入。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
+<strong class="catalog-id">last-background-times</strong><small>R1</small></td>
+<td><b><span class="lang-en">Last Background Times</span><span class="lang-zh">最近背景時間</span></b><p>Signal · F. User Session</p>
+<code>user.last_background_time</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；沒有 background 事件時允許空陣列。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>陣列可為空；有值時每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。</p>
+<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用對應 iOS capture。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>與 AOS 相同：允許空陣列；有值時為正整數 epoch milliseconds 且嚴格遞增。</p>
+<b>Evidence</b><p>iOS lifecycle evidence 待接入。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
+<strong class="catalog-id">impression-history</strong><small>R1</small></td>
+<td><b><span class="lang-en">Impression History</span><span class="lang-zh">曝光紀錄</span></b><p>Signal · F. User Session</p>
+<code>user.impression_history</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>使用本輪第一個廣告 request。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>第一個廣告尚無先前 impression，欄位必須存在且等於空陣列。後續廣告需另建累積歷史 TC。</p>
+<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>使用對應 iOS round 的第一個廣告 request。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>與 AOS 相同：第一個廣告的 impression_history 必須是空陣列。</p>
+<b>Evidence</b><p>iOS first-ad evidence 待接入。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
+<strong class="catalog-id">vpn-status</strong><small>R1</small></td>
+<td><b><span class="lang-en">VPN Status</span><span class="lang-zh">VPN 狀態</span></b><p>Signal · D. Network</p>
+<code>device.ext.vpn</code><span class="priority">P2</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Not In Scope；本輪不建立 VPN 狀態。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：目前 AOS payload 沒有已確認的 device.ext.vpn 欄位。</p>
+<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS VPN 另行定義。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
+<strong class="catalog-id">argus-sdk-version</strong><small>R1</small></td>
+<td><b><span class="lang-en">Argus SDK Version</span><span class="lang-zh">Argus SDK 版本</span></b><p>Signal · A. Core Identifiers</p>
+<code>device.argus_ver</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪第二段 Argus payload；版本目標以已確認整合版本為準。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>ext device.argus_ver 必須等於已確認的 Argus SDK 版本；本輪目標為 1.0.0。</p>
+<b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用對應 iOS Argus payload。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>device.argus_ver 必須等於 iOS 實際整合的 Argus SDK 版本。</p>
+<b>Evidence</b><p>iOS build dependency evidence 待接入。</p></div></td></tr></tbody></table></div></section>
+<p class="meta"><span class="lang-en">Results</span><span class="lang-zh">結果</span>: 39 · PASS 31 · FAILED 1 · BLOCKED 7<br><span class="lang-en">Raw captures</span><span class="lang-zh">原始擷取</span>: 18 · <span class="lang-en">Verdict files</span><span class="lang-zh">Verdict 檔案</span>: 15 · <span class="lang-en">Generated</span><span class="lang-zh">產生時間</span>: 2026-08-05T20:40:00+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main>
 <div class="image-lightbox" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Evidence full image" hidden><button class="image-lightbox-close" type="button" aria-label="Close">×</button><img alt=""><p></p></div><script>
 (function(){
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
