@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "indexes": {
+    "advertising-id": null,
+    "tracking-allowed": null,
+    "sdk-version": null
+  }
+}

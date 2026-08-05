@@ -31,18 +31,14 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
 
 from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
+from evidence_aos import collect as collect_evidence
 from evidence_bundle import finalize_bundle
+from testcases.aos import ROUND_DEFINITIONS, TC_DEFINITIONS
 from verdict import blocked
-
-
-# Definitions are registered below after RoundStep is declared.
-TC_DEFINITIONS = {}
-ROUND_DEFINITIONS = {}
 
 
 APPIUM_URL = "http://127.0.0.1:4723"
@@ -86,21 +82,6 @@ class CaptureConfig:
     max_attempts: int
     phase_timeout: float
     accept_request: bool
-
-
-@dataclass(frozen=True)
-class RoundStep:
-    """One future round setup followed by one raw capture."""
-
-    name: str
-    setup: Optional[Callable[[CaptureConfig], None]] = None
-    validators: tuple = ()
-
-
-from testcases.and_01 import setup as and_01_setup, validate as and_01_validate
-
-TC_DEFINITIONS.update({"AND-01": and_01_validate})
-ROUND_DEFINITIONS.update({"R1": (RoundStep("AND-01", and_01_setup, (and_01_validate,)),)})
 
 
 class CaptureError(RuntimeError):
@@ -464,35 +445,64 @@ def capture(config, capture_name="MANUAL", setup=None):
 
 
 def run_round(config, name):
-    steps = ROUND_DEFINITIONS.get(name)
-    if not steps:
+    round_definition = ROUND_DEFINITIONS.get(name)
+    if not round_definition:
         available = ", ".join(sorted(ROUND_DEFINITIONS)) or "none"
         raise CaptureError(f"Round {name!r} is not defined; available rounds: {available}")
-    folders = []
-    for step in steps:
-        if not isinstance(step, RoundStep):
-            raise CaptureError(f"Round {name!r} contains an invalid step: {step!r}")
-        print(f"\n[round {name}] {step.name}")
-        try:
-            folder = capture(config, capture_name=step.name, setup=step.setup)
-            verdicts = [validator(folder) for validator in step.validators]
-            if verdicts:
-                (folder / "verdicts.json").write_text(
-                    json.dumps({"verdicts": verdicts}, ensure_ascii=False, indent=2) + "\n"
+    try:
+        testcases = [TC_DEFINITIONS[key] for key in round_definition.testcase_keys]
+    except KeyError as exc:
+        raise CaptureError(f"Round {name!r} references unknown TestCase {exc.args[0]!r}") from exc
+    required_evidence = tuple(
+        evidence_key for testcase in testcases for evidence_key in testcase.evidence
+    )
+    print(f"\n[round {name}] {round_definition.capture_name}")
+    phase = "Evidence capture"
+    try:
+        folder = collect_evidence(
+            config,
+            required_evidence,
+            lambda setup: capture(
+                config,
+                capture_name=round_definition.capture_name,
+                setup=setup,
+            ),
+        )
+        phase = "TestCase validation"
+        verdicts = []
+        validator_errors = []
+        for testcase in testcases:
+            try:
+                verdicts.append(testcase.validate(folder))
+            except Exception as exc:
+                row = blocked(testcase.key, str(exc)).to_dict()
+                row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+                verdicts.append(row)
+                validator_errors.append(f"{testcase.key}: {exc}")
+        (folder / "verdicts.json").write_text(
+            json.dumps({"verdicts": verdicts}, ensure_ascii=False, indent=2) + "\n"
+        )
+        if validator_errors:
+            error = CaptureError("; ".join(validator_errors))
+            error.evidence_folder = folder
+            raise error
+        return [folder]
+    except Exception as exc:
+        evidence_folder = getattr(exc, "evidence_folder", None)
+        if evidence_folder is not None:
+            verdict_path = Path(evidence_folder) / "verdicts.json"
+            if not verdict_path.exists():
+                rows = []
+                for testcase in testcases:
+                    row = blocked(testcase.key, str(exc)).to_dict()
+                    row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+                    rows.append(row)
+                verdict_path.write_text(
+                    json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
                 )
-            folders.append(folder)
-        except Exception as exc:
-            evidence_folder = getattr(exc, "evidence_folder", None)
-            if evidence_folder is not None and step.validators:
-                row = blocked(step.name, str(exc)).to_dict()
-                row["layer"] = "Signal"
-                (Path(evidence_folder) / "verdicts.json").write_text(
-                    json.dumps({"verdicts": [row]}, ensure_ascii=False, indent=2) + "\n"
-                )
-            raise CaptureError(
-                f"Round {name!r} failed at step {step.name!r}: {exc}"
-            ) from exc
-    return folders
+        raise CaptureError(
+            f"Round {name!r} failed at {phase} {round_definition.capture_name!r}: {exc}"
+        ) from exc
 
 
 def publish_completed_round(evidence_dir):
@@ -598,8 +608,9 @@ def main(argv=None):
         if not ROUND_DEFINITIONS:
             print("No rounds defined.")
             return 0
-        for name, steps in sorted(ROUND_DEFINITIONS.items()):
-            print(f"{name}: {', '.join(step.name for step in steps)}")
+        for name, definition in sorted(ROUND_DEFINITIONS.items()):
+            tc_ids = ", ".join(definition.testcase_keys)
+            print(f"{name}: {definition.capture_name} [{tc_ids}]")
         return 0
 
     config = config_from_args(args)

@@ -1,7 +1,7 @@
 # LazyAdFinder2
 
-LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。目前先建立乾淨的 automation
-與 raw evidence 層；TC 目錄、正確標準、判定與報告將由人工逐條重新定義。
+LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。TC、正確標準、Evidence 與報告
+由人工逐條定義；目前 AOS R1 已有三條 Signal TC。
 
 ## 目前邊界
 
@@ -9,7 +9,9 @@ LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。目前先建立
 Android sample app
        │ Appium / ADB
        ▼
-qa_aos.py ──點 placement、等待 bid──┐
+qa_aos.py ──執行 Round──────────────┐
+testcases/aos.py ──宣告 Evidence─────┤
+evidence_aos.py ──操作手機、等待 bid─┤
                                     │
 Phone → Charles :8888 → mitmdump :8081
                             │
@@ -19,14 +21,17 @@ Phone → Charles :8888 → mitmdump :8081
                               raw evidence folder
 ```
 
-目前不產生 PASS、FAIL、BLOCKED，也不宣稱執行了任何 TC。
+一個 Round 先將 TC 所需的 Evidence keys 去重，只 capture 一包，再逐條產生 Verdict。
 
 ## 檔案責任
 
 | 檔案 | 責任 |
 |---|---|
-| `qa_aos.py` | Android automation、Round 執行框架、raw evidence 擷取 |
+| `qa_aos.py` | Android automation engine；讀 registry 並執行 Round |
 | `qa_ios.py` | iOS automation、Round 執行框架、raw evidence 擷取 |
+| `testcases/aos.py` | 所有 AOS TC 比較邏輯、Evidence requirements 與 Round registry |
+| `evidence_aos.py` | 所有 AOS Evidence providers；負責去重、手機狀態與共用 bid capture |
+| `evidence_bundle.py` | AOS/iOS 共用 Evidence bundle 格式與 raw/decoded 檔案封裝 |
 | `mitmdump_addon.py` | 攔截 bid request、bid response 與 impression callback |
 | `apr_xorenc.py` | `ae1` 密文字串進、UTF-8 明文字串出 |
 | `verdict.py` | `BLOCKED`／`PASS`／`FAILED` 三態與結構化判定結果契約 |
@@ -87,19 +92,26 @@ python3 qa_aos.py capture --accept-request --max-attempts 1
 `qa_aos.py` 的 TC 與 Round 是明確註冊表。每次只加入一條人工確認完成的 TC。目前：
 
 ```python
-TC_DEFINITIONS = {"AND-01": ...}
-ROUND_DEFINITIONS = {"R1": (RoundStep("AND-01", ...),)}
+TC_DEFINITIONS = {"advertising-id": TestCase(...), ...}
+ROUND_DEFINITIONS = {"R1": Round("TRACKING-ALLOWED", (...))}
 ```
 
 所以：
 
 ```bash
 python3 qa_aos.py list-rounds
-# R1: AND-01
+# R1: TRACKING-ALLOWED [advertising-id, tracking-allowed, sdk-version]
 ```
 
 只有在人工確認某條 TC 的 setup、證據與正確標準後，才加入定義。Automation engine 不得
 自行推測 expected value，也不得把「沒有執行」包裝成測試結果。
+
+`testcases/index.json` 將穩定 semantic key 對應到未來正式 TC index。尚未決定的 index
+保持 `null`；Page 會實際讀取並檢查它與 catalog 完整對應。有 index 時顯示正式編號，
+沒有時顯示 semantic key。
+
+Page 會掃描全部歷史 Evidence，但每個平台／模式／類型／semantic key 只呈現最新一次
+Verdict；已從 catalog 移除的舊 key 不會被當成額外 TestCase 卡片。
 
 ## Raw evidence
 
@@ -155,7 +167,8 @@ iOS 可能因 TLS／pinning 只觀察到 impression callback、沒有 bid body�
 - `PASS`：TC 已執行，實際值符合人工確認的正確標準。
 - `FAILED`：TC 已執行，實際值不符合正確標準。
 
-TC answer key 與 validator 只包含已人工確認的 TC；目前已加入 AND-01。`page.py` 只呈現
+TC answer key 與 validator 只包含已人工確認的 TC；目前已加入 advertising-id、
+tracking-allowed、sdk-version。`page.py` 只呈現
 結構化 `Verdict`，不得自行重算答案。
 
 已執行的 TC 呼叫 `evaluate(expected=..., actual=...)`，比較後必然得到 `PASS` 或

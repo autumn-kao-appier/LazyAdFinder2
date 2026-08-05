@@ -10,6 +10,9 @@ mitmdump_addon.py  流量事件：bid request / response / impression
 apr_xorenc.py      純字串解碼：encrypted str -> plaintext str
 qa_aos.py          Android automation、Round setup、raw evidence
 qa_ios.py          iOS automation、Round setup、raw evidence
+testcases/aos.py   AOS TC comparison、Evidence requirements、Round registry
+evidence_aos.py    AOS Evidence providers 與共用 capture orchestration
+evidence_bundle.py AOS/iOS 共用 Evidence bundle 格式
 verdict.py         BLOCKED／PASS／FAILED 三態與結構化結果契約
 page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 ```
@@ -17,7 +20,7 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 `qa_aos.py` 可以操作手機，但不可以自行決定 TC 是否通過。它只負責：
 
 1. 連線 ADB 與 Appium。
-2. 執行明確宣告的 Round setup。
+2. 讀取 `testcases/aos.py` 明確宣告的 Round 與 Evidence requirements。
 3. 開啟 Sample App、切換 tab、點擊 placement。
 4. 等待 bid request/response。
 5. 保存未修改的 request、response、logcat、畫面、UI tree 與 metadata。
@@ -25,7 +28,10 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 ## TC 重建規則
 
 `TC_DEFINITIONS` 與 `ROUND_DEFINITIONS` 只註冊使用者已逐條確認的 TC，不得批次搬回舊規則。
-目前 AOS 已註冊 `AND-01`，由 `R1` 執行。
+目前 AOS 已註冊 `advertising-id`、`tracking-allowed`、`sdk-version`，由 `R1` 的同一次
+capture 執行。這些是穩定語意 key，不代表顯示順序或最終 TC 編號。
+正式編號只在 `testcases/index.json` 維護；未決定時保持 `null`，不得先猜編號。Page 必須
+驗證 mapping 與 catalog 的 key 完整一致，避免它成為無人讀取的死設定。
 
 加入一條 TC 前必須明確知道：
 
@@ -48,14 +54,14 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 
 ## TC Quality Gate
 
-AND-01 確立以下品質門檻。後續每一條 Signal／E2E TC 在 commit 前都必須逐項滿足：
+Advertising ID TC 確立以下品質門檻。後續每一條 Signal／E2E TC 在 commit 前都必須逐項滿足：
 
 1. **先寫規格再定案**：討論中的 TC 立即加入 `testcases/catalog.json` 並標記 `DRAFT`；
    確認後建立獨立 Markdown，記錄 Purpose、Setup、Evidence、PASS、FAILED、BLOCKED。
 2. **人眼可見 Evidence 優先**：能以設定頁、App 畫面或系統狀態直接證明的項目，必須保存
    清楚可讀的截圖。UI hierarchy 只可用於執行時定位，不得把難以人工理解的 `ui.xml`
    當作主要 Evidence。
-3. **使用獨立 ground truth**：不得拿待測 request 的值證明 request 自己正確。例如 AND-01
+3. **使用獨立 ground truth**：不得拿待測 request 的值證明 request 自己正確。例如 Advertising ID
    以 Android Ads 頁面直接顯示的 GAID，對照 `req.device.ia` 與 `ext.device.ia`。
 4. **Raw 與 derived 分離**：`bid_raw.json` 永不改寫；解碼、正規化與比較資料另存於
    `bid_decoded.json`／`verdicts.json`。
@@ -74,10 +80,9 @@ AND-01 確立以下品質門檻。後續每一條 Signal／E2E TC 在 commit 前
 
 ## Round engine
 
-Round 是一組依序執行的 `RoundStep`。每個 step 只能：
-
-1. 執行 setup。
-2. setup 成功後進行一次 raw capture。
+Round 在 `testcases/aos.py` 宣告 TC keys；每條 TC 宣告所需 Evidence keys。`evidence_aos.py`
+必須先去重，再依 provider 執行手機 setup、一次共用 raw capture 與 derived Evidence。
+validator 不可自行操作手機或重新 capture。
 
 沒有定義 Round 時，`python3 qa_aos.py round <name>` 必須明確失敗；不可偷偷退回 CURRENT、
 baseline 或任何預設狀態。
@@ -104,11 +109,11 @@ baseline 或任何預設狀態。
 
 ## 目前狀態
 
-- AOS：automation 與 evidence engine 已清理；R1/AND-01 已實作並通過實機驗證。
+- AOS：automation 與 evidence engine 已清理；R1 同一次 capture 驗證三條已確認的 Signal TC。
 - iOS：獨立的 XCUITest/raw evidence engine 已清理；TC/round 目錄為空。
 - mitmdump：只輸出 bid request、bid response、impression callback。
 - AprXorEnc：只提供 `decrypt(encrypted: str) -> str`。
-- Verdict：保留三態契約；answer key/validator 只包含已人工確認的 AND-01。
+- Verdict：保留三態契約；answer key/validator 只包含已人工確認的三條 Signal TC。
 - Page：舊平台/E2E 邏輯已清除，只讀 `verdicts.json` 並呈現三態結果。
 - 發布：單次 `capture` 不發布。`round` 結束時自動呼叫一次 `page.py --publish`；某個 Step
   失敗時仍發布當下結果，接著以非零狀態結束，且錯誤必須標出 Round 與 Step，不可靜默。

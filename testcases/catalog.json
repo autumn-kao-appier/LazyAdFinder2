@@ -1,7 +1,7 @@
 {
   "testcases": [
     {
-      "id": "AND-01",
+      "id": "advertising-id",
       "layer": "Signal",
       "round": "R1",
       "category": "A. Core Identifiers",
@@ -12,13 +12,57 @@
       "aos": {
         "applicable": true,
         "setup": "開啟 Google Ads 頁，確認 Opt out of Ads Personalization 關閉，截取人眼可見的 GAID，再啟動 App capture。",
-        "expected": "req/ext 的 device.ia 皆存在、相同、非全零，且符合全小寫 UUID 8-4-4-4-12；若設定頁能取得 GAID，還必須與其相等。",
+        "expected": "設定頁、Request、Extended 的 GAID 必須完全相同；格式為小寫 UUID，且不可為空或全零。",
         "evidence": "設定頁截圖、bid_decoded.json、summary.json"
       },
       "ios": {
         "applicable": false,
         "setup": "N/A",
         "expected": "iOS 對應識別為 IDFA，另立 iOS TestCase。",
+        "evidence": "N/A"
+      }
+    },
+    {
+      "id": "sdk-version",
+      "layer": "Signal",
+      "round": "R1",
+      "category": "D. App State - Format",
+      "title": "SDK Version (sdk_version)",
+      "field": "app.sdk_version",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture。expected 由本次 build 資訊決定，目前為 2.2.0。",
+        "expected": "Request SDK version 必須是本次 Build 的 2.2.0。",
+        "evidence": "sdk-build-info.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": false,
+        "setup": "N/A",
+        "expected": "iOS SDK version 另立 iOS TestCase。",
+        "evidence": "N/A"
+      }
+    },
+    {
+      "id": "tracking-allowed",
+      "layer": "Signal",
+      "round": "R1",
+      "category": "A. Core Identifiers",
+      "title": "Limit Ad Tracking Flag (tracking allowed)",
+      "field": "device.lat",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 Advertising ID：Ads 頁面的 Opt out of Ads Personalization 關閉，同一次 capture，不重抓流量。",
+        "expected": "設定頁 Opt out 關閉時，Request／Extended LAT 必須是 0 或不傳送。",
+        "evidence": "ads-settings.png、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": false,
+        "setup": "N/A",
+        "expected": "iOS 對應行為另立 iOS TestCase。",
         "evidence": "N/A"
       }
     }

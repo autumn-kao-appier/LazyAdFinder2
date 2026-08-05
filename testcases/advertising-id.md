@@ -1,4 +1,4 @@
-# AND-01 — Advertising ID (GAID)
+# Advertising ID (GAID)
 
 - Layer: Signal
 - Round: R1
@@ -18,14 +18,15 @@
 2. 找到 `Opt out of Ads Personalization`，若開啟則關閉。
 3. 讀回確認 switch 為 `checked=false`。
 4. 找到畫面上的 `Your advertising ID:`。
-5. 保存包含完整 GAID 的 `gaid-settings.png`。
+5. 保存包含完整 GAID 與 opt-out 開關的 `ads-settings.png`。
 6. 啟動 Sample App，進行一次 AIBID capture。
 
 UI hierarchy 只用於執行當下定位與讀值，不保存為 Evidence。
 
 ## Evidence
 
-- `gaid-settings.png`：主要人工 Evidence；畫面直接顯示 GAID。
+- `ads-settings.png`：主要人工 Evidence；畫面直接顯示 GAID 與 opt-out 開關。
+- `ads-settings-state.json`：執行當下由可見頁面讀取的 GAID／switch 狀態，供離線重驗。
 - `bid_raw.json`：未修改的 `req_enc`／`ext_enc`。
 - `bid_decoded.json`：兩份解密後的 `device.ia`。
 - `screenshot.png`：廣告完成顯示畫面。
