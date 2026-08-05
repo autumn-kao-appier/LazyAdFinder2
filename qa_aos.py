@@ -37,7 +37,7 @@ from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from evidence_aos import collect as collect_evidence
 from evidence_bundle import finalize_bundle
-from testcases.aos import ROUND_DEFINITIONS, TC_DEFINITIONS
+from testcases.android_signal_testcases import ROUND_DEFINITIONS, TC_DEFINITIONS
 from verdict import blocked
 
 

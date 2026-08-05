@@ -22,8 +22,7 @@ ROOT = Path(__file__).parent
 VERDICTS_FILE = "verdicts.json"
 SUMMARY_FILE = "summary.json"
 LEGACY_METADATA_FILE = "metadata.json"
-DEFAULT_CATALOG = ROOT / "testcases" / "catalog.json"
-DEFAULT_TC_INDEX = ROOT / "testcases" / "index.json"
+DEFAULT_CATALOG = ROOT / "testcases" / "testcase_catalog.json"
 VALID_STATUSES = {status.value for status in Status}
 STATUS_ORDER = (Status.FAILED.value, Status.BLOCKED.value, Status.PASS.value)
 PLATFORMS = (("aos", "AOS", "Android"), ("ios", "iOS", "Apple"))
@@ -56,57 +55,34 @@ def load_catalog(path):
     rows = document.get("testcases") if isinstance(document, dict) else None
     if not isinstance(rows, list):
         raise ReportError(f"{path} must contain {{\"testcases\": [...]}}")
-    seen, normalized = set(), []
+    seen, display_ids, normalized = set(), set(), []
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ReportError(f"{path}: testcase #{index + 1} must be an object")
-        tc = str(row.get("id", "")).strip()
+        tc = str(row.get("key", "")).strip()
         if not tc or tc in seen:
-            raise ReportError(f"{path}: testcase #{index + 1} has an empty or duplicate id")
+            raise ReportError(f"{path}: testcase #{index + 1} has an empty or duplicate key")
         seen.add(tc)
+        display_id = row.get("display_id")
+        if display_id is not None:
+            display_id = str(display_id).strip()
+            if not display_id or display_id in display_ids:
+                raise ReportError(f"{path}: {tc}.display_id is empty or duplicate")
+            display_ids.add(display_id)
+        order = row.get("order")
+        if not isinstance(order, (int, float)) or isinstance(order, bool):
+            raise ReportError(f"{path}: {tc}.order must be a number")
         for platform, _label, _device in PLATFORMS:
             spec = row.get(platform, {})
             if not isinstance(spec, dict):
                 raise ReportError(f"{path}: {tc}.{platform} must be an object")
         normalized.append(row)
-    return normalized
+    return sorted(normalized, key=lambda item: (item["order"], item["key"]))
 
 
-def load_tc_index(path):
-    path = Path(path).expanduser().resolve()
-    document = _load_json(path)
-    indexes = document.get("indexes") if isinstance(document, dict) else None
-    if not isinstance(indexes, dict):
-        raise ReportError(f"{path} must contain {{\"indexes\": {{...}}}}")
-    normalized, assigned = {}, set()
-    for key, value in indexes.items():
-        key = str(key).strip()
-        if not key:
-            raise ReportError(f"{path} contains an empty testcase key")
-        if value is None:
-            normalized[key] = None
-            continue
-        value = str(value).strip()
-        if not value or value in assigned:
-            raise ReportError(f"{path}: testcase index for {key!r} is empty or duplicate")
-        normalized[key] = value
-        assigned.add(value)
-    return normalized
-
-
-def _tc_label(key, tc_indexes):
-    return tc_indexes.get(key) or key
-
-
-def validate_tc_index(catalog, tc_indexes):
-    catalog_keys = {str(row["id"]) for row in catalog}
-    index_keys = set(tc_indexes)
-    if catalog_keys != index_keys:
-        missing = sorted(catalog_keys - index_keys)
-        unknown = sorted(index_keys - catalog_keys)
-        raise ReportError(
-            f"TestCase index mapping does not match catalog; missing={missing}, unknown={unknown}"
-        )
+def _tc_label(key, catalog_by_key):
+    display_id = catalog_by_key.get(key, {}).get("display_id")
+    return str(display_id).strip() if display_id is not None else key
 
 
 def current_verdicts(verdicts, catalog):
@@ -115,7 +91,7 @@ def current_verdicts(verdicts, catalog):
     Evidence discovery intentionally reads all historical runs.  The current
     report must not turn those runs, or retired legacy IDs, into extra TC cards.
     """
-    registered = {str(row["id"]) for row in catalog}
+    registered = {str(row["key"]) for row in catalog}
     latest = {}
     for row in verdicts:
         if row["tc"] not in registered:
@@ -266,41 +242,45 @@ def _fact_list(value):
     return f'<dl class="facts">{"".join(items)}</dl>'
 
 
-def _evidence_content(row):
+def _evidence_content(row, guidance=""):
+    guidance_html = (
+        f'<div class="evidence-guidance"><b>Evidence 說明</b><p>{html.escape(guidance)}</p></div>'
+        if guidance else ""
+    )
     reference = row.get("evidence")
     if not reference:
-        return '<div class="evidence-missing">此結果沒有 Evidence。</div>'
+        return guidance_html + '<div class="evidence-missing">此結果沒有 Evidence。</div>'
     target = Path(reference)
     if not target.is_absolute():
         target = row["source"].parent / target
     if not target.exists():
-        return f'<div class="evidence-missing">找不到 {html.escape(reference)}</div>'
+        return guidance_html + f'<div class="evidence-missing">找不到 {html.escape(reference)}</div>'
     mime, _encoding = mimetypes.guess_type(target.name)
     if mime and mime.startswith("image/"):
         encoded = base64.b64encode(target.read_bytes()).decode("ascii")
-        return f'''<figure class="evidence-image"><img src="data:{mime};base64,{encoded}" alt="{html.escape(reference)}">
+        return guidance_html + f'''<figure class="evidence-image"><img src="data:{mime};base64,{encoded}" alt="{html.escape(reference)}">
 <figcaption>{html.escape(reference)}</figcaption></figure>'''
     if target.suffix.lower() == ".json":
         document = _load_json(target)
-        return f'''<div class="evidence-data"><b>{html.escape(reference)}</b><label>Expected build</label>{_fact_list(document.get("expected", {}))}<label>Captured request</label>{_fact_list(document.get("actual", {}))}</div>'''
-    return f'<pre class="evidence-text">{html.escape(target.read_text(errors="replace"))}</pre>'
+        return guidance_html + f'''<div class="evidence-data"><b>{html.escape(reference)}</b><label>Expected build</label>{_fact_list(document.get("expected", {}))}<label>Captured request</label>{_fact_list(document.get("actual", {}))}</div>'''
+    return guidance_html + f'<pre class="evidence-text">{html.escape(target.read_text(errors="replace"))}</pre>'
 
 
-def _result_card(row, tc_indexes, catalog_by_id):
-    spec = catalog_by_id.get(row["tc"], {})
+def _result_card(row, catalog_by_key):
+    spec = catalog_by_key.get(row["tc"], {})
     platform_spec = spec.get(row["platform"], {}) if isinstance(spec, dict) else {}
     expected_text = str(platform_spec.get("expected") or _display(row["expected"]))
     priority = str(spec.get("priority") or "—")
     result_note = ""
     if row["reason"]:
         result_note = f'<div class="result-note"><b>Result note</b><p>{html.escape(row["reason"])}</p></div>'
-    return f'''<article class="result-card">
+    return f'''<article class="result-card" data-result-status="{row["status"].lower()}">
 <div class="result-head"><div><strong>{html.escape(row["title"])}</strong>
-<span class="tc-id">{html.escape(_tc_label(row["tc"], tc_indexes))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
+<span class="tc-id">{html.escape(_tc_label(row["tc"], catalog_by_key))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
 <div class="card-tabs"><button class="on" data-card-tab="summary">Result</button><button data-card-tab="evidence">Evidence</button></div>
 <div class="card-page" data-card-page="summary"><section class="expected-block"><label>Expected</label><p>{html.escape(expected_text)}</p></section>
 <section class="actual-block"><label>Actual</label>{_fact_list(row["actual"])}</section>{result_note}</div>
-<div class="card-page" data-card-page="evidence" hidden>{_evidence_content(row)}</div></article>'''
+<div class="card-page" data-card-page="evidence" hidden>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""))}</div></article>'''
 
 
 def _run_information(rows):
@@ -328,6 +308,20 @@ def _run_information(rows):
     return f'<section class="run-info"><div class="run-info-title"><span>Latest Run</span><b>Test specification</b></div><div class="run-info-grid">{cells}</div></section>'
 
 
+def _status_filters(rows):
+    counts = Counter(row["status"] for row in rows)
+    buttons = []
+    for status in (Status.PASS, Status.FAILED, Status.BLOCKED):
+        value = status.value
+        count = counts[value]
+        disabled = " disabled" if count == 0 else ""
+        buttons.append(
+            f'<button class="status-filter {value.lower()}" data-status-filter="{value.lower()}"{disabled}>'
+            f'<span>{value}</span><b>{count}</b></button>'
+        )
+    return f'''<section class="status-filters"><div><span>Result filter</span><small>再次點擊可顯示全部</small></div><div class="status-filter-buttons">{"".join(buttons)}</div></section>'''
+
+
 def _slot_card(platform, mode, kind, label, description, rows):
     signal_rows = [row for row in rows if row["layer"] != "e2e"]
     e2e_rows = [row for row in rows if row["layer"] == "e2e"]
@@ -341,10 +335,10 @@ def _slot_card(platform, mode, kind, label, description, rows):
 <b class="open">查看結果 →</b></button>'''
 
 
-def _slot_detail(platform, mode, kind, label, rows, tc_indexes, catalog_by_id):
+def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
     def cards_for(layer):
         selected = [row for row in rows if (row["layer"] == "e2e") == (layer == "e2e")]
-        return "".join(_result_card(row, tc_indexes, catalog_by_id) for row in sorted(
+        return "".join(_result_card(row, catalog_by_key) for row in sorted(
             selected, key=lambda row: (STATUS_ORDER.index(row["status"]), row["captured_at"])
         ))
     signal_cards = cards_for("signal") or '<div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div>'
@@ -353,6 +347,7 @@ def _slot_detail(platform, mode, kind, label, rows, tc_indexes, catalog_by_id):
     mode_label = next(item[1] for item in MODES if item[0] == mode)
     return f'''<section class="slot-detail" data-slot="{platform}:{mode}:{kind}" hidden>
 <div class="detail-bar"><button class="back">← 返回分類</button><div><span class="crumb">{platform_label} / {mode_label}</span><h2>{html.escape(label)}</h2></div></div>
+{_status_filters(rows)}
 {_run_information(rows)}
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Bid → Render → Impression → Click → Landing</p></div></div><div class="result-grid">{e2e_cards}</div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>SDK 欄位、識別碼與事件訊號</p></div></div><div class="result-grid">{signal_cards}</div></div></section>'''
@@ -366,11 +361,11 @@ def _catalog_cell(spec):
 <b>Evidence</b><p>{html.escape(str(spec.get("evidence", "—")))}</p></div>'''
 
 
-def _catalog_table(catalog, tc_indexes):
+def _catalog_table(catalog, catalog_by_key):
     rows = []
     for tc in catalog:
-        key = str(tc["id"])
-        label = _tc_label(key, tc_indexes)
+        key = str(tc["key"])
+        label = _tc_label(key, catalog_by_key)
         key_line = f'<code class="catalog-key">{html.escape(key)}</code>' if label != key else ""
         rows.append(f'''<tr><td><span class="draft">{html.escape(str(tc.get("status", "DRAFT")))}</span>
 <strong class="catalog-id">{html.escape(label)}</strong>{key_line}<small>{html.escape(str(tc.get("round", "")))}</small></td>
@@ -388,7 +383,8 @@ CSS = r"""
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}button,select{font:inherit}.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:10px 18px;background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}.brand{font-weight:800}.brand small{display:block;color:var(--faint);font:10px var(--mono)}.main-nav{display:flex;gap:4px}.main-nav button,.seg button,.back,.theme{border:1px solid transparent;background:transparent;color:var(--soft);padding:7px 12px;border-radius:8px;cursor:pointer}.main-nav button.on,.seg button.on{background:var(--accent2);color:var(--accent);font-weight:750}.theme{margin-left:auto;border-color:var(--line)}main{max-width:1180px;margin:auto;padding:25px 20px 50px}.hero h1{margin:0;font-size:23px}.hero p{color:var(--soft)}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}.seg{display:flex;gap:3px;padding:3px;background:var(--panel);border:1px solid var(--line);border-radius:11px}.seg.platform button[data-value=aos].on{color:var(--aos)}.seg.platform button[data-value=ios].on{color:var(--ios)}.type-grid,.result-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:15px}.type-card{background:var(--panel);color:inherit;text-align:left;border:1px solid var(--line);border-radius:14px;padding:17px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}.type-card:hover{transform:translateY(-2px);border-color:var(--accent)}.type-card>div:first-child,.result-head,footer{display:flex;justify-content:space-between;gap:10px}.type-id,.tc-id,.crumb{font:700 11px var(--mono);color:var(--accent)}.total{color:var(--faint);font-size:11px}.type-card h3{margin:8px 0 2px;font-size:18px}.type-card p{color:var(--soft);min-height:40px}.counts{display:flex;gap:10px;font-size:10px}.pass-text{color:var(--pass)}.failed-text{color:var(--fail)}.blocked-text{color:var(--block)}.open{display:block;color:var(--accent);margin-top:15px;font-size:12px}.detail-bar{display:flex;align-items:center;gap:15px;margin-bottom:18px}.detail-bar h2{margin:2px 0}.back{border-color:var(--line);background:var(--panel)}.result-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px;box-shadow:var(--shadow)}.result-head>div{display:flex;flex-direction:column}.status{font:750 11px var(--mono);padding:4px 9px;border-radius:999px;height:max-content}.status.pass{color:var(--pass);background:#2f7d3a20}.status.failed{color:var(--fail);background:#c0392b20}.status.blocked{color:var(--block);background:#b5761a20}.context{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.context span{background:var(--panel2);padding:4px 7px;border-radius:6px;font-size:11px}.answers{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answers label,.platform-spec>b{font-size:10px;color:var(--faint);text-transform:uppercase}.answers pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel2);padding:9px;border-radius:7px;min-height:50px;font:12px var(--mono)}footer{color:var(--faint);font-size:11px}a{color:var(--accent)}.missing{color:var(--fail);text-decoration:line-through}.empty{padding:45px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:13px;color:var(--soft)}.catalog-head{display:flex;justify-content:space-between;align-items:end;gap:20px}.catalog-head p{color:var(--soft)}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}table{border-collapse:collapse;width:100%;min-width:980px}th,td{text-align:left;vertical-align:top;padding:14px;border-bottom:1px solid var(--line)}th{position:sticky;top:0;background:var(--panel2);font-size:11px;color:var(--faint);text-transform:uppercase}td:first-child{width:120px}.catalog-id{display:block;font:750 13px var(--mono);margin:7px 0}.draft,.priority{display:inline-block;padding:2px 6px;border-radius:5px;background:var(--accent2);color:var(--accent);font:700 9px var(--mono)}td code{color:var(--accent)}.priority{margin-left:7px}.platform-spec p,.na p{margin:3px 0 10px;color:var(--soft);min-width:250px}.na{color:var(--faint)}.meta{color:var(--faint);font-size:11px;margin-top:20px}[hidden]{display:none!important}@media(max-width:650px){main{padding:18px 12px}.top{flex-wrap:wrap}.main-nav{order:3;width:100%}.answers{grid-template-columns:1fr}}
 .layer-row{display:grid;grid-template-columns:58px 26px 26px 1fr auto;gap:6px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:10px}.layer-row>b{font-size:11px}.layer-row small{color:var(--faint)}
 .report-section{margin:22px 0 32px}.section-title{display:flex;align-items:center;gap:11px;margin-bottom:12px}.section-title>span{font:800 11px var(--mono);color:var(--accent);background:var(--accent2);padding:6px;border-radius:7px}.section-title h3,.section-title p{margin:0}.section-title p{color:var(--faint);font-size:11px}
-.result-badges{align-items:flex-end;gap:5px}.priority-tag{font:800 11px var(--mono);padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent)}.card-tabs{display:flex;gap:4px;margin:14px 0 11px;border-bottom:1px solid var(--line)}.card-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--faint);padding:6px 9px;cursor:pointer}.card-tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:750}.card-page{min-height:250px}.expected-block,.actual-block{background:var(--panel2);border-radius:9px;padding:11px 12px;margin-bottom:10px}.expected-block label,.actual-block label,.run-info label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.expected-block p{margin:5px 0 0;color:var(--ink);line-height:1.6}.facts{margin:5px 0 0}.facts>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.facts>div:first-child{border-top:0}.facts dt{color:var(--soft)}.facts dd{margin:0;text-align:right;font:650 11px var(--mono);overflow-wrap:anywhere}.result-note{border-left:3px solid var(--block);padding:7px 10px}.result-note p{margin:3px 0}.evidence-image{margin:0;display:flex;flex-direction:column;align-items:center}.evidence-image img{display:block;max-width:100%;height:390px;object-fit:contain;border-radius:9px;background:#000}.evidence-image figcaption{color:var(--faint);font:10px var(--mono);margin-top:6px}.evidence-data,.evidence-text{background:var(--panel2);border-radius:9px;padding:12px;overflow:auto}.evidence-data>b{display:block;margin-bottom:8px}.evidence-missing{padding:45px 10px;text-align:center;color:var(--fail)}.run-info{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:24px}.run-info-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.run-info-title span{font:750 10px var(--mono);color:var(--accent)}.run-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}.run-info-grid>div{background:var(--panel2);padding:10px}.run-info-grid b{display:block;margin-top:3px;font-size:12px;overflow-wrap:anywhere}
+.result-badges{align-items:flex-end;gap:5px}.priority-tag{font:800 11px var(--mono);padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent)}.card-tabs{display:flex;gap:4px;margin:14px 0 11px;border-bottom:1px solid var(--line)}.card-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--faint);padding:6px 9px;cursor:pointer}.card-tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:750}.card-page{min-height:250px}.expected-block,.actual-block{background:var(--panel2);border-radius:9px;padding:11px 12px;margin-bottom:10px}.expected-block label,.actual-block label,.run-info label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.expected-block p{margin:5px 0 0;color:var(--ink);line-height:1.6}.facts{margin:5px 0 0}.facts>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.facts>div:first-child{border-top:0}.facts dt{color:var(--soft)}.facts dd{margin:0;text-align:right;font:650 11px var(--mono);overflow-wrap:anywhere}.result-note{border-left:3px solid var(--block);padding:7px 10px}.result-note p{margin:3px 0}.evidence-guidance{border-left:3px solid var(--accent);background:var(--accent2);border-radius:0 9px 9px 0;padding:10px 12px;margin-bottom:10px}.evidence-guidance p{margin:4px 0 0;line-height:1.55}.evidence-image{margin:0;display:flex;flex-direction:column;align-items:center}.evidence-image img{display:block;max-width:100%;height:390px;object-fit:contain;border-radius:9px;background:#000}.evidence-image figcaption{color:var(--faint);font:10px var(--mono);margin-top:6px}.evidence-data,.evidence-text{background:var(--panel2);border-radius:9px;padding:12px;overflow:auto}.evidence-data>b{display:block;margin-bottom:8px}.evidence-missing{padding:45px 10px;text-align:center;color:var(--fail)}.run-info{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:24px}.run-info-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.run-info-title span{font:750 10px var(--mono);color:var(--accent)}.run-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}.run-info-grid>div{background:var(--panel2);padding:10px}.run-info-grid b{display:block;margin-top:3px;font-size:12px;overflow-wrap:anywhere}
+.status-filters{display:flex;justify-content:space-between;align-items:center;gap:15px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 15px;box-shadow:var(--shadow);margin-bottom:12px}.status-filters>div:first-child{display:flex;flex-direction:column}.status-filters>div:first-child>span{font-weight:800}.status-filters small{color:var(--faint)}.status-filter-buttons{display:flex;gap:7px;flex-wrap:wrap}.status-filter{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;background:var(--panel2);color:var(--soft);padding:6px 10px;cursor:pointer}.status-filter span{font:750 10px var(--mono)}.status-filter b{min-width:20px;text-align:center;border-radius:999px;background:var(--panel);padding:1px 5px}.status-filter.pass{color:var(--pass)}.status-filter.failed{color:var(--fail)}.status-filter.blocked{color:var(--block)}.status-filter.on{color:#fff;border-color:transparent}.status-filter.pass.on{background:var(--pass)}.status-filter.failed.on{background:var(--fail)}.status-filter.blocked.on{background:var(--block)}.status-filter.on b{color:var(--ink)}.status-filter:disabled{opacity:.4;cursor:not-allowed}@media(max-width:650px){.status-filters{align-items:flex-start;flex-direction:column}.status-filter-buttons{width:100%}.status-filter{flex:1;justify-content:center}}
 """
 
 
@@ -404,7 +400,9 @@ SCRIPT = r"""
  document.querySelectorAll(".seg.mode button").forEach(function(b){b.onclick=function(){mode=b.dataset.value;showOverview();update()}});
  var overview=document.getElementById("slot-overview"),details=document.querySelectorAll(".slot-detail");
  function showOverview(){details.forEach(function(d){d.hidden=true});overview.hidden=false}
- document.querySelectorAll(".type-card").forEach(function(c){c.onclick=function(){overview.hidden=true;details.forEach(function(d){d.hidden=d.dataset.slot!==c.dataset.slot});scrollTo(0,0)}});
+ function applyStatusFilter(detail,status){detail.dataset.statusFilter=status;detail.querySelectorAll("[data-status-filter]").forEach(function(button){button.classList.toggle("on",button.dataset.statusFilter===status)});detail.querySelectorAll(".report-section").forEach(function(section){var cards=Array.from(section.querySelectorAll(".result-card")),matches=cards.filter(function(card){return !status||card.dataset.resultStatus===status});cards.forEach(function(card){card.hidden=!!status&&card.dataset.resultStatus!==status});section.hidden=!!status&&matches.length===0})}
+ document.querySelectorAll("[data-status-filter]").forEach(function(button){button.onclick=function(){var detail=button.closest(".slot-detail"),next=detail.dataset.statusFilter===button.dataset.statusFilter?"":button.dataset.statusFilter;applyStatusFilter(detail,next)}});
+ document.querySelectorAll(".type-card").forEach(function(c){c.onclick=function(){overview.hidden=true;details.forEach(function(d){var active=d.dataset.slot===c.dataset.slot;d.hidden=!active;if(active)applyStatusFilter(d,"")});scrollTo(0,0)}});
  document.querySelectorAll(".back").forEach(function(b){b.onclick=function(){showOverview();scrollTo(0,0)}});
  document.querySelectorAll("[data-card-tab]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),target=button.dataset.cardTab;card.querySelectorAll("[data-card-tab]").forEach(function(item){item.classList.toggle("on",item===button)});card.querySelectorAll("[data-card-page]").forEach(function(page){page.hidden=page.dataset.cardPage!==target})}});
  addEventListener("keydown",function(e){if(e.key==="Escape")showOverview()});update();
@@ -412,15 +410,15 @@ SCRIPT = r"""
 """
 
 
-def render(verdicts, captures, verdict_files, evidence_dirs, catalog, tc_indexes):
+def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
     cards, details = [], []
-    catalog_by_id = {str(row["id"]): row for row in catalog}
+    catalog_by_key = {str(row["key"]): row for row in catalog}
     for platform, _plabel, _device in PLATFORMS:
         for mode, _mlabel in MODES:
             for kind, label, description in TYPES:
                 rows = [row for row in verdicts if row["platform"] == platform and row["mode_group"] == mode and row["test_type"] == kind]
                 cards.append(_slot_card(platform, mode, kind, label, description, rows))
-                details.append(_slot_detail(platform, mode, kind, label, rows, tc_indexes, catalog_by_id))
+                details.append(_slot_detail(platform, mode, kind, label, rows, catalog_by_key))
     counts = Counter(row["status"] for row in verdicts)
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
     roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
@@ -429,7 +427,7 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog, tc_indexes
 <main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>Round Reports</h1><p>一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid">{"".join(cards)}</div></div>{"".join(details)}</section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>TestCase Catalog</h1><p>整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</p></div><b>{len(catalog)} TestCases</b></div>{_catalog_table(catalog, tc_indexes)}</section>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>TestCase Catalog</h1><p>整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</p></div><b>{len(catalog)} TestCases</b></div>{_catalog_table(catalog, catalog_by_key)}</section>
 <p class="meta">Results: {len(verdicts)} · PASS {counts[Status.PASS.value]} · FAILED {counts[Status.FAILED.value]} · BLOCKED {counts[Status.BLOCKED.value]}<br>Raw captures: {len(captures)} · Verdict files: {len(verdict_files)} · Generated: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main><script>{SCRIPT}</script></body></html>'''
 
 
@@ -454,14 +452,12 @@ def _pages_url(remote):
     return f"https://{match.group(1)}.github.io/{match.group(2)}/" if match else ""
 
 
-def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, index_path=DEFAULT_TC_INDEX, remote=None, open_page=True):
+def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=True):
     remote = remote or _origin_url()
     verdicts, captures, verdict_files = discover(evidence_dirs)
     catalog = load_catalog(catalog_path)
-    indexes = load_tc_index(index_path)
-    validate_tc_index(catalog, indexes)
     verdicts = current_verdicts(verdicts, catalog)
-    document = render(verdicts, captures, verdict_files, evidence_dirs, catalog, indexes)
+    document = render(verdicts, captures, verdict_files, evidence_dirs, catalog)
     with tempfile.TemporaryDirectory(prefix="lazyadfinder2-pages-") as temp:
         checkout = Path(temp) / "pages"
         exists = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "gh-pages"], text=True, capture_output=True).returncode == 0
@@ -488,7 +484,6 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", nargs="+", default=[str(ROOT / "evidence")])
     parser.add_argument("--catalog", default=str(DEFAULT_CATALOG))
-    parser.add_argument("--index", default=str(DEFAULT_TC_INDEX))
     parser.add_argument("--out", default="report.html")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--no-open", action="store_true")
@@ -498,13 +493,11 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.publish:
-        publish(args.evidence, args.catalog, args.index, open_page=not args.no_open); return 0
+        publish(args.evidence, args.catalog, open_page=not args.no_open); return 0
     verdicts, captures, verdict_files = discover(args.evidence)
     catalog = load_catalog(args.catalog)
-    indexes = load_tc_index(args.index)
-    validate_tc_index(catalog, indexes)
     verdicts = current_verdicts(verdicts, catalog)
-    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog, indexes))
+    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog))
     print(f"[report] {output} · catalog={len(catalog)} verdicts={len(verdicts)} captures={len(captures)}")
     return 0
 

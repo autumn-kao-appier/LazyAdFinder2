@@ -17,6 +17,7 @@ from pathlib import Path
 
 
 ADS_SETTINGS = "ads-settings"
+APP_SET_ID = "app-set-id"
 BID = "bid"
 SDK_BUILD_INFO = "sdk-build-info"
 ADS_SETTINGS_ACTION = "com.google.android.gms.settings.ADS_PRIVACY"
@@ -156,8 +157,34 @@ def capture_sdk_build_info(folder):
     )
 
 
+def capture_app_set_id_info(folder):
+    """Materialize the decoded App Set ID as a small, human-readable artifact."""
+    folder = Path(folder)
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+
+    plaintext = decoded.get("ext", {}).get("plaintext", {})
+    device = plaintext.get("device") if isinstance(plaintext, dict) else None
+    ext_value = device.get("ifv") if isinstance(device, dict) else None
+    (folder / "app-set-id.json").write_text(
+        json.dumps(
+            {
+                "source": "ext.plaintext.device.ifv",
+                "actual": {"ext_device_ifv": ext_value},
+                "note": (
+                    "目前是單純抓包並解密 device.ifv。若需要可截圖的人眼 Evidence，"
+                    "需請 RD 在 Sample App 增加顯示 App Set ID 的測試入口。"
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
+
+
 EVIDENCE_CAPTURES = {
     ADS_SETTINGS: EvidenceProvider(capture_ads_settings, materialize_ads_settings),
+    APP_SET_ID: EvidenceProvider(after_bid=capture_app_set_id_info),
     BID: EvidenceProvider(),
     SDK_BUILD_INFO: EvidenceProvider(after_bid=capture_sdk_build_info),
 }

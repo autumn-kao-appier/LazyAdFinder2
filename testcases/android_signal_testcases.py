@@ -1,11 +1,11 @@
-"""Reviewed Android TestCases and Round registry."""
+"""Reviewed Android Signal TestCases, validators, and Round registry."""
 
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from evidence_aos import ADS_SETTINGS, BID, SDK_BUILD_INFO
+from evidence_aos import ADS_SETTINGS, APP_SET_ID, BID, SDK_BUILD_INFO
 from verdict import evaluate
 
 
@@ -151,6 +151,28 @@ def validate_sdk_version(folder):
     return _verdict(key, title, description, expected, actual, "sdk-build-info.json", failures)
 
 
+def validate_app_set_id(folder):
+    key = "app-set-id"
+    title = "Vendor ID (App Set ID)"
+    description = "Extended payload contains a non-empty lowercase App Set ID in device.ifv."
+    decoded = _decoded(folder)
+    ext_value = _decoded_device_value(decoded, "ext", "ifv")
+    failures = []
+    if not isinstance(ext_value, str) or not ext_value:
+        failures.append("ext.device.ifv is missing or empty")
+    elif not UUID_RE.fullmatch(ext_value):
+        failures.append("ext.device.ifv is not a lowercase UUID in 8-4-4-4-12 form")
+    return _verdict(
+        key,
+        title,
+        description,
+        {"ext_device_ifv": "non-empty lowercase UUID 8-4-4-4-12"},
+        {"ext_device_ifv": ext_value},
+        "app-set-id.json",
+        failures,
+    )
+
+
 TC_DEFINITIONS = {
     "advertising-id": TestCase(
         "advertising-id",
@@ -166,6 +188,13 @@ TC_DEFINITIONS = {
         (ADS_SETTINGS, BID),
         validate_tracking_allowed,
     ),
+    "app-set-id": TestCase(
+        "app-set-id",
+        "Vendor ID (App Set ID)",
+        "Extended payload contains a non-empty lowercase App Set ID in device.ifv.",
+        (APP_SET_ID, BID),
+        validate_app_set_id,
+    ),
     "sdk-version": TestCase(
         "sdk-version",
         "SDK Version (sdk_version)",
@@ -176,5 +205,8 @@ TC_DEFINITIONS = {
 }
 
 ROUND_DEFINITIONS = {
-    "R1": Round("TRACKING-ALLOWED", ("advertising-id", "tracking-allowed", "sdk-version")),
+    "R1": Round(
+        "TRACKING-ALLOWED",
+        ("advertising-id", "app-set-id", "tracking-allowed", "sdk-version"),
+    ),
 }

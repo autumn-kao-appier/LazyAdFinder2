@@ -1,7 +1,10 @@
 {
+  "schema_version": 1,
   "testcases": [
     {
-      "id": "advertising-id",
+      "key": "advertising-id",
+      "display_id": null,
+      "order": 10,
       "layer": "Signal",
       "round": "R1",
       "category": "A. Core Identifiers",
@@ -23,7 +26,34 @@
       }
     },
     {
-      "id": "sdk-version",
+      "key": "app-set-id",
+      "display_id": null,
+      "order": 20,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "A. Core Identifiers",
+      "title": "Vendor ID (App Set ID)",
+      "field": "device.ifv",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；沿用本輪 capture。App Set ID 不可寫死為某一台裝置曾出現的值。",
+        "expected": "Extended 的 device.ifv 必須存在，且為全小寫 UUID 8-4-4-4-12 格式。",
+        "evidence": "app-set-id.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "目前 Evidence 是單純抓包並解密 device.ifv。若需要可截圖、可由人眼獨立核對的證據，需請 RD 在 Sample App 增加顯示 App Set ID 的測試入口，再保存該畫面截圖。"
+      },
+      "ios": {
+        "applicable": false,
+        "setup": "N/A",
+        "expected": "iOS 的 device.ifv 是 IDFV，來源與生命週期不同，另立 iOS TestCase。",
+        "evidence": "N/A"
+      }
+    },
+    {
+      "key": "sdk-version",
+      "display_id": null,
+      "order": 40,
       "layer": "Signal",
       "round": "R1",
       "category": "D. App State - Format",
@@ -45,7 +75,9 @@
       }
     },
     {
-      "id": "tracking-allowed",
+      "key": "tracking-allowed",
+      "display_id": null,
+      "order": 30,
       "layer": "Signal",
       "round": "R1",
       "category": "A. Core Identifiers",
