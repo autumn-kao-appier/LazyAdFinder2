@@ -10,6 +10,9 @@ from evidence_aos import (
     APP_SET_ID,
     BID,
     BOOT_TIMESTAMPS,
+    BATTERY_STATUS,
+    DISPLAY_STATUS,
+    DEVICE_CONTEXT,
     IN_APP_PURCHASE_HISTORY,
     INSTALLED_APP_LIST,
     RESOURCE_STATUS,
@@ -62,8 +65,113 @@ def _verdict(key, title, description, expected, actual, evidence, failures):
         compare=lambda _expected, _actual: not failures,
         reason="; ".join(failures),
     ).to_dict()
-    row.update({"layer": "Signal", "title": title, "description": description})
+    row.update({
+        "layer": "Signal",
+        "title": title,
+        "description": description,
+        "comparison_view": _comparison_view(key, expected, actual),
+    })
     return row
+
+
+def _comparison_view(key, expected, actual):
+    """Describe what Page should show without asking Page to reinterpret a TC."""
+    compare = {
+        "advertising-id": ("Visible Android GAID", actual.get("settings_gaid"), "SDK Payload", actual.get("ext_device_ia"), "="),
+        "boot-timestamps": ("Calculated boot time", actual.get("current_boot_reference_ms"), "SDK Payload", (actual.get("pot") or [None])[-1], "≈"),
+        "ram-total": ("Captured OS bytes", expected.get("system_reference_bytes"), "SDK Payload", actual.get("payload_bytes"), "≈"),
+        "ram-available": ("Captured OS bytes", expected.get("system_reference_bytes"), "SDK Payload", actual.get("payload_bytes"), "≈"),
+        "disk-total": ("Captured OS bytes", expected.get("system_reference_bytes"), "SDK Payload", actual.get("payload_bytes"), "≈"),
+        "disk-free": ("Captured OS bytes", expected.get("system_reference_bytes"), "SDK Payload", actual.get("payload_bytes"), "≈"),
+        "battery-level": ("Visible battery level", expected.get("level"), "SDK Payload", actual.get("batterylevel"), "≈"),
+        "charging-status": ("Captured power state", expected.get("charging"), "SDK Payload", actual.get("charging"), "="),
+        "battery-saver": ("Visible Battery Saver", expected.get("battery_saver"), "SDK Payload", actual.get("battery_saver"), "="),
+        "screen-width": ("Captured screen width", expected.get("width"), "SDK Payload", actual.get("sw"), "="),
+        "screen-height": ("Captured screen height", expected.get("height"), "SDK Payload", actual.get("sh"), "="),
+        "screen-ppi": ("Android logical density", expected.get("logical_density_dpi"), "SDK Payload", actual.get("ppi"), "="),
+        "pixel-ratio": ("Density ÷ 160", expected.get("pixel_ratio"), "SDK Payload", actual.get("pxratio"), "="),
+        "screen-brightness": ("Captured brightness", expected.get("screen_brightness"), "SDK Payload", actual.get("screen_bright"), "≈"),
+        "font-scale": ("Android font scale", expected.get("font_scale"), "SDK Payload", actual.get("fontscale"), "="),
+        "dark-mode": ("Visible Dark theme", expected.get("dark_mode"), "SDK Payload", actual.get("darkmode"), "="),
+        "output-volume": ("Android Media volume", expected.get("volume_normalized"), "SDK Payload", actual.get("volume"), "≈"),
+        "device-make": ("Android manufacturer", expected.get("make"), "SDK req/ext", f'{actual.get("req_make")} / {actual.get("make")}', "="),
+        "device-model": ("Android product model", expected.get("model"), "SDK model / hwv", f'{actual.get("model")} / {actual.get("hwv")}', "="),
+        "default-timezone": ("Android UTC offset", expected.get("utcoffset"), "SDK req/ext", f'{actual.get("req_utcoffset")} / {actual.get("utcoffset")}', "="),
+        "default-language-iso": ("Android language", expected.get("lang"), "SDK Payload", actual.get("lang"), "="),
+        "default-language-bcp47": ("Android locale tag", expected.get("langb"), "SDK req/ext", f'{actual.get("req_langb")} / {actual.get("langb")}', "="),
+        "keyboard-languages": ("Enabled Gboard languages", expected.get("input_lang"), "SDK Payload", actual.get("input_lang"), "="),
+        "root-status": ("Android root probe", expected.get("jailbreak"), "SDK jailbreak", actual.get("jailbreak"), "="),
+        "emulator-detection": ("Android hardware probe", expected.get("emulator"), "SDK emulator", actual.get("emulator"), "="),
+        "connection-type": ("Active Android network", expected.get("conntype"), "SDK req/ext", f'{actual.get("req_conntype")} / {actual.get("conntype")}', "="),
+        "carrier": ("Android SIM state", expected.get("carrier"), "SDK Payload", actual.get("carrier"), "="),
+        "mcc-mnc": ("Android SIM state", expected.get("mccmnc"), "SDK Payload", actual.get("mccmnc"), "="),
+        "tracking-allowed": ("Visible opt-out state", actual.get("visible_opt_out"), "SDK Payload · req/ext", f'{actual.get("req_device_lat")} / {actual.get("ext_device_lat")}', "↔"),
+    }
+    criteria = {
+        "advertising-id": "Visible GAID and SDK req/ext values must be the same valid lowercase UUID.",
+        "boot-timestamps": "Latest timestamp must match device time minus uptime within 120 seconds.",
+        "ram-total": "Payload must be within 2% of the captured OS value.",
+        "ram-available": "Dynamic payload must remain within the reviewed capture tolerance.",
+        "disk-total": "Payload must be within 2% of the captured /data filesystem value.",
+        "disk-free": "Dynamic payload must remain within the reviewed capture tolerance.",
+        "battery-level": "Payload must be within 2 percentage points of the visible battery level.",
+        "charging-status": "Payload must equal the captured Android power state.",
+        "battery-saver": "Payload must equal the visible Battery Saver switch.",
+        "screen-width": "Payload must equal the captured screen width in pixels.",
+        "screen-height": "Payload must equal the captured screen height in pixels.",
+        "screen-ppi": "Payload must equal wm density; mapped physical PPI must be within ±5%.",
+        "pixel-ratio": "Payload must equal Android logical density divided by 160.",
+        "screen-brightness": "Payload must match Android brightness normalized from 0–255 to 0–1.",
+        "font-scale": "Payload must equal the current Android font scale.",
+        "dark-mode": "Payload must equal the visible Android Dark theme state.",
+        "output-volume": "Payload must equal Android Media volume normalized by its maximum level.",
+        "device-make": "Request and extended payload manufacturer must equal Android ro.product.manufacturer.",
+        "device-model": "Payload model and hardware version must equal Android ro.product.model.",
+        "default-timezone": "Request and extended UTC offset minutes must equal the device timezone at capture time.",
+        "default-language-iso": "ISO-639-1 language must equal the language component of the Android system locale.",
+        "default-language-bcp47": "Request and extended BCP 47 tags must equal the normalized Android system locale.",
+        "keyboard-languages": "Payload list must exactly match the enabled Gboard language tags.",
+        "root-status": "Payload jailbreak boolean must match an independent Android root probe.",
+        "emulator-detection": "Payload emulator boolean must match Android hardware properties.",
+        "connection-type": "Request and extended connection types must match the active Android network transport.",
+        "carrier": "With no active SIM, carrier must be an empty string.",
+        "mcc-mnc": "With no active SIM, MCC/MNC must be an empty string.",
+        "tracking-allowed": "Visible opt-out OFF must agree with SDK tracking-allowed flags.",
+    }
+    if key in compare:
+        captured_label, captured, payload_label, payload, operator = compare[key]
+        view = {
+            "kind": "compare",
+            "criterion": criteria[key],
+            "captured": {"label": captured_label, "value": captured},
+            "actual": {"label": payload_label, "value": payload},
+            "operator": operator,
+        }
+        if key == "screen-ppi":
+            view["supporting"] = f'Official physical PPI: {expected.get("official_physical_ppi")} (supporting check)'
+        return view
+    if key == "sdk-version":
+        required = expected.get("build_sdk_version")
+        return {
+            "kind": "compare",
+            "criterion": "Decoded app.sdk_version must match the reviewed build target.",
+            "captured": {"label": "Reviewed Build Target", "value": required},
+            "actual": {"label": "Decoded Bid Request", "value": actual.get("req_app_sdk_version")},
+            "operator": "=",
+        }
+    rule_actual = {
+        "app-set-id": actual.get("ext_device_ifv"),
+        "installed-app-list": actual.get("packages"),
+    }.get(key, actual)
+    rule = {
+        "app-set-id": "SDK value must be a non-empty lowercase UUID; no independent Sample App display exists yet.",
+        "installed-app-list": "Unavailable, empty, or a valid unique package list is allowed; no exact fixed list is required.",
+    }.get(key, "Actual SDK payload must satisfy the reviewed TestCase rule.")
+    return {
+        "kind": "rule",
+        "criterion": rule,
+        "actual": {"label": "Actual SDK Payload", "value": rule_actual},
+    }
 
 
 def validate_advertising_id(folder):
@@ -398,6 +506,156 @@ def validate_disk_free(folder):
     return row
 
 
+def _status_info(folder, name):
+    return json.loads((Path(folder) / name).read_text())
+
+
+def _simple_status(folder, key, title, info_file, expected_key, actual_key, evidence, tolerance=0):
+    info = _status_info(folder, info_file)
+    expected = info.get(expected_key)
+    actual = info.get("actual", {}).get(actual_key)
+    failures = []
+    if type(actual) is not type(expected):
+        failures.append(f"{actual_key} has wrong type or is missing")
+    elif isinstance(expected, int) and abs(actual - expected) > tolerance:
+        failures.append(f"{actual_key} differs from Android source beyond tolerance")
+    elif actual != expected:
+        failures.append(f"{actual_key} does not match Android source")
+    return _verdict(key, title, f"{title} matches the direct Android source.", {expected_key: expected, "tolerance": tolerance}, {actual_key: actual}, evidence, failures)
+
+
+def validate_battery_level(folder): return _simple_status(folder, "battery-level", "Battery Level", "battery-status.json", "level", "batterylevel", "battery-settings.png", 2)
+def validate_charging_status(folder): return _simple_status(folder, "charging-status", "Charging Status", "battery-status.json", "charging", "charging", "battery-settings.png")
+def validate_battery_saver(folder): return _simple_status(folder, "battery-saver", "Battery Saver", "battery-status.json", "battery_saver", "battery_saver", "battery-saver-settings.png")
+def validate_screen_width(folder): return _simple_status(folder, "screen-width", "Screen Width", "display-status.json", "width", "sw", "screen-width-evidence.png")
+def validate_screen_height(folder): return _simple_status(folder, "screen-height", "Screen Height", "display-status.json", "height", "sh", "screen-height-evidence.png")
+
+
+def validate_screen_ppi(folder):
+    info = _status_info(folder, "display-status.json")
+    expected = info.get("density_dpi")
+    actual = info.get("actual", {}).get("ppi")
+    official = info.get("official_spec") or {}
+    physical = official.get("physical_ppi")
+    difference = abs(actual - physical) if type(actual) is int and type(physical) in (int, float) else None
+    within_five_percent = difference is None or difference / physical <= 0.05
+    failures = []
+    if type(actual) is not int or actual != expected:
+        failures.append("ppi does not match Android logical density")
+    if not within_five_percent:
+        failures.append("logical density differs from the mapped official physical PPI by more than 5%")
+    return _verdict(
+        "screen-ppi",
+        "Screen PPI",
+        "Logical density matches Android and is reasonable against the mapped official panel PPI.",
+        {"logical_density_dpi": expected, "official_physical_ppi": physical, "physical_tolerance": "±5%"},
+        {"ppi": actual, "difference_from_physical_ppi": difference, "within_physical_tolerance": within_five_percent},
+        "screen-ppi-evidence.png",
+        failures,
+    )
+
+
+def _validate_display_value(folder, key, title, expected_key, actual_key, tolerance=0):
+    info = _status_info(folder, "display-status.json")
+    expected = info.get(expected_key)
+    actual = info.get("actual", {}).get(actual_key)
+    failures = []
+    if expected_key == "dark_mode":
+        if type(actual) is not bool or actual is not expected:
+            failures.append(f"{actual_key} does not match Android Dark theme")
+    elif type(actual) not in (int, float) or abs(actual - expected) > tolerance:
+        failures.append(f"{actual_key} differs from the captured Android value beyond tolerance")
+    return _verdict(key, title, f"{title} matches the direct Android source.", {expected_key: expected, "tolerance": tolerance}, {actual_key: actual}, f"{key}-evidence.png", failures)
+
+
+def validate_pixel_ratio(folder): return _validate_display_value(folder, "pixel-ratio", "Pixel Ratio", "pixel_ratio", "pxratio", 1e-6)
+def validate_screen_brightness(folder): return _validate_display_value(folder, "screen-brightness", "Screen Brightness", "screen_brightness", "screen_bright", 1 / 255 + 1e-8)
+def validate_font_scale(folder): return _validate_display_value(folder, "font-scale", "Font Scale", "font_scale", "fontscale", 1e-6)
+def validate_dark_mode(folder): return _validate_display_value(folder, "dark-mode", "Dark Mode", "dark_mode", "darkmode")
+
+
+def _context_info(folder):
+    return _status_info(folder, "device-context.json")
+
+
+def validate_output_volume(folder):
+    info = _context_info(folder); expected = info["volume_normalized"]; actual = info["actual"]; value = actual.get("volume")
+    failures = [] if type(value) in (int, float) and abs(value - expected) <= 1 / info["volume_max"] + 1e-8 else ["volume does not match normalized Android Media volume"]
+    return _verdict("output-volume", "Output Volume", "Output volume matches Android Media volume.", {"volume_normalized": expected, "current": info["volume_current"], "max": info["volume_max"]}, actual, "volume-evidence.png", failures)
+
+
+def validate_device_make(folder):
+    info = _context_info(folder); actual = info["actual"]; expected = info["make"]
+    failures = [name for name in ("req_make", "make") if actual.get(name) != expected]
+    return _verdict("device-make", "Device Make", "Manufacturer matches Android.", {"make": expected}, actual, "make-evidence.png", [f"{', '.join(failures)} do not match Android manufacturer"] if failures else [])
+
+
+def validate_device_model(folder):
+    info = _context_info(folder); actual = info["actual"]; expected = info["model"]
+    names = ("req_model", "model", "req_hwv", "hwv"); failures = [name for name in names if actual.get(name) != expected]
+    return _verdict("device-model", "Device Model", "Model and hardware version match Android.", {"model": expected}, actual, "model-evidence.png", [f"{', '.join(failures)} do not match Android model"] if failures else [])
+
+
+def validate_default_timezone(folder):
+    info = _context_info(folder); actual = info["actual"]; expected = info["utcoffset"]
+    failures = [name for name in ("req_utcoffset", "utcoffset") if actual.get(name) != expected]
+    return _verdict("default-timezone", "Default Timezone", "UTC offset minutes match Android timezone.", {"utcoffset": expected, "timezone": info["timezone"]}, actual, "utcoffset-evidence.png", [f"{', '.join(failures)} do not match Android UTC offset"] if failures else [])
+
+
+def validate_default_language_iso(folder):
+    info = _context_info(folder); actual = info["actual"]; expected = info["lang"]
+    return _verdict("default-language-iso", "Default Language (ISO-639-1)", "Language matches Android locale.", {"lang": expected}, actual, "lang-evidence.png", [] if actual.get("lang") == expected else ["lang does not match Android locale language"])
+
+
+def validate_default_language_bcp47(folder):
+    info = _context_info(folder); actual = info["actual"]; expected = info["langb"]
+    failures = [name for name in ("req_langb", "langb") if actual.get(name) != expected]
+    return _verdict("default-language-bcp47", "Default Language (BCP 47)", "Language tag matches Android locale.", {"langb": expected}, actual, "langb-evidence.png", [f"{', '.join(failures)} do not match Android locale tag"] if failures else [])
+
+
+def _validate_context_exact(folder, key, title, expected_key, actual_names, evidence):
+    info = _context_info(folder); actual = info["actual"]; expected = info[expected_key]
+    failures = [name for name in actual_names if actual.get(name) != expected]
+    return _verdict(key, title, f"{title} matches the direct Android source.", {expected_key: expected}, actual, evidence, [f"{', '.join(failures)} do not match Android"] if failures else [])
+
+
+def validate_keyboard_languages(folder): return _validate_context_exact(folder, "keyboard-languages", "Installed Keyboard Languages", "input_lang", ("input_lang",), "input_lang-evidence.png")
+def validate_root_status(folder): return _validate_context_exact(folder, "root-status", "Root Status", "jailbreak", ("jailbreak",), "jailbreak-evidence.png")
+def validate_emulator_detection(folder): return _validate_context_exact(folder, "emulator-detection", "Emulator Detection", "emulator", ("emulator",), "emulator-evidence.png")
+def validate_connection_type(folder): return _validate_context_exact(folder, "connection-type", "Connection Type", "conntype", ("req_conntype", "conntype"), "conntype-evidence.png")
+
+
+def _validate_no_sim_value(folder, key, title, actual_key, evidence):
+    info = _context_info(folder); actual = info["actual"]; failures = []
+    if not info.get("no_active_sim"): failures.append("device has an active SIM; populated carrier validation is not defined yet")
+    elif actual.get(actual_key) != "": failures.append(f"{actual_key} must be empty when Android has no active SIM")
+    return _verdict(key, title, f"{title} reflects Android subscription state.", {actual_key: "", "no_active_sim": info.get("no_active_sim")}, actual, evidence, failures)
+
+
+def validate_carrier(folder): return _validate_no_sim_value(folder, "carrier", "Carrier", "carrier", "carrier-evidence.png")
+def validate_mcc_mnc(folder): return _validate_no_sim_value(folder, "mcc-mnc", "MCC/MNC", "mccmnc", "mccmnc-evidence.png")
+
+
+def _round_blocked(key, title, reason):
+    row = blocked(key, reason).to_dict(); row.update({"layer": "Signal", "title": title, "description": reason}); return row
+
+
+def validate_ipv6(_folder): return _round_blocked("ipv6-address", "IPv6 Address", "Round limitation: no reviewed IPv6 payload field is present in this capture")
+def validate_precise_latitude(_folder): return _round_blocked("precise-gps-latitude", "Precise GPS Latitude", "Not In Scope: location ground-truth capture is not defined; device.lat is the tracking flag, not latitude")
+def validate_precise_longitude(_folder): return _round_blocked("precise-gps-longitude", "Precise GPS Longitude", "Not In Scope: location ground-truth capture is not defined; the observed payload path is device.geo_lon")
+def validate_session_duration(_folder): return _round_blocked("foreground-session-duration", "Current Foreground Session Duration", "Round limitation: SampleApp session start timestamp and field unit are not yet exposed")
+
+
+def _sensor_out_of_scope(key, title):
+    row = blocked(key, "Not In Scope: this round has no sensor motion setup or reviewed expected samples").to_dict()
+    row.update({"layer": "Signal", "title": title, "description": "Sensor array is observed but not evaluated in this scope."})
+    return row
+
+
+def validate_gyroscope(_folder): return _sensor_out_of_scope("gyroscope", "Gyroscope")
+def validate_accelerometer(_folder): return _sensor_out_of_scope("accelerometer", "Accelerometer")
+
+
 TC_DEFINITIONS = {
     "advertising-id": TestCase(
         "advertising-id",
@@ -445,6 +703,34 @@ TC_DEFINITIONS = {
     "ram-available": TestCase("ram-available", "RAM Status (Available)", "Available RAM is valid and matches the near-time system snapshot.", (RESOURCE_STATUS, BID), validate_ram_available),
     "disk-total": TestCase("disk-total", "Disk Storage (Total)", "Total app-data filesystem storage matches the Android system snapshot.", (RESOURCE_STATUS, BID), validate_disk_total),
     "disk-free": TestCase("disk-free", "Disk Storage (Free)", "Free app-data filesystem storage is valid and matches the near-time system snapshot.", (RESOURCE_STATUS, BID), validate_disk_free),
+    "battery-level": TestCase("battery-level", "Battery Level", "Battery percentage matches Android.", (BATTERY_STATUS, BID), validate_battery_level),
+    "charging-status": TestCase("charging-status", "Charging Status", "Charging flag matches Android power state.", (BATTERY_STATUS, BID), validate_charging_status),
+    "battery-saver": TestCase("battery-saver", "Battery Saver", "Battery Saver matches the visible Android setting.", (BATTERY_STATUS, BID), validate_battery_saver),
+    "screen-width": TestCase("screen-width", "Screen Width", "Screen width matches Android display pixels.", (DISPLAY_STATUS, BID), validate_screen_width),
+    "screen-height": TestCase("screen-height", "Screen Height", "Screen height matches Android display pixels.", (DISPLAY_STATUS, BID), validate_screen_height),
+    "screen-ppi": TestCase("screen-ppi", "Screen PPI", "Logical density DPI matches Android.", (DISPLAY_STATUS, BID), validate_screen_ppi),
+    "pixel-ratio": TestCase("pixel-ratio", "Pixel Ratio", "Pixel ratio matches Android density scale.", (DISPLAY_STATUS, BID), validate_pixel_ratio),
+    "screen-brightness": TestCase("screen-brightness", "Screen Brightness", "Normalized brightness matches Android.", (DISPLAY_STATUS, BID), validate_screen_brightness),
+    "font-scale": TestCase("font-scale", "Font Scale", "Font scale matches Android.", (DISPLAY_STATUS, BID), validate_font_scale),
+    "dark-mode": TestCase("dark-mode", "Dark Mode", "Dark mode matches Android UI mode.", (DISPLAY_STATUS, BID), validate_dark_mode),
+    "gyroscope": TestCase("gyroscope", "Gyroscope", "Sensor samples are outside this round scope.", (BID,), validate_gyroscope),
+    "accelerometer": TestCase("accelerometer", "Accelerometer", "Sensor samples are outside this round scope.", (BID,), validate_accelerometer),
+    "output-volume": TestCase("output-volume", "Output Volume", "Normalized Media volume matches Android.", (DEVICE_CONTEXT, BID), validate_output_volume),
+    "device-make": TestCase("device-make", "Device Make", "Manufacturer matches Android.", (DEVICE_CONTEXT, BID), validate_device_make),
+    "device-model": TestCase("device-model", "Device Model", "Model and hardware version match Android.", (DEVICE_CONTEXT, BID), validate_device_model),
+    "default-timezone": TestCase("default-timezone", "Default Timezone", "UTC offset matches Android.", (DEVICE_CONTEXT, BID), validate_default_timezone),
+    "default-language-iso": TestCase("default-language-iso", "Default Language (ISO-639-1)", "Language code matches Android.", (DEVICE_CONTEXT, BID), validate_default_language_iso),
+    "default-language-bcp47": TestCase("default-language-bcp47", "Default Language (BCP 47)", "Language tag matches Android.", (DEVICE_CONTEXT, BID), validate_default_language_bcp47),
+    "keyboard-languages": TestCase("keyboard-languages", "Installed Keyboard Languages", "Enabled keyboard languages match Android.", (DEVICE_CONTEXT, BID), validate_keyboard_languages),
+    "root-status": TestCase("root-status", "Root Status", "Root detection matches Android.", (DEVICE_CONTEXT, BID), validate_root_status),
+    "emulator-detection": TestCase("emulator-detection", "Emulator Detection", "Emulator detection matches Android.", (DEVICE_CONTEXT, BID), validate_emulator_detection),
+    "ipv6-address": TestCase("ipv6-address", "IPv6 Address", "IPv6 validation requires a reviewed payload field.", (BID,), validate_ipv6),
+    "connection-type": TestCase("connection-type", "Connection Type", "Connection transport matches Android.", (DEVICE_CONTEXT, BID), validate_connection_type),
+    "carrier": TestCase("carrier", "Carrier", "Carrier reflects SIM state.", (DEVICE_CONTEXT, BID), validate_carrier),
+    "mcc-mnc": TestCase("mcc-mnc", "MCC/MNC", "MCC/MNC reflects SIM state.", (DEVICE_CONTEXT, BID), validate_mcc_mnc),
+    "precise-gps-latitude": TestCase("precise-gps-latitude", "Precise GPS Latitude", "Precise location is outside this round scope.", (BID,), validate_precise_latitude),
+    "precise-gps-longitude": TestCase("precise-gps-longitude", "Precise GPS Longitude", "Precise location is outside this round scope.", (BID,), validate_precise_longitude),
+    "foreground-session-duration": TestCase("foreground-session-duration", "Current Foreground Session Duration", "Session timing requires app instrumentation.", (BID,), validate_session_duration),
     "sdk-version": TestCase(
         "sdk-version",
         "SDK Version (sdk_version)",
@@ -467,6 +753,34 @@ ROUND_DEFINITIONS = {
             "ram-available",
             "disk-total",
             "disk-free",
+            "battery-level",
+            "charging-status",
+            "battery-saver",
+            "screen-width",
+            "screen-height",
+            "screen-ppi",
+            "pixel-ratio",
+            "screen-brightness",
+            "font-scale",
+            "dark-mode",
+            "gyroscope",
+            "accelerometer",
+            "output-volume",
+            "device-make",
+            "device-model",
+            "default-timezone",
+            "default-language-iso",
+            "default-language-bcp47",
+            "keyboard-languages",
+            "root-status",
+            "emulator-detection",
+            "ipv6-address",
+            "connection-type",
+            "carrier",
+            "mcc-mnc",
+            "precise-gps-latitude",
+            "precise-gps-longitude",
+            "foreground-session-duration",
             "tracking-allowed",
             "sdk-version",
         ),

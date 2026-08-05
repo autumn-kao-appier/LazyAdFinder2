@@ -1,5 +1,11 @@
 # TestCase Specifications
 
+## Evidence contract
+
+所有 TC 的 Evidence 都必須依序呈現 `Expected`、`Captured Device State`、
+`Actual SDK Payload` 與 `Comparison`。Captured Device State 必須獨立於 payload：優先採用
+人眼可見的實機設定頁；沒有可靠頁面時才使用同時間的 OS 原始讀值，並明確標示來源。
+
 這是人工可讀的 TC 規格；Catalog metadata 在 `testcase_catalog.json`，AOS 執行與比較邏輯在
 `android_signal_testcases.py`。UI hierarchy 只允許執行當下定位，不保存為正式 Evidence。
 
@@ -145,6 +151,62 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 
 任一欄位缺少、型別錯誤、關係不合法或超出容差為 FAILED；獨立系統讀值或 payload 無法取得，
 導致 TC 未真正執行時才是 BLOCKED。
+
+## Battery and Display Status
+
+六條皆為 Signal / R1 / AOS / P1，分成兩次共用 Evidence capture。
+
+- `battery-level` / `device.batterylevel`：整數 0～100；與 Android Battery 頁及 `dumpsys battery`
+  的 level 相差不超過 2%。Evidence：`battery-settings.png`。
+- `charging-status` / `device.charging`：整數 0/1；任一 AC／USB／Wireless／Dock powered 時為
+  1。100% 顯示 Full／Charged 但仍接電源也視為 charging=1。Evidence：同一 Battery 原生頁。
+- `battery-saver` / `device.ext.battery_saver`：JSON boolean，與 Battery Saver 原生開關及
+  `settings get global low_power` 完全一致。舊表 `disk.ext.batterysaver` 是錯誤路徑。
+- `screen-width` / `device.sw`、`screen-height` / `device.sh`：正整數 pixels，等於直向 capture
+  的 Android display size。Evidence 卡保留真實手機截圖並直接標出原圖 1080×2424 pixels，
+  分別對照 payload width／height；`wm size` 保存精確 OS 答案。
+- `screen-ppi` / `device.ppi`：正整數，等於 `wm density` 的 Android logical density DPI；這不是
+  面板物理 PPI。若裝置型號已有官方規格 mapping，再以 ±5% 比對 logical density 與官方物理
+  PPI，作為合理性檢查；未收錄型號只略過輔助檢查，不 BLOCK。Pixel 10a 官方值為 422.2 PPI。
+- `pixel-ratio` / `device.pxratio`：等於 logical density ÷ 160；Pixel 10a 為 420 ÷ 160 = 2.625。
+- `screen-brightness` / `device.ext.screen_bright`：Android `screen_brightness` ÷ 255；容許
+  1/255 誤差，原生 Display 頁是主要肉眼 Evidence。
+- `font-scale` / `device.ext.fontscale`：與 Android `system font_scale` 相等；設定頁輔助人眼確認。
+- `dark-mode` / `device.ext.darkmode`：JSON boolean，與可見 Dark theme 開關及 UI night mode 一致。
+- `gyroscope`、`accelerometer`：P2 / BLOCKED / Not In Scope。本輪沒有感測器動作與獨立正確
+  樣本，即使 payload 是空陣列也不判 PASS。
+
+## Audio, Device Identity, Timezone and Language
+
+- `output-volume` / `device.ext.volume`：Android Media volume 的 current ÷ max，正規化為 0～1；
+  容許一個音量級距誤差。Sound & vibration 的 Media volume 滑桿是人眼 Evidence。
+- `device-make` / `device.make`：req/ext 均須等於 `ro.product.manufacturer`。
+- `device-model` / `device.model`、`device.hwv`：req/ext 的 model 與 hwv 均須等於
+  `ro.product.model`；About phone 是人眼 Evidence。
+- `default-timezone` / `device.utcoffset`：req/ext 均須等於 capture 當下 `date +%z` 轉換的
+  UTC offset 分鐘數。答案隨系統時區改變，不固定為 480。
+- `default-language-iso` / `device.lang`：ext 值須等於 system locale 的 ISO-639-1 語言部分。
+- `default-language-bcp47` / `device.langb`：req/ext 均須等於 system locale 正規化後的 BCP 47
+  tag，例如 `en-JP`；答案不得由 payload 反推或固定寫死。
+
+共用 `device-context` capture 會保留 Sound、About phone、Date & time、Languages 四個原生頁面，
+並將 OS 精確值、換算式與 decoded bid 組合成各自可翻頁的 Evidence 卡。
+
+## Keyboard, Integrity, Network, Location and Session
+
+- `keyboard-languages`：Gboard Languages 畫面與 enabled subtype BCP 47 tags 必須和
+  `device.input_lang` 陣列順序一致。
+- `root-status`：Magisk 畫面與 `su -c id` 是獨立答案；`device.ext.jailbreak` 必須是相同 boolean。
+- `emulator-detection`：由 qemu/product hardware properties 判斷；實體 Pixel 應為 false。
+- `connection-type`：Android active default transport 必須和 req/ext `device.conntype` 一致。
+- `carrier`、`mcc-mnc`：本 QA device 無 active SIM 時必須為空字串；若日後插入 SIM，需由
+  cellular round 定義 populated value，不能沿用空字串規則。
+- `ipv6-address`：BLOCKED。雖然其他網路 round 曾觀察到 IPv6，本輪尚未確認 payload path。
+  IPv4 已依需求排除，不建立 TC。
+- `precise-gps-latitude`、`precise-gps-longitude`：BLOCKED / Not In Scope。正確觀察路徑是
+  `device.geo_lat` / `device.geo_lon`；`device.lat` 已是 tracking flag，不能當緯度。
+- `foreground-session-duration`：BLOCKED。需 SampleApp 提供獨立 session start timestamp，並先
+  確認 `user.session_duration` 單位；只檢查 payload 是正數不構成正確性驗證。
 
 ## Limit Ad Tracking Flag (tracking allowed)
 

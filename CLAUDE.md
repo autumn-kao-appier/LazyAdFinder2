@@ -32,8 +32,14 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 `TC_DEFINITIONS` 與 `ROUND_DEFINITIONS` 只註冊使用者已逐條確認的 TC，不得批次搬回舊規則。
 目前 AOS 已註冊 `advertising-id`、`app-set-id`、`installed-app-list`、
 `in-app-purchase-history`、`boot-timestamps`、`ram-total`、`ram-available`、`disk-total`、
-`disk-free`、`tracking-allowed`、`sdk-version`，由 `R1` 的同一次 capture 執行。這些是穩定語意
-key，不代表顯示順序或最終 TC 編號。
+`disk-free`、`battery-level`、`charging-status`、`battery-saver`、`screen-width`、
+`screen-height`、`screen-ppi`、`pixel-ratio`、`screen-brightness`、`font-scale`、`dark-mode`、
+`output-volume`、`device-make`、`device-model`、`default-timezone`、`default-language-iso`、
+`default-language-bcp47`、
+`keyboard-languages`、`root-status`、`emulator-detection`、`ipv6-address`、`connection-type`、
+`carrier`、`mcc-mnc`、`precise-gps-latitude`、`precise-gps-longitude`、`foreground-session-duration`、
+`gyroscope`、`accelerometer`、`tracking-allowed`、`sdk-version`，由 `R1` 的同一次 capture
+執行。這些是穩定語意 key，不代表顯示順序或最終 TC 編號。
 正式編號 `display_id` 與排序 `order` 只在 `testcases/testcase_catalog.json` 維護；未決定時
 保持 `null`，不得先猜編號。Page 必須直接讀取這份單一來源。
 
@@ -43,6 +49,11 @@ key，不代表顯示順序或最終 TC 編號。
 - 適用的平台、integration mode 與 campaign type。
 - Round/setup 要建立什麼手機狀態。
 - setup 後如何讀回確認狀態真的成立。
+
+每條 TC 的 Evidence 必須固定回答四件事：`Expected`（正確標準）、`Captured Device State`
+（同時間由肉眼畫面或獨立 OS 原始來源取得的實機答案）、`Actual SDK Payload`（SDK 真正送出的值）、
+以及兩者的 `Comparison`。不得拿 payload 自己當成自己的 Evidence；能取得人眼可見的直接截圖時，
+優先使用截圖，無可靠設定頁時才使用清楚標示來源的 OS 原始讀值。
 - 使用哪一份 evidence、哪個欄位。
 - expected value 或 validator 的精確定義。
 - 無法建立狀態或缺少 evidence 時如何表達。
@@ -114,7 +125,7 @@ baseline 或任何預設狀態。
 
 ## 目前狀態
 
-- AOS：automation 與 evidence engine 已清理；R1 同一次 capture 驗證十一條已確認的 Signal TC。
+- AOS：automation 與 evidence engine 已清理；R1 同一次 capture 驗證三十九條已確認的 Signal TC。
 - iOS：獨立的 XCUITest/raw evidence engine 已清理；TC/round 目錄為空。
 - mitmdump：只輸出 bid request、bid response、impression callback。
 - AprXorEnc：只提供 `decrypt(encrypted: str) -> str`。

@@ -102,7 +102,7 @@ ROUND_DEFINITIONS = {"R1": Round("TRACKING-ALLOWED", (...))}
 
 ```bash
 python3 qa_aos.py list-rounds
-# R1: TRACKING-ALLOWED [advertising-id, app-set-id, installed-app-list, in-app-purchase-history, boot-timestamps, ram-total, ram-available, disk-total, disk-free, tracking-allowed, sdk-version]
+# R1: TRACKING-ALLOWED [advertising-id, app-set-id, installed-app-list, in-app-purchase-history, boot-timestamps, ram-total, ram-available, disk-total, disk-free, battery-level, charging-status, battery-saver, screen-width, screen-height, screen-ppi, pixel-ratio, screen-brightness, font-scale, dark-mode, gyroscope, accelerometer, output-volume, device-make, device-model, default-timezone, default-language-iso, default-language-bcp47, keyboard-languages, root-status, emulator-detection, ipv6-address, connection-type, carrier, mcc-mnc, precise-gps-latitude, precise-gps-longitude, foreground-session-duration, tracking-allowed, sdk-version]
 ```
 
 只有在人工確認某條 TC 的 setup、證據與正確標準後，才加入定義。Automation engine 不得
@@ -170,7 +170,12 @@ iOS 可能因 TLS／pinning 只觀察到 impression callback、沒有 bid body�
 
 TC answer key 與 validator 只包含已人工確認的 TC；目前已加入 advertising-id、
 app-set-id、installed-app-list、in-app-purchase-history、boot-timestamps、ram-total、
-ram-available、disk-total、disk-free、tracking-allowed、sdk-version。`page.py` 只呈現
+ram-available、disk-total、disk-free、battery-level、charging-status、battery-saver、
+screen-width、screen-height、screen-ppi、pixel-ratio、screen-brightness、font-scale、dark-mode、
+output-volume、device-make、device-model、default-timezone、default-language-iso、default-language-bcp47、
+keyboard-languages、root-status、emulator-detection、ipv6-address、connection-type、carrier、mcc-mnc、
+precise-gps-latitude、precise-gps-longitude、foreground-session-duration、
+gyroscope、accelerometer、tracking-allowed、sdk-version。`page.py` 只呈現
 結構化 `Verdict`，不得自行重算答案。
 
 已執行的 TC 呼叫 `evaluate(expected=..., actual=...)`，比較後必然得到 `PASS` 或

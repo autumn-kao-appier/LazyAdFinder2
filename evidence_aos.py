@@ -23,6 +23,9 @@ ADS_SETTINGS = "ads-settings"
 APP_SET_ID = "app-set-id"
 BID = "bid"
 BOOT_TIMESTAMPS = "boot-timestamps"
+BATTERY_STATUS = "battery-status"
+DISPLAY_STATUS = "display-status"
+DEVICE_CONTEXT = "device-context"
 IN_APP_PURCHASE_HISTORY = "in-app-purchase-history"
 INSTALLED_APP_LIST = "installed-app-list"
 RESOURCE_STATUS = "resource-status"
@@ -37,6 +40,28 @@ SETUP_UPTIME_SCREENSHOT = Path("/tmp/laf2_uptime_settings.png")
 SETUP_RESOURCE_STATUS = Path("/tmp/laf2_resource_status.json")
 SETUP_MEMORY_SCREENSHOT = Path("/tmp/laf2_memory_settings.png")
 SETUP_STORAGE_SCREENSHOT = Path("/tmp/laf2_storage_settings.png")
+SETUP_BATTERY_SCREENSHOT = Path("/tmp/laf2_battery_settings.png")
+SETUP_BATTERY_SAVER_SCREENSHOT = Path("/tmp/laf2_battery_saver_settings.png")
+SETUP_DISPLAY_SCREENSHOT = Path("/tmp/laf2_display_settings.png")
+SETUP_FONT_SCALE_SCREENSHOT = Path("/tmp/laf2_font_scale_settings.png")
+SETUP_QUICK_BRIGHTNESS_SCREENSHOT = Path("/tmp/laf2_quick_brightness.png")
+SETUP_BATTERY_STATUS = Path("/tmp/laf2_battery_status.json")
+SETUP_DISPLAY_STATUS = Path("/tmp/laf2_display_status.json")
+SETUP_DEVICE_CONTEXT = Path("/tmp/laf2_device_context.json")
+SETUP_SOUND_SCREENSHOT = Path("/tmp/laf2_sound_settings.png")
+SETUP_ABOUT_SCREENSHOT = Path("/tmp/laf2_about_settings.png")
+SETUP_DATETIME_SCREENSHOT = Path("/tmp/laf2_datetime_settings.png")
+SETUP_LANGUAGE_SCREENSHOT = Path("/tmp/laf2_language_settings.png")
+SETUP_KEYBOARD_SCREENSHOT = Path("/tmp/laf2_keyboard_languages.png")
+SETUP_ROOT_SCREENSHOT = Path("/tmp/laf2_root_status.png")
+SETUP_NETWORK_SCREENSHOT = Path("/tmp/laf2_network_settings.png")
+OFFICIAL_DISPLAY_SPECS = {
+    "Pixel 10a": {
+        "physical_ppi": 422.2,
+        "source": "Google Pixel phone hardware tech specs",
+        "url": "https://support.google.com/pixelphone/answer/7158570?hl=en",
+    },
+}
 DEFAULT_EXPECTED_SDK_VERSION = "2.2.0"
 VISIBLE_GAID_RE = re.compile(
     r"Your advertising ID:\s*([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
@@ -619,6 +644,387 @@ def materialize_resource_status(folder):
     _render_resource_status_screenshots(folder, info)
 
 
+def _key_value_lines(raw):
+    values = {}
+    for line in raw.splitlines():
+        if ":" in line:
+            key, value = line.strip().split(":", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+def capture_battery_status(config):
+    battery_text = _open_settings_screenshot(config.udid, "com.android.settings/.Settings$PowerUsageSummaryActivity", SETUP_BATTERY_SCREENSHOT, "Battery")
+    saver_text = _open_settings_screenshot(config.udid, "com.android.settings/.Settings$BatterySaverSettingsActivity", SETUP_BATTERY_SAVER_SCREENSHOT, "Battery Saver")
+    if not battery_text or not saver_text:
+        raise EvidenceCaptureError("native Battery or Battery Saver page is unavailable")
+    raw = _adb(config.udid, "shell", "dumpsys", "battery")
+    values = _key_value_lines(raw)
+    powered = any(values.get(name) == "true" for name in ("AC powered", "USB powered", "Wireless powered", "Dock powered"))
+    SETUP_BATTERY_STATUS.write_text(json.dumps({"level": int(values["level"]), "charging": 1 if powered else 0, "battery_saver": _adb(config.udid, "shell", "settings", "get", "global", "low_power").strip() == "1", "source": {"battery": "dumpsys battery", "battery_saver": "settings get global low_power"}}, indent=2) + "\n")
+
+
+def materialize_battery_status(folder):
+    folder = Path(folder)
+    info = json.loads(SETUP_BATTERY_STATUS.read_text())
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+    ext = decoded.get("ext", {}).get("plaintext", {})
+    device = ext.get("device", {}) if isinstance(ext, dict) else {}
+    device_ext = device.get("ext", {}) if isinstance(device, dict) else {}
+    info["actual"] = {"batterylevel": device.get("batterylevel"), "charging": device.get("charging"), "battery_saver": device_ext.get("battery_saver") if isinstance(device_ext, dict) else None}
+    (folder / "battery-status.json").write_text(json.dumps(info, indent=2) + "\n")
+    shutil.copy2(SETUP_BATTERY_SCREENSHOT, folder / "battery-settings.png")
+    shutil.copy2(SETUP_BATTERY_SAVER_SCREENSHOT, folder / "battery-saver-settings.png")
+
+
+def _wm_value(raw, label):
+    match = re.search(rf"Override {label}:\s*(\d+)(?:x(\d+))?", raw)
+    if not match:
+        match = re.search(rf"Physical {label}:\s*(\d+)(?:x(\d+))?", raw)
+    if not match:
+        raise EvidenceCaptureError(f"cannot parse wm {label}: {raw!r}")
+    return tuple(int(value) for value in match.groups() if value is not None)
+
+
+def capture_display_status(config):
+    visible = _open_settings_screenshot(config.udid, "com.android.settings/.Settings$DisplaySettingsActivity", SETUP_DISPLAY_SCREENSHOT, "Display")
+    if not visible:
+        raise EvidenceCaptureError("native Display page is unavailable")
+    font_scale_visible = _open_settings_screenshot(
+        config.udid,
+        "com.android.settings/.Settings$TextReadingSettingsActivity",
+        SETUP_FONT_SCALE_SCREENSHOT,
+        "Font size",
+    )
+    if not font_scale_visible:
+        raise EvidenceCaptureError("native Display size & text page is unavailable")
+    visible_labels = [html.unescape(value) for value in re.findall(r'text="([^"]+)"', visible)]
+    brightness_ui_percent = next(
+        (value for value in visible_labels if re.fullmatch(r"\d+%", value)),
+        None,
+    )
+    width, height = _wm_value(_adb(config.udid, "shell", "wm", "size"), "size")
+    (density,) = _wm_value(_adb(config.udid, "shell", "wm", "density"), "density")
+    model = _adb(config.udid, "shell", "getprop", "ro.product.model").strip()
+    brightness_raw = int(_adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip())
+    font_scale = float(_adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip())
+    dark_mode = _adb(config.udid, "shell", "cmd", "uimode", "night").strip().lower().endswith("yes")
+    SETUP_QUICK_BRIGHTNESS_SCREENSHOT.unlink(missing_ok=True)
+    try:
+        _adb(config.udid, "shell", "cmd", "statusbar", "expand-settings")
+        time.sleep(1.5)
+        SETUP_QUICK_BRIGHTNESS_SCREENSHOT.write_bytes(
+            _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
+        )
+    finally:
+        _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
+    if SETUP_QUICK_BRIGHTNESS_SCREENSHOT.stat().st_size < 1000:
+        raise EvidenceCaptureError("Quick Settings brightness screenshot is unavailable")
+    SETUP_DISPLAY_STATUS.write_text(
+        json.dumps(
+            {
+                "model": model,
+                "width": width,
+                "height": height,
+                "density_dpi": density,
+                "pixel_ratio": density / 160,
+                "brightness_raw": brightness_raw,
+                "screen_brightness": brightness_raw / 255,
+                "brightness_ui_percent": brightness_ui_percent,
+                "font_scale": font_scale,
+                "dark_mode": dark_mode,
+                "official_spec": OFFICIAL_DISPLAY_SPECS.get(model),
+                "source": ["native Display screenshot", "native Display size & text screenshot", "wm size", "wm density"],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def _display_evidence_document(field, info, source_image):
+    actual_key = {"width": "sw", "height": "sh", "density_dpi": "ppi", "pixel_ratio": "pxratio", "screen_brightness": "screen_bright", "font_scale": "fontscale", "dark_mode": "darkmode"}[field]
+    title = {"width": "Screen Width", "height": "Screen Height", "density_dpi": "Screen PPI", "pixel_ratio": "Pixel Ratio", "screen_brightness": "Screen Brightness", "font_scale": "Font Scale", "dark_mode": "Dark Mode"}[field]
+    reference = info[field]
+    actual = info["actual"].get(actual_key)
+    tolerances = {"pixel_ratio": 1e-6, "screen_brightness": 1 / 255 + 1e-8, "font_scale": 1e-6}
+    if field == "dark_mode":
+        logical_match = type(actual) is bool and actual is reference
+    elif field in tolerances:
+        logical_match = type(actual) in (int, float) and abs(actual - reference) <= tolerances[field]
+    else:
+        logical_match = type(actual) is int and actual == reference
+    official = info.get("official_spec") or {}
+    physical_ppi = official.get("physical_ppi")
+    spec_difference = abs(actual - physical_ppi) if field == "density_dpi" and type(actual) is int and physical_ppi else None
+    spec_within_tolerance = spec_difference is None or spec_difference / physical_ppi <= 0.05
+    passed = logical_match and spec_within_tolerance
+    color = "#287a3d" if passed else "#b9342b"
+    result = "PASS" if passed else "FAILED"
+    encoded = base64.b64encode(source_image.read_bytes()).decode()
+    dimension = f'{info["width"]:,} px × {info["height"]:,} px'
+    phone_class = "phone"
+    if field == "screen_brightness":
+        dimension_marker = '<div class="dimension horizontal">BRIGHTNESS SLIDER · QUICK SETTINGS</div>'
+        phone_class = "phone quick-brightness"
+    elif field == "height":
+        dimension_marker = f'<div class="dimension vertical">{info["height"]:,} px · HEIGHT</div>'
+    elif field == "width":
+        dimension_marker = f'<div class="dimension horizontal">{info["width"]:,} px · WIDTH</div>'
+    else:
+        dimension_marker = f'<div class="dimension horizontal">{dimension}</div>'
+    if field == "density_dpi":
+        official_row = (
+            f'<div class="row"><span>Official physical PPI</span><b>{physical_ppi:g} PPI · {html.escape(official["source"])}</b></div>'
+            f'<div class="row"><span>Logical vs physical</span><b>{spec_difference:.1f} · within ±5%</b></div>'
+            if physical_ppi else
+            '<div class="row"><span>Official physical PPI</span><b>Model not mapped · informational check skipped</b></div>'
+        )
+        explanation = "Android logical density is expected to be close to, but not identical to, panel physical PPI."
+        source_label = f'wm density = {reference:,} dpi'
+    elif field in {"width", "height"}:
+        axis = "horizontal width" if field == "width" else "vertical height"
+        official_row = f'<div class="row"><span>Visible image dimensions</span><b>{dimension}</b></div>'
+        explanation = f'The captured phone image itself is {dimension}; the highlighted {axis} is the direct pixel evidence.'
+        source_label = f'wm size = {dimension}'
+    elif field == "pixel_ratio":
+        official_row = f'<div class="row"><span>Formula</span><b>{info["density_dpi"]} ÷ 160 = {reference:g}</b></div>'
+        explanation = "Android density scale is derived directly from logical density DPI divided by the 160-dpi baseline."
+        source_label = f'wm density {info["density_dpi"]} ÷ 160 = {reference:g}'
+    elif field == "screen_brightness":
+        official_row = (
+            f'<div class="row"><span>Visible UI brightness</span><b>{html.escape(info.get("brightness_ui_percent") or "Unavailable")}</b></div>'
+            f'<div class="row"><span>Raw formula</span><b>{info["brightness_raw"]} ÷ 255 = {reference:.8f}</b></div>'
+        )
+        explanation = "Quick Settings shows the slider position and Display Settings reports the exact UI percentage. Android uses a non-linear perceptual UI scale; bid validation therefore compares the independent linear raw value normalized to 0–1."
+        source_label = f'UI {info.get("brightness_ui_percent") or "—"} · raw {info["brightness_raw"]} ÷ 255 = {reference:.8f}'
+    elif field == "font_scale":
+        official_row = '<div class="row"><span>OS source</span><b>settings get system font_scale</b></div>'
+        explanation = "Display size & text is the visible setting; Android font_scale supplies its exact numeric state."
+        source_label = f'Android font_scale = {reference:g}'
+    else:
+        official_row = '<div class="row"><span>OS source</span><b>cmd uimode night</b></div>'
+        explanation = "The native Dark theme switch is the visible source and Android UI mode supplies the exact boolean state."
+        source_label = f'Android night mode = {str(reference).lower()}'
+    expected_rule = (
+        "Match wm density; mapped official physical PPI difference must be within ±5%."
+        if field == "density_dpi" else
+        f'Match the captured Android {field.replace("_", " ")} state.'
+    )
+    reference_text = str(reference).lower() if isinstance(reference, bool) else (f"{reference:.8f}" if field == "screen_brightness" else f"{reference:,}")
+    actual_text = str(actual).lower() if isinstance(actual, bool) else (f"{actual:,}" if isinstance(actual, (int, float)) else "—")
+    return f'''<!doctype html><html><head><meta charset="utf-8"><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}main{{width:1400px;height:1000px;padding:38px 62px}}.eyebrow{{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}}h1{{font-size:38px;margin:7px 0 16px}}.content{{display:grid;grid-template-columns:430px 1fr;gap:38px}}.phone{{height:690px;display:flex;justify-content:center;position:relative;overflow:hidden;background:#dfe5f5;border-radius:24px;padding:22px 42px 22px 22px}}.phone img{{height:646px;width:auto;border-radius:13px;box-shadow:0 12px 28px #17233335}}.quick-brightness{{height:190px;margin-top:155px;padding:0}}.quick-brightness img{{position:absolute;height:1400px;max-width:none;top:-200px;left:50%;transform:translateX(-50%);border-radius:0}}.dimension{{position:absolute;z-index:2;text-align:center;background:#0e7c86;color:white;border-radius:20px;padding:6px;font:700 18px ui-monospace,monospace}}.horizontal{{left:20px;right:20px;top:13px}}.vertical{{right:7px;top:90px;height:540px;writing-mode:vertical-rl;display:flex;align-items:center;justify-content:center;padding:12px 7px}}.panel{{padding-top:18px}}.source{{padding:22px 26px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 23px ui-monospace,monospace}}.note{{font-size:17px;line-height:1.45;color:#526571;margin:17px 3px 25px}}.rows{{background:white;border-radius:18px;padding:10px 25px}}.row{{display:grid;grid-template-columns:220px 1fr;gap:18px;padding:18px 0;border-bottom:1px solid #e3e9ed}}.row:last-child{{border:0}}.row span{{color:#60717c}}.row b{{font:700 18px ui-monospace,monospace}}.conclusion{{display:flex;justify-content:space-between;align-items:center;margin-top:22px;padding:20px 26px;background:white;border-radius:16px}}.conclusion b{{font-size:28px}}</style></head><body><main>
+<div class="eyebrow">DIRECT SCREEN EVIDENCE · ANDROID OS</div><h1>{title}</h1><div class="content"><div class="{phone_class}">{dimension_marker}<img src="data:image/png;base64,{encoded}"></div><div class="panel"><div class="source">{source_label}</div><p class="note">{explanation}</p><div class="rows">
+<div class="row"><span>Expected</span><b>{expected_rule}</b></div><div class="row"><span>Device model</span><b>{html.escape(info.get("model") or "Unknown")}</b></div><div class="row"><span>Captured Device State</span><b>{reference_text}</b></div><div class="row"><span>Decoded Bid Request</span><b>{actual_text}</b></div>{official_row}</div>
+<div class="conclusion" style="border-left:8px solid {color}"><span>Compare direct source with SDK answer</span><b style="color:{color}">{result}</b></div></div></div></main></body></html>'''
+
+
+def _render_display_evidence(folder, info):
+    fields = {"width": "screen-width", "height": "screen-height", "density_dpi": "screen-ppi", "pixel_ratio": "pixel-ratio", "screen_brightness": "screen-brightness", "font_scale": "font-scale", "dark_mode": "dark-mode"}
+    for field, name in fields.items():
+        stem = name + "-evidence"
+        document = folder / f"{stem}.html"
+        screenshot = folder / f"{stem}.png"
+        source_image = (
+            SETUP_QUICK_BRIGHTNESS_SCREENSHOT
+            if field == "screen_brightness"
+            else SETUP_FONT_SCALE_SCREENSHOT
+            if field == "font_scale"
+            else SETUP_DISPLAY_SCREENSHOT
+        )
+        document.write_text(_display_evidence_document(field, info, source_image), encoding="utf-8")
+        _write_html_screenshot(document, screenshot)
+        if field == "screen_brightness":
+            document.unlink(missing_ok=True)
+
+
+def materialize_display_status(folder):
+    folder = Path(folder)
+    info = json.loads(SETUP_DISPLAY_STATUS.read_text())
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+    ext = decoded.get("ext", {}).get("plaintext", {})
+    device = ext.get("device", {}) if isinstance(ext, dict) else {}
+    device_ext = device.get("ext", {}) if isinstance(device, dict) else {}
+    info["actual"] = {field: device.get(field) for field in ("sw", "sh", "ppi", "pxratio")}
+    info["actual"].update({field: device_ext.get(field) for field in ("screen_bright", "fontscale", "darkmode", "gyroscope", "accelerometer")})
+    (folder / "display-status.json").write_text(json.dumps(info, indent=2) + "\n")
+    shutil.copy2(SETUP_DISPLAY_SCREENSHOT, folder / "display-settings.png")
+    shutil.copy2(SETUP_FONT_SCALE_SCREENSHOT, folder / "font-scale-settings.png")
+    _render_display_evidence(folder, info)
+
+
+def _utc_offset_minutes(raw):
+    match = re.fullmatch(r"([+-])(\d{2})(\d{2})", raw.strip())
+    if not match:
+        raise EvidenceCaptureError(f"cannot parse UTC offset: {raw!r}")
+    minutes = int(match.group(2)) * 60 + int(match.group(3))
+    return minutes if match.group(1) == "+" else -minutes
+
+
+def _music_volume(raw):
+    match = re.search(
+        r"- STREAM_MUSIC:.*?Max:\s*(\d+).*?streamVolume:(\d+)",
+        raw,
+        re.DOTALL,
+    )
+    if not match:
+        raise EvidenceCaptureError("cannot parse STREAM_MUSIC from dumpsys audio")
+    maximum, current = map(int, match.groups())
+    if maximum <= 0:
+        raise EvidenceCaptureError("STREAM_MUSIC maximum is not positive")
+    return current, maximum
+
+
+def capture_device_context(config):
+    pages = (
+        ("com.android.settings/.Settings$SoundSettingsActivity", SETUP_SOUND_SCREENSHOT, "Media volume"),
+        ("com.android.settings/.Settings$DateTimeSettingsActivity", SETUP_DATETIME_SCREENSHOT, "Time zone"),
+        ("com.android.settings/.Settings$LanguageAndRegionSettingsActivity", SETUP_LANGUAGE_SCREENSHOT, "Languages"),
+    )
+    for component, target, expected_text in pages:
+        if not _open_settings_screenshot(config.udid, component, target, expected_text):
+            raise EvidenceCaptureError(f"native Settings page is unavailable: {expected_text}")
+    about_result = _adb(
+        config.udid,
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-n",
+        r"com.android.settings/.Settings\$MyDeviceInfoActivity",
+        check=False,
+    )
+    if "Error" in about_result or "Exception" in about_result:
+        raise EvidenceCaptureError("native About phone page is unavailable")
+    time.sleep(1.5)
+    SETUP_ABOUT_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
+    if not _open_settings_screenshot(
+        config.udid, "com.android.settings/.Settings$NetworkDashboardActivity", SETUP_NETWORK_SCREENSHOT, "Network"
+    ):
+        raise EvidenceCaptureError("native Network & internet page is unavailable")
+    _adb(config.udid, "shell", "am", "force-stop", "com.google.android.inputmethod.latin")
+    _adb(config.udid, "shell", "am", "start", "-n", "com.google.android.inputmethod.latin/com.google.android.apps.inputmethod.latin.preference.SettingsActivity")
+    time.sleep(1.5)
+    _adb(config.udid, "shell", "uiautomator", "dump", "/sdcard/laf2_keyboard.xml")
+    keyboard_root = ET.fromstring(_adb(config.udid, "exec-out", "cat", "/sdcard/laf2_keyboard.xml", binary=True))
+    language_node = next((node for node in keyboard_root.iter("node") if node.attrib.get("text") == "Languages"), None)
+    if language_node is None:
+        raise EvidenceCaptureError("Gboard Settings does not expose Languages")
+    x, y = _bounds_center(language_node.attrib.get("bounds"))
+    _adb(config.udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(1.5)
+    SETUP_KEYBOARD_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
+    _adb(config.udid, "shell", "am", "start", "-n", "com.topjohnwu.magisk/.ui.MainActivity", check=False)
+    time.sleep(1.5)
+    SETUP_ROOT_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
+    volume_current, volume_max = _music_volume(_adb(config.udid, "shell", "dumpsys", "audio"))
+    locale = _adb(config.udid, "shell", "getprop", "persist.sys.locale").strip()
+    if not locale:
+        raise EvidenceCaptureError("Android system locale is empty")
+    input_method = _adb(config.udid, "shell", "dumpsys", "input_method")
+    enabled_ime = _adb(config.udid, "shell", "settings", "get", "secure", "enabled_input_methods")
+    subtype_ids = re.findall(r"com\.google\.android\.inputmethod\.latin/com\.android\.inputmethod\.latin\.LatinIME((?:;-?\d+)+)", enabled_ime)
+    subtype_ids = re.findall(r"-?\d+", subtype_ids[0]) if subtype_ids else []
+    input_languages = []
+    for subtype_id in subtype_ids:
+        match = re.search(rf"mSubtypeId={re.escape(subtype_id)}\b[^\n]*mSubtypeLanguageTag=([^ ]+)", input_method)
+        if match and match.group(1) and match.group(1) not in input_languages:
+            input_languages.append(match.group(1))
+    root_output = _adb(config.udid, "shell", "su", "-c", "id", check=False)
+    qemu = _adb(config.udid, "shell", "getprop", "ro.kernel.qemu").strip()
+    product = _adb(config.udid, "shell", "getprop", "ro.product.name").strip().lower()
+    connectivity = _adb(config.udid, "shell", "dumpsys", "connectivity")
+    connection_type = "wifi" if re.search(r"Active default network:.*?Transports: WIFI", connectivity, re.DOTALL) else "cellular" if re.search(r"Active default network:.*?Transports: CELLULAR", connectivity, re.DOTALL) else "unknown"
+    subscriptions = _adb(config.udid, "shell", "dumpsys", "isub")
+    no_active_sim = "activeDataSubId=-1" in subscriptions and "Active subscriptions:\n  [" not in subscriptions
+    SETUP_DEVICE_CONTEXT.write_text(json.dumps({
+        "volume_current": volume_current,
+        "volume_max": volume_max,
+        "volume_normalized": volume_current / volume_max,
+        "make": _adb(config.udid, "shell", "getprop", "ro.product.manufacturer").strip(),
+        "model": _adb(config.udid, "shell", "getprop", "ro.product.model").strip(),
+        "locale": locale,
+        "lang": re.split(r"[-_]", locale, maxsplit=1)[0].lower(),
+        "langb": locale.replace("_", "-"),
+        "timezone": _adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip(),
+        "utcoffset": _utc_offset_minutes(_adb(config.udid, "shell", "date", "+%z")),
+        "input_lang": input_languages,
+        "jailbreak": "uid=0(root)" in root_output,
+        "root_source": root_output.strip(),
+        "emulator": qemu == "1" or any(token in product for token in ("sdk", "generic", "emulator")),
+        "emulator_source": {"ro.kernel.qemu": qemu, "ro.product.name": product},
+        "conntype": connection_type,
+        "no_active_sim": no_active_sim,
+    }, ensure_ascii=False, indent=2) + "\n")
+
+
+def _device_context_evidence(field, info, image_path):
+    definitions = {
+        "volume": ("Output Volume", f'{info["volume_current"]} ÷ {info["volume_max"]} = {info["volume_normalized"]:g}', info["actual"]["volume"], "Android Media volume"),
+        "make": ("Device Make", info["make"], f'{info["actual"]["req_make"]} / {info["actual"]["make"]}', "Android manufacturer · req / ext"),
+        "model": ("Device Model", info["model"], f'{info["actual"]["req_model"]} / {info["actual"]["model"]} · hwv {info["actual"]["req_hwv"]} / {info["actual"]["hwv"]}', "Android product model · req / ext"),
+        "utcoffset": ("Default Timezone", f'UTC offset {info["utcoffset"]:+d} minutes', f'{info["actual"]["req_utcoffset"]} / {info["actual"]["utcoffset"]}', f'{info["timezone"]} · req / ext'),
+        "lang": ("Default Language (ISO-639-1)", info["lang"], info["actual"]["lang"], f'System locale {info["locale"]}'),
+        "langb": ("Default Language (BCP 47)", info["langb"], f'{info["actual"]["req_langb"]} / {info["actual"]["langb"]}', f'System locale {info["locale"]} · req / ext'),
+        "input_lang": ("Installed Keyboard Languages", info["input_lang"], info["actual"]["input_lang"], "Enabled Gboard subtypes"),
+        "jailbreak": ("Root Status", info["jailbreak"], info["actual"]["jailbreak"], "su -c id · Android field name remains jailbreak"),
+        "emulator": ("Emulator Detection", info["emulator"], info["actual"]["emulator"], "Android hardware properties"),
+        "conntype": ("Connection Type", info["conntype"], f'{info["actual"]["req_conntype"]} / {info["actual"]["conntype"]}', "Active Android network · req / ext"),
+        "carrier": ("Carrier", "empty · no active SIM" if info["no_active_sim"] else "active carrier", info["actual"]["carrier"], "Android subscription state"),
+        "mccmnc": ("MCC/MNC", "empty · no active SIM" if info["no_active_sim"] else "active MCC/MNC", info["actual"]["mccmnc"], "Android subscription state"),
+    }
+    title, expected, actual, source = definitions[field]
+    encoded = base64.b64encode(image_path.read_bytes()).decode()
+    checks = {
+        "volume": lambda: type(info["actual"]["volume"]) in (int, float) and abs(info["actual"]["volume"] - info["volume_normalized"]) <= 1 / info["volume_max"] + 1e-8,
+        "make": lambda: all(info["actual"][name] == info["make"] for name in ("req_make", "make")),
+        "model": lambda: all(info["actual"][name] == info["model"] for name in ("req_model", "model", "req_hwv", "hwv")),
+        "utcoffset": lambda: all(info["actual"][name] == info["utcoffset"] for name in ("req_utcoffset", "utcoffset")),
+        "lang": lambda: info["actual"]["lang"] == info["lang"],
+        "langb": lambda: all(info["actual"][name] == info["langb"] for name in ("req_langb", "langb")),
+        "input_lang": lambda: info["actual"]["input_lang"] == info["input_lang"],
+        "jailbreak": lambda: info["actual"]["jailbreak"] is info["jailbreak"],
+        "emulator": lambda: info["actual"]["emulator"] is info["emulator"],
+        "conntype": lambda: all(info["actual"][name] == info["conntype"] for name in ("req_conntype", "conntype")),
+        "carrier": lambda: info["no_active_sim"] and info["actual"]["carrier"] == "",
+        "mccmnc": lambda: info["no_active_sim"] and info["actual"]["mccmnc"] == "",
+    }
+    passed = checks[field]()
+    color, result = ("#287a3d", "PASS") if passed else ("#b9342b", "FAILED")
+    return f'''<!doctype html><html><head><meta charset="utf-8"><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}main{{width:1400px;height:1000px;padding:42px 62px}}.eyebrow{{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}}h1{{font-size:38px;margin:8px 0 20px}}.content{{display:grid;grid-template-columns:430px 1fr;gap:38px}}.phone{{height:700px;display:flex;justify-content:center;overflow:hidden;background:#dfe5f5;border-radius:24px;padding:22px}}.phone img{{height:656px;width:auto;border-radius:13px;box-shadow:0 12px 28px #17233335}}.panel{{padding-top:22px}}.source{{padding:22px 26px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 22px ui-monospace,monospace}}.note{{font-size:18px;line-height:1.5;color:#526571;margin:18px 3px 26px}}.rows{{background:#fff;border-radius:18px;padding:10px 25px}}.row{{display:grid;grid-template-columns:210px 1fr;gap:18px;padding:21px 0;border-bottom:1px solid #e3e9ed}}.row:last-child{{border:0}}.row span{{color:#60717c}}.row b{{font:700 19px ui-monospace,monospace;overflow-wrap:anywhere}}.result{{display:flex;justify-content:space-between;margin-top:22px;padding:22px 26px;background:#fff;border-radius:16px;border-left:8px solid {color};}}.result b{{font-size:28px;color:{color};}}</style></head><body><main>
+<div class="eyebrow">DIRECT SETTINGS EVIDENCE · ANDROID OS</div><h1>{html.escape(title)}</h1><div class="content"><div class="phone"><img src="data:image/png;base64,{encoded}"></div><div class="panel"><div class="source">{html.escape(str(source))}</div><p class="note">The visible Settings page establishes the human-readable device state; the independent Android system value is compared with the decoded bid.</p><div class="rows"><div class="row"><span>Expected · Android</span><b>{html.escape(str(expected))}</b></div><div class="row"><span>Captured · Bid</span><b>{html.escape(str(actual))}</b></div></div><div class="result"><span>Compare Android source with SDK answer</span><b>{result}</b></div></div></div></main></body></html>'''
+
+
+def materialize_device_context(folder):
+    folder = Path(folder)
+    info = json.loads(SETUP_DEVICE_CONTEXT.read_text())
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+    req = decoded.get("req", {}).get("plaintext", {}).get("device", {})
+    ext = decoded.get("ext", {}).get("plaintext", {}).get("device", {})
+    ext_fields = ext.get("ext", {}) if isinstance(ext, dict) else {}
+    info["actual"] = {
+        "volume": ext_fields.get("volume"), "make": ext.get("make"), "model": ext.get("model"),
+        "hwv": ext.get("hwv"), "utcoffset": ext.get("utcoffset"), "lang": ext.get("lang"), "langb": ext.get("langb"),
+        "req_make": req.get("make"), "req_model": req.get("model"), "req_hwv": req.get("hwv"),
+        "req_utcoffset": req.get("utcoffset"), "req_langb": req.get("langb"),
+        "input_lang": ext.get("input_lang"), "jailbreak": ext_fields.get("jailbreak"), "emulator": ext_fields.get("emulator"),
+        "conntype": ext.get("conntype"), "req_conntype": req.get("conntype"), "carrier": req.get("carrier"), "mccmnc": req.get("mccmnc"),
+    }
+    (folder / "device-context.json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n")
+    images = {"volume": SETUP_SOUND_SCREENSHOT, "make": SETUP_ABOUT_SCREENSHOT, "model": SETUP_ABOUT_SCREENSHOT,
+              "utcoffset": SETUP_DATETIME_SCREENSHOT, "lang": SETUP_LANGUAGE_SCREENSHOT, "langb": SETUP_LANGUAGE_SCREENSHOT}
+    images.update({"input_lang": SETUP_KEYBOARD_SCREENSHOT, "jailbreak": SETUP_ROOT_SCREENSHOT,
+                   "emulator": SETUP_ABOUT_SCREENSHOT, "conntype": SETUP_NETWORK_SCREENSHOT,
+                   "carrier": SETUP_NETWORK_SCREENSHOT, "mccmnc": SETUP_NETWORK_SCREENSHOT})
+    for field, image_path in images.items():
+        document = folder / f"{field}-evidence.html"
+        document.write_text(_device_context_evidence(field, info, image_path), encoding="utf-8")
+        _write_html_screenshot(document, folder / f"{field}-evidence.png")
+        document.unlink(missing_ok=True)
+
+
 EVIDENCE_CAPTURES = {
     ADS_SETTINGS: EvidenceProvider(capture_ads_settings, materialize_ads_settings),
     APP_SET_ID: EvidenceProvider(after_bid=capture_app_set_id_info),
@@ -627,6 +1033,9 @@ EVIDENCE_CAPTURES = {
         before_bid=capture_boot_time_reference,
         after_bid=materialize_boot_timestamps,
     ),
+    BATTERY_STATUS: EvidenceProvider(capture_battery_status, materialize_battery_status),
+    DISPLAY_STATUS: EvidenceProvider(capture_display_status, materialize_display_status),
+    DEVICE_CONTEXT: EvidenceProvider(capture_device_context, materialize_device_context),
     IN_APP_PURCHASE_HISTORY: EvidenceProvider(after_bid=capture_in_app_purchase_history_info),
     INSTALLED_APP_LIST: EvidenceProvider(
         before_bid=capture_installed_apps_settings,
