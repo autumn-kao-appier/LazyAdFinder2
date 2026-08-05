@@ -10,9 +10,9 @@
 <main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>Round Reports</h1><p>一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid"><button class="type-card" data-slot="aos:standalone:aibid">
-<div><span class="type-id">aibid</span><span class="total">9 results</span></div>
+<div><span class="type-id">aibid</span><span class="total">3 results</span></div>
 <h3>AIBID</h3><p>首購 / 新客競價</p>
-<div class="layer-row"><b>Signal</b><span class="pass-text">4✓</span><span class="failed-text">0✗</span><span class="blocked-text">5 blocked</span><small>9 TC</small></div>
+<div class="layer-row"><b>Signal</b><span class="pass-text">3✓</span><span class="failed-text">0✗</span><span class="blocked-text">0 blocked</span><small>3 TC</small></div>
 <div class="layer-row"><b>E2E</b><span class="pass-text">0✓</span><span class="failed-text">0✗</span><span class="blocked-text">0 blocked</span><small>0 TC</small></div>
 <b class="open">查看結果 →</b></button><button class="type-card" data-slot="aos:standalone:reen-static">
 <div><span class="type-id">reen-static</span><span class="total">0 results</span></div>
@@ -72,48 +72,6 @@
 <b class="open">查看結果 →</b></button></div></div><section class="slot-detail" data-slot="aos:standalone:aibid" hidden>
 <div class="detail-bar"><button class="back">← 返回分類</button><div><span class="crumb">AOS / Standalone</span><h2>AIBID</h2></div></div>
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>Signal</h3><p>SDK 欄位、識別碼與事件訊號</p></div></div><div class="result-grid"><article class="result-card">
-<div class="result-head"><div><span class="tc-id">AND-01</span>
-<strong>AND-01</strong></div><span class="status blocked">BLOCKED</span></div>
-<div class="context"><span>standalone</span><span>—</span><span>TRACKING-ALLOWED</span></div>
-<div class="answers"><div><label>Expected</label><pre>—</pre></div>
-<div><label>Actual</label><pre>—</pre></div></div>
-<p><b>Reason</b> adb -s 5B291JEA313953 shell uiautomator dump /sdcard/laf2_and01.xml failed: error: closed</p>
-<footer>—<time>2026-08-05T01:59:11.300595+08:00</time></footer></article><article class="result-card">
-<div class="result-head"><div><span class="tc-id">AND-75</span>
-<strong>AND-75</strong></div><span class="status blocked">BLOCKED</span></div>
-<div class="context"><span>standalone</span><span>—</span><span>TRACKING-ALLOWED</span></div>
-<div class="answers"><div><label>Expected</label><pre>—</pre></div>
-<div><label>Actual</label><pre>—</pre></div></div>
-<p><b>Reason</b> adb -s 5B291JEA313953 shell uiautomator dump /sdcard/laf2_and01.xml failed: error: closed</p>
-<footer>—<time>2026-08-05T01:59:11.300595+08:00</time></footer></article><article class="result-card">
-<div class="result-head"><div><span class="tc-id">advertising-id</span>
-<strong>Advertising ID (GAID)</strong></div><span class="status blocked">BLOCKED</span></div>
-<div class="context"><span>standalone</span><span>Pixel 10a</span><span>TRACKING-ALLOWED</span></div>
-<div class="answers"><div><label>Expected</label><pre>—</pre></div>
-<div><label>Actual</label><pre>—</pre></div></div>
-<p><b>Reason</b> collect.&lt;locals&gt;.before_bid() takes 0 positional arguments but 1 was given</p>
-<footer>—<time>2026-08-05T12:35:57.520460+08:00</time></footer></article><article class="result-card">
-<div class="result-head"><div><span class="tc-id">tracking-allowed</span>
-<strong>Limit Ad Tracking Flag (tracking allowed)</strong></div><span class="status blocked">BLOCKED</span></div>
-<div class="context"><span>standalone</span><span>Pixel 10a</span><span>TRACKING-ALLOWED</span></div>
-<div class="answers"><div><label>Expected</label><pre>—</pre></div>
-<div><label>Actual</label><pre>—</pre></div></div>
-<p><b>Reason</b> collect.&lt;locals&gt;.before_bid() takes 0 positional arguments but 1 was given</p>
-<footer>—<time>2026-08-05T12:35:57.520460+08:00</time></footer></article><article class="result-card">
-<div class="result-head"><div><span class="tc-id">sdk-version</span>
-<strong>SDK Version (sdk_version)</strong></div><span class="status blocked">BLOCKED</span></div>
-<div class="context"><span>standalone</span><span>Pixel 10a</span><span>TRACKING-ALLOWED</span></div>
-<div class="answers"><div><label>Expected</label><pre>—</pre></div>
-<div><label>Actual</label><pre>—</pre></div></div>
-<p><b>Reason</b> collect.&lt;locals&gt;.before_bid() takes 0 positional arguments but 1 was given</p>
-<footer>—<time>2026-08-05T12:35:57.520460+08:00</time></footer></article><article class="result-card">
-<div class="result-head"><div><span class="tc-id">AND-01</span>
-<strong>Advertising ID (GAID)</strong></div><span class="status pass">PASS</span></div>
-<div class="context"><span>standalone</span><span>Pixel 10a</span><span>AND-01</span></div>
-<div class="answers"><div><label>Expected</label><pre>{&quot;format&quot;: &quot;lowercase UUID 8-4-4-4-12&quot;, &quot;non_zero&quot;: true, &quot;opt_out&quot;: false, &quot;settings_equals_req_equals_ext&quot;: true}</pre></div>
-<div><label>Actual</label><pre>{&quot;ext_device_ia&quot;: &quot;86e27a8e-74ba-4994-aa10-8b278860cf84&quot;, &quot;opt_out&quot;: false, &quot;req_device_ia&quot;: &quot;86e27a8e-74ba-4994-aa10-8b278860cf84&quot;, &quot;settings_gaid&quot;: &quot;86e27a8e-74ba-4994-aa10-8b278860cf84&quot;}</pre></div></div>
-<p><b>Reason</b> —</p>
-<footer><a href="file:///Users/autumn.kao/LazyAdFinder2/evidence/AOS_STANDALONE_AIBID_CID_1CazeqT0T0KZzGdlZayW3Q_R1_20260804_180750/AND-01_20260804_180750/gaid-settings.png">gaid-settings.png ↗</a><time>2026-08-04T18:08:09.035550+08:00</time></footer></article><article class="result-card">
 <div class="result-head"><div><span class="tc-id">advertising-id</span>
 <strong>Advertising ID (GAID)</strong></div><span class="status pass">PASS</span></div>
 <div class="context"><span>standalone</span><span>Pixel 10a</span><span>TRACKING-ALLOWED</span></div>
@@ -188,7 +146,7 @@
 <td><div class="platform-spec"><b>Setup</b><p>沿用 Advertising ID：Ads 頁面的 Opt out of Ads Personalization 關閉，同一次 capture，不重抓流量。</p>
 <b>Expected</b><p>req/ext 的 device.lat 各自為 JSON 整數 0 或欄位不存在；任一份為 1 或其他值即失敗。</p>
 <b>Evidence</b><p>ads-settings.png、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 對應行為另立 iOS TestCase。</p></div></td></tr></tbody></table></div></section>
-<p class="meta">Results: 9 · PASS 4 · FAILED 0 · BLOCKED 5<br>Raw captures: 7 · Verdict files: 4 · Generated: 2026-08-05T12:37:00+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main><script>
+<p class="meta">Results: 3 · PASS 3 · FAILED 0 · BLOCKED 0<br>Raw captures: 7 · Verdict files: 4 · Generated: 2026-08-05T12:55:58+08:00<br>Evidence roots: evidence</p></main><script>
 (function(){
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
  try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
