@@ -248,6 +248,11 @@ TC_TITLES_ZH = {
     "default-language-iso": "預設語言（ISO-639-1）", "default-language-bcp47": "預設語言（BCP 47）",
     "keyboard-languages": "已安裝的鍵盤語言", "root-status": "Root 狀態",
     "emulator-detection": "模擬器偵測", "ipv6-address": "IPv6 位址", "connection-type": "連線類型",
+    "ios-ipv6-launch": "App 啟動時取得 IPv6",
+    "ios-ipv6-wifi-switch": "Wi-Fi 切換後更新 IPv6",
+    "ios-ipv6-recovery": "網路恢復後更新 IPv6",
+    "ios-ipv6-debounce": "快速切換 Wi-Fi 後的 IPv6",
+    "ios-ipv6-slow-network": "慢速網路下更新 IPv6",
     "carrier": "電信業者", "mcc-mnc": "MCC/MNC", "precise-gps-latitude": "精確 GPS 緯度",
     "precise-gps-longitude": "精確 GPS 經度",
     "session-duration-continuous": "Session 時長 — App 持續開啟",
@@ -354,12 +359,25 @@ DYNAMIC_ZH = {
     "Dependency blocked: the specified CID has not been proven by the Appier ad request flow": "相依條件未通過：Appier ad request flow 尚未證明本次廣告來自指定 CID。",
     "Capture limitation: the specified CID was confirmed, but no rendered-ad screenshot was saved": "擷取限制：已確認指定 CID，但沒有保存廣告渲染截圖。",
     "The specified CID was proven by the preceding traffic flow and the rendered ad was preserved as visible screenshot evidence.": "前一個 traffic flow 已證明指定 CID，並已將實機顯示的廣告保存為人眼可見的截圖 Evidence。",
-    "The recorded CTA interaction must emit the creative's exact xclk request and preserve its response.": "錄製的 CTA 點擊必須送出與 creative 完全一致的 xclk request，並保存其 response。",
-    "FAILED: the E2E round does not prove the CTA click with both visible interaction evidence and the creative's matching xclk response.": "FAILED：本輪 E2E 沒有同時以可見的互動 Evidence 與 creative 對應的 xclk response 證明 CTA 點擊。",
+    "The recorded CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response.": "錄製的 CTA 點擊已送出 xclk，其 correlation IDs 與畫面曝光的廣告一致，並保存了 response。",
+    "FAILED: the E2E round does not prove the CTA click with visible interaction evidence and an xclk matching the visible impression.": "FAILED：本輪 E2E 沒有以可見互動 Evidence 與符合畫面曝光廣告的 xclk 共同證明 CTA 點擊。",
+    "The visible native ad was reviewed for response elements, Ad label, assets, clipping, and layout.": "已人工檢視 Native ad 的 response 元素、Ad label、素材、裁切與版面配置。",
     "The click redirect completed and the final external destination was preserved as visible evidence.": "Click redirect 已完成，並將最終外部 Landing destination 保存為人眼可見的 Evidence。",
     "FAILED: the E2E round does not preserve a proven final landing destination after the tracked click.": "FAILED：本輪 E2E 沒有保存可證明 tracked click 最終 Landing destination 的 Evidence。",
     "The Privacy icon interaction opened an external destination and preserved the visible result alongside the response contract.": "Privacy icon 操作已開啟外部 destination，並將可見結果與 response 契約一併保存。",
     "FAILED: the E2E round does not prove the Privacy icon destination with response data, an executed interaction, and a visible screenshot.": "FAILED：本輪 E2E 沒有以 response 資料、實際操作與可見截圖共同證明 Privacy icon destination。",
+    "The captured pubsetting response succeeded and contains Appier mediation configuration.": "已成功擷取 pubsetting response，且內容包含 Appier mediation 設定。",
+    "FAILED: pubsetting transport or raw response evidence does not prove the Appier mediation configuration.": "FAILED：pubsetting transport 或 raw response Evidence 無法證明 Appier mediation 設定。",
+    "The captured GMA transaction succeeded and its response contains Appier routing evidence.": "GMA transaction 成功，response 內含 Appier routing Evidence。",
+    "FAILED: the GMA transaction or raw response does not prove Appier mediation routing.": "FAILED：GMA transaction 或 raw response 無法證明 Appier mediation routing。",
+    "The proxy timeline proves GMA invoked the Appier adapter and received a successful Appier bid response.": "Proxy timeline 證明 GMA 已呼叫 Appier adapter，並收到成功的 Appier bid response。",
+    "FAILED: no ordered GMA → Appier adapter request/response chain was captured.": "FAILED：沒有擷取到依序發生的 GMA → Appier adapter request/response chain。",
+    "The Google mediation impression event was captured successfully.": "已成功擷取 Google mediation impression event。",
+    "FAILED: the executed Mediation round has no successful Google impression event evidence.": "FAILED：已執行的 Mediation round 沒有成功的 Google impression event Evidence。",
+    "The mediation fill-result event was captured successfully.": "已成功擷取 mediation fill-result event。",
+    "FAILED: the executed Mediation round has no successful fill-result event evidence.": "FAILED：已執行的 Mediation round 沒有成功的 fill-result event Evidence。",
+    "The AdMob click-reporting event was captured successfully.": "已成功擷取 AdMob click-reporting event。",
+    "FAILED: the executed Mediation round has no successful AdMob click-reporting evidence.": "FAILED：已執行的 Mediation round 沒有成功的 AdMob click-reporting Evidence。",
 }
 
 
@@ -613,19 +631,26 @@ def _catalog_mode_cell(tc, mode, layer):
     return '<span class="mode-availability no">—</span>'
 
 
-def _catalog_table(catalog, catalog_by_key, layer):
+def _catalog_table(catalog, catalog_by_key, layer, round_name=None):
     rows = []
-    selected = [tc for tc in catalog if str(tc.get("layer", "Signal")).lower() == layer]
+    selected = [
+        tc for tc in catalog
+        if str(tc.get("layer", "Signal")).lower() == layer
+        and (round_name is None or str(tc.get("round", "")) == round_name)
+    ]
     for tc in selected:
         key = str(tc["key"])
         label = _tc_label(key, catalog_by_key)
         key_line = f'<code class="catalog-key">{html.escape(key)}</code>' if label != key else ""
+        catalog_status = str(tc.get("status", "DRAFT"))
+        if layer == "e2e" and catalog_status == "DRAFT":
+            catalog_status = "IMPLEMENTED"
         mode_cells = ""
         if layer == "e2e":
             mode_cells = f'''<td class="mode-cell">{_catalog_mode_cell(tc, "standalone", layer)}</td>
 <td class="mode-cell">{_catalog_mode_cell(tc, "mediation", layer)}</td>'''
-        rows.append(f'''<tr><td><span class="draft">{html.escape(str(tc.get("status", "DRAFT")))}</span>
-<strong class="catalog-id">{html.escape(label)}</strong>{key_line}<small>{html.escape(str(tc.get("round", "")))}</small></td>
+        rows.append(f'''<tr><td><span class="draft {catalog_status.lower()}">{html.escape(catalog_status)}</span>
+<strong class="catalog-id">{html.escape(label)}</strong>{key_line}<small class="catalog-round-id">{html.escape(str(tc.get("round", "")))}</small></td>
 <td><b>{_bi(str(tc.get("title", "")), TC_TITLES_ZH.get(key, str(tc.get("title", ""))))}</b><p>{html.escape(str(tc.get("layer", "Signal")))} · {html.escape(str(tc.get("category", "")))}</p>
 <code>{html.escape(str(tc.get("field", "")))}</code><span class="priority">{html.escape(str(tc.get("priority", "")))}</span></td>
 {mode_cells}
@@ -637,9 +662,40 @@ def _catalog_table(catalog, catalog_by_key, layer):
 
 
 def _catalog_section(catalog, catalog_by_key, layer, number, title, description):
-    count = sum(str(tc.get("layer", "Signal")).lower() == layer for tc in catalog)
+    selected = [tc for tc in catalog if str(tc.get("layer", "Signal")).lower() == layer]
+    count = len(selected)
+    preferred = (
+        ("E2E-BASELINE", "E2E-ADMOB", "E2E-BASELINE-ATTRIBUTION")
+        if layer == "e2e" else ("R1", "R2", "R3", "R4")
+    )
+    discovered = []
+    for tc in selected:
+        round_name = str(tc.get("round", "Unassigned")) or "Unassigned"
+        if round_name not in discovered:
+            discovered.append(round_name)
+    rounds = [name for name in preferred if name in discovered]
+    rounds.extend(name for name in discovered if name not in rounds)
+    round_copy = {
+        "E2E-BASELINE": (_bi("Shared serving and interaction baseline", "共用的廣告供應與互動 Happy Path"), _bi("Standalone executes this baseline. Mediation inherits the same baseline before its M-only checks.", "Standalone 執行此 baseline；Mediation 也必須先通過，再接續 M 專屬檢查。")),
+        "E2E-ADMOB": (_bi("AdMob Mediation extensions", "AdMob Mediation 專屬延伸"), _bi("Pubsetting → GMA routing → Appier adapter → Google impression/fill/click.", "Pubsetting → GMA routing → Appier adapter → Google impression／fill／click。")),
+        "E2E-BASELINE-ATTRIBUTION": (_bi("Attribution continuation", "歸因延伸流程"), _bi("Install attribution and backend reconciliation after the click journey.", "Click journey 之後的安裝歸因與後端對帳。")),
+        "R1": (_bi("Device and payload baseline", "裝置與 Payload 基礎訊號"), _bi("Core identifiers, device state, format, network, privacy, and lifecycle fields from the baseline capture.", "基礎 Capture 中的識別碼、裝置狀態、格式、網路、隱私與 lifecycle 欄位。")),
+        "R2": (_bi("Second-impression signals", "第二次曝光訊號"), _bi("Signals that cannot be validated from the first ad impression.", "第一個廣告無法判定、必須到第二次曝光才驗證的訊號。")),
+        "R3": (_bi("In-session lifecycle sequence", "App Session 生命週期序列"), _bi("Continuous use, background/resume, termination/reset, initialization, and accumulated duration.", "連續使用、背景恢復、終止重設、初始化與累積時長。")),
+        "R4": (_bi("iOS IPv6 network refresh", "iOS IPv6 網路更新序列"), _bi("Cold launch, Wi-Fi switch, recovery, debounce, and slow-network behavior in one App session.", "同一 App session 內的冷啟動、Wi-Fi 切換、恢復、debounce 與慢速網路。")),
+    }
+    groups = []
+    for round_name in rounds:
+        round_count = sum(str(tc.get("round", "")) == round_name for tc in selected)
+        round_title, round_description = round_copy.get(
+            round_name,
+            (_bi("TestCase group", "TestCase 群組"), _bi("Catalog entries assigned to this Round.", "歸屬於此 Round 的 Catalog 項目。")),
+        )
+        groups.append(f'''<article class="catalog-round" id="catalog-{layer}-{html.escape(round_name.lower())}">
+<div class="catalog-round-head"><div><span>{html.escape(round_name)}</span><h3>{round_title}</h3><p>{round_description}</p></div><b>{round_count} TC</b></div>
+{_catalog_table(catalog, catalog_by_key, layer, round_name)}</article>''')
     return f'''<section class="catalog-section" id="catalog-{layer}"><div class="section-title"><span>{number}</span><div><h2>{title}</h2><p>{description}</p></div><b>{count} TestCases</b></div>
-{_catalog_table(catalog, catalog_by_key, layer)}</section>'''
+{"".join(groups)}</section>'''
 
 
 CSS = r"""
@@ -657,6 +713,7 @@ CSS = r"""
 .comparison-pair{grid-template-columns:minmax(0,1fr) 26px minmax(0,1fr)}.comparison-triplet{grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) 18px minmax(0,1fr)}.comparison-value{padding-left:7px;padding-right:7px}.comparison-value label{font-size:8px;line-height:1.35;letter-spacing:.035em;overflow-wrap:anywhere}.comparison-value b{font-size:clamp(11px,1.05vw,15px);line-height:1.35;word-break:break-word}.comparison-operator{font-size:15px}
 .evidence-zoom{display:block;max-width:100%;border:0;padding:0;background:transparent;cursor:zoom-in}.evidence-zoom img{pointer-events:none}.image-lightbox{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:30px;background:#071014eb;cursor:zoom-out}.image-lightbox[hidden]{display:none}.image-lightbox img{display:block;max-width:96vw;max-height:90vh;object-fit:contain;filter:drop-shadow(0 16px 50px #000)}.image-lightbox p{position:absolute;left:24px;bottom:12px;margin:0;color:#dce7eb;font:11px var(--mono)}.image-lightbox-close{position:absolute;right:20px;top:16px;z-index:1;border:1px solid #ffffff55;border-radius:999px;background:#111c;color:#fff;width:38px;height:38px;font-size:24px;line-height:1;cursor:pointer}
 .comparison-list{max-height:190px;margin:9px 0 0;padding:0;overflow:auto;list-style:none;text-align:left;border-top:1px solid var(--line)}.comparison-list li{padding:6px 3px;border-bottom:1px solid var(--line);font:650 11px/1.35 var(--mono);overflow-wrap:anywhere}.comparison-list li:last-child{border-bottom:0}
+.catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
 """
 
 

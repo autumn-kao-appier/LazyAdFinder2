@@ -27,6 +27,12 @@ BID_STATUS_FILE = "/tmp/appier_bid_status"
 BID_RESPONSE_FILE = "/tmp/appier_bid_response.json"
 IMPRESSION_FILE = "/tmp/appier_impression.json"
 EVENTS_FILE = "/tmp/appier_proxy_events.jsonl"
+ADMOB_RAW_FILES = {
+    ("admob-pubsetting", "request"): "/tmp/admob_pubsetting_request.bin",
+    ("admob-pubsetting", "response"): "/tmp/admob_pubsetting_response.bin",
+    ("admob-gma", "request"): "/tmp/admob_gma_request.bin",
+    ("admob-gma", "response"): "/tmp/admob_gma_response.bin",
+}
 BID_HOST_SUFFIX = "apx.appier.net"
 BID_PATHS = ("/v2/sdk/aos/ad", "/v2/sdk/ios/ad")
 # 「已展示」callback（非 bid 端點，未被 cert pinning 排除，明碼 GET）：
@@ -53,6 +59,16 @@ def _event_kind(flow):
         return "impression-win"
     if "xclk" in path or host.startswith("tw.c.appier.net"):
         return "click"
+    if "getconfig/pubsetting" in path:
+        return "admob-pubsetting"
+    if "/mads/gma" in path:
+        return "admob-gma"
+    if "/pagead/adview" in path or "imp_urls" in path:
+        return "admob-impression"
+    if "/pagead/interaction" in path:
+        return "admob-fill-result"
+    if "/aclk" in path:
+        return "admob-click"
     if "init" in path and "appier" in host:
         return "sdk-init"
     return None
@@ -83,6 +99,11 @@ def _append_event(flow, phase):
         })
     with open(EVENTS_FILE, "a") as f:
         f.write(_json.dumps(row, ensure_ascii=False) + "\n")
+    raw_path = ADMOB_RAW_FILES.get((kind, phase))
+    raw_content = flow.request.raw_content if phase == "request" else (response.raw_content if response else None)
+    if raw_path and raw_content is not None:
+        with open(raw_path, "wb") as f:
+            f.write(raw_content)
 
 def _parse_body(content):
     """Try JSON parse with gzip/deflate fallback."""

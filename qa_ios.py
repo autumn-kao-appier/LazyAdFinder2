@@ -33,6 +33,9 @@ from typing import Callable, Optional
 from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
 from evidence_bundle import finalize_bundle
+from testcases.ios_ipv6_refresh_testcases import ROUND_DEFINITIONS as IPV6_ROUNDS
+from testcases.ios_ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
+from testcases.ios_ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
 
 
 # Add definitions only after the corresponding testcase and Round setup have
@@ -429,7 +432,120 @@ def capture(config, capture_name="MANUAL", setup=None):
                 print(f"[warn] Appium session cleanup failed: {exc}", file=sys.stderr)
 
 
+def _r4_checkpoint(label, instruction):
+    print(f"\n[R4 checkpoint: {label}]\n{instruction}")
+    if not sys.stdin.isatty():
+        print("[R4] non-interactive terminal; remaining operator-controlled steps are BLOCKED")
+        return False
+    answer = input("完成後按 Enter；輸入 skip 停止本輪：").strip().lower()
+    return answer not in {"skip", "s", "stop", "q", "quit"}
+
+
+def _r4_capture_in_session(driver, config, name, wait_seconds):
+    folder = create_capture_folder(config, name)
+    started_at = datetime.now().astimezone().isoformat()
+    clear_detector_state()
+    request = status = identity = source = None
+    try:
+        driver.activate_app(config.bundle_id)
+        dismiss_system_alert(driver)
+        select_tab(driver, config.tab_name)
+        print(f"[R4] wait {wait_seconds}s before {name}")
+        time.sleep(wait_seconds)
+        if not tap_placement(driver, config.trigger_label):
+            raise CaptureError(f"cannot tap {config.trigger_label!r}")
+        request, status, identity, source = wait_for_bid(config)
+        if not eligible(config, request, status, identity):
+            raise CaptureError("no eligible ad request after the network transition")
+        save_evidence(driver, config, folder, started_at, request, status, identity, source)
+        return folder
+    except Exception as exc:
+        finalize_bundle(
+            folder,
+            driver=driver,
+            platform="ios",
+            config=config,
+            device=device_evidence(config),
+            started_at=started_at,
+            request=request,
+            status=status,
+            identity=identity,
+            source=source,
+            result="INTERRUPTED",
+            failed_step=name,
+            error=str(exc),
+            capture_log=SYSLOG_FILE,
+        )
+        return folder
+
+
+def run_ipv6_refresh_round(config):
+    """Run R4 in one live App session; humans control network transitions."""
+    folders = []
+    context = {"same_appium_session": True, "slow_network_confirmed": False}
+    driver = None
+    try:
+        clear_syslog_state()
+        with SyslogRecorder(config):
+            driver = create_driver(config)
+            driver.terminate_app(config.bundle_id)
+            time.sleep(1)
+            driver.activate_app(config.bundle_id)
+            folders.append(_r4_capture_in_session(driver, config, "IOS-NET-01", 10))
+
+            preflight = validate_ipv6_sequence(folders, context)
+            if preflight and preflight[0].get("status") == "BLOCKED":
+                print("[R4] current network has no valid IPv6; block the entire Round")
+            elif _r4_checkpoint(
+                "IOS-NET-02",
+                "App 保持開啟。請從公司 Wi-Fi 切到另一個 Wi-Fi／hotspot，確認已連線。",
+            ):
+                folders.append(_r4_capture_in_session(driver, config, "IOS-NET-02", 10))
+                if _r4_checkpoint(
+                    "IOS-NET-03",
+                    "App 保持開啟。關閉 Wi-Fi，等待 10 秒，再開啟並重新連線；確認可上網。",
+                ):
+                    folders.append(_r4_capture_in_session(driver, config, "IOS-NET-03", 10))
+                    if _r4_checkpoint(
+                        "IOS-NET-04",
+                        "快速切換：公司 Wi-Fi → 第二個 Wi-Fi → 公司 Wi-Fi → 第二個 Wi-Fi；最後停在第二個 Wi-Fi。",
+                    ):
+                        folders.append(_r4_capture_in_session(driver, config, "IOS-NET-04", 10))
+                        if _r4_checkpoint(
+                            "IOS-NET-05",
+                            "啟用 1～2 秒延遲的 Network Link Conditioner／Charles throttle，保持 App 開啟並切換 Wi-Fi。",
+                        ):
+                            context["slow_network_confirmed"] = True
+                            folders.append(_r4_capture_in_session(driver, config, "IOS-NET-05", 15))
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception as exc:
+                print(f"[warn] Appium session cleanup failed: {exc}", file=sys.stderr)
+
+    if not folders:
+        raise CaptureError("R4 did not create any Evidence folder")
+    result_folder = folders[-1]
+    sequence = {
+        "round": "R4",
+        "same_appium_session": context["same_appium_session"],
+        "slow_network_confirmed": context["slow_network_confirmed"],
+        "captures": [str(folder) for folder in folders],
+    }
+    (result_folder / "r4-network-sequence.json").write_text(
+        json.dumps(sequence, ensure_ascii=False, indent=2) + "\n"
+    )
+    rows = validate_ipv6_sequence(folders, context)
+    (result_folder / "verdicts.json").write_text(
+        json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+    )
+    return folders
+
+
 def run_round(config, name):
+    if name == "R4":
+        return run_ipv6_refresh_round(config)
     steps = ROUND_DEFINITIONS.get(name)
     if not steps:
         available = ", ".join(sorted(ROUND_DEFINITIONS)) or "none"
@@ -551,11 +667,13 @@ def config_from_args(args):
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.command == "list-rounds":
-        if not ROUND_DEFINITIONS:
+        all_rounds = {**ROUND_DEFINITIONS, **IPV6_ROUNDS}
+        if not all_rounds:
             print("No rounds defined.")
             return 0
-        for name, steps in sorted(ROUND_DEFINITIONS.items()):
-            print(f"{name}: {', '.join(step.name for step in steps)}")
+        for name, steps in sorted(all_rounds.items()):
+            labels = [step.name if isinstance(step, RoundStep) else IPV6_TESTCASES[step].title for step in steps]
+            print(f"{name}: {', '.join(labels)}")
         return 0
 
     config = config_from_args(args)

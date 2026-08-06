@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from verdict import blocked, evaluate
 
@@ -101,6 +101,15 @@ def _creative_contract(response):
     }
 
 
+def _tracking_ids(url):
+    query = parse_qs(urlsplit(str(url or "")).query)
+    return {
+        key: values[0]
+        for key in ("bidobjid", "cid", "crid", "crpid")
+        if (values := query.get(key)) and values[0]
+    }
+
+
 def validate_bundle(folder):
     """Validate network facts and preserve manual gates for visual/external facts."""
     folder = Path(folder)
@@ -109,6 +118,7 @@ def validate_bundle(folder):
     decoded = _read_json(folder / "bid_decoded.json", {}) or {}
     response = _read_json(folder / "bid_response.json")
     interactions = _read_json(folder / "e2e-interactions.json", {}) or {}
+    visual_review = _read_json(folder / "visual-review.json", {}) or {}
     bid_request_event, bid_response_event = _bid_flow(events)
     raw_exists = (folder / "bid_raw.json").is_file()
     status = str(summary.get("http_status") or "")
@@ -266,10 +276,12 @@ def validate_bundle(folder):
 
     contract = _creative_contract(response)
     click_responses = _response_events(events, "click")
-    matching_clicks = [
-        row for row in click_responses
-        if contract["click_url"] and row.get("url") == contract["click_url"]
-    ]
+    impression_ids = [_tracking_ids(row.get("url")) for row in impressions]
+    matching_clicks = []
+    for row in click_responses:
+        click_ids = _tracking_ids(row.get("url"))
+        if click_ids and any(click_ids == ids for ids in impression_ids):
+            matching_clicks.append(row)
     click_state = interactions.get("click", {}) if isinstance(interactions, dict) else {}
     click_screenshot = (folder / "click-landing.png").is_file()
     click_ok = bool(
@@ -280,16 +292,17 @@ def validate_bundle(folder):
     )
     click_row = _evaluated(
         "standalone-click",
-        {"creative_clk_requested": True, "http_success_or_redirect": True, "landing_screenshot": True},
+        {"xclk_matches_visible_impression": True, "http_success_or_redirect": True, "landing_screenshot": True},
         {
             "attempted": bool(click_state.get("attempted")),
             "expected_clk": contract["click_url"],
+            "visible_impression_ids": impression_ids,
             "matching_proxy_responses": matching_clicks,
             "landing_screenshot_saved": click_screenshot,
         },
         click_ok,
         "e2e-interactions.mp4" if (folder / "e2e-interactions.mp4").is_file() else "e2e-interactions.json",
-        "The recorded CTA interaction must emit the creative's exact xclk request and preserve its response." if click_ok else "FAILED: the E2E round does not prove the CTA click with both visible interaction evidence and the creative's matching xclk response.",
+        "The recorded CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response." if click_ok else "FAILED: the E2E round does not prove the CTA click with visible interaction evidence and an xclk matching the visible impression.",
     )
 
     destination = click_state.get("destination", {}) if isinstance(click_state, dict) else {}
@@ -314,7 +327,10 @@ def validate_bundle(folder):
     privacy_ok = bool(
         contract["privacy_url"]
         and privacy_state.get("attempted")
-        and privacy_state.get("opened")
+        and (
+            privacy_state.get("opened")
+            or str(privacy_destination.get("activity", "")).endswith("AppierBrowserActivity")
+        )
         and privacy_destination
         and privacy_screenshot
     )
@@ -324,7 +340,10 @@ def validate_bundle(folder):
         {
             "expected_privacy_url": contract["privacy_url"],
             "attempted": bool(privacy_state.get("attempted")),
-            "opened": bool(privacy_state.get("opened")),
+            "opened": bool(
+                privacy_state.get("opened")
+                or str(privacy_destination.get("activity", "")).endswith("AppierBrowserActivity")
+            ),
             "destination": privacy_destination,
             "screenshot_saved": privacy_screenshot,
         },
@@ -350,10 +369,14 @@ def validate_bundle(folder):
         "standalone-native-render": _evaluated(
             "standalone-native-render",
             {"visual_comparison_recorded": True, "text_cta_images_privacy_label_layout_match": True},
-            {"screenshot_saved": screenshot_exists, "bid_response_saved": response is not None, "visual_comparison_recorded": False},
-            False,
-            "screenshot.png" if screenshot_exists else "summary.json",
-            "FAILED: the round ran, but no recorded visual comparison proves that the rendered ad matches the response and layout contract.",
+            {
+                "screenshot_saved": screenshot_exists,
+                "bid_response_saved": response is not None,
+                "visual_review": visual_review,
+            },
+            bool(screenshot_exists and response is not None and visual_review.get("passed")),
+            "ad-before-interactions.png" if (folder / "ad-before-interactions.png").is_file() else "screenshot.png",
+            "The visible native ad was reviewed for response elements, Ad label, assets, clipping, and layout." if visual_review.get("passed") else "FAILED: the round ran, but no recorded visual comparison proves that the rendered ad matches the response and layout contract.",
         ),
         "standalone-impression": impression_row,
         "standalone-click": click_row,

@@ -60,6 +60,12 @@ BID_STATUS_FILE = Path("/tmp/appier_bid_status")
 BID_RESPONSE_FILE = Path("/tmp/appier_bid_response.json")
 IMPRESSION_FILE = Path("/tmp/appier_impression.json")
 EVENTS_FILE = Path("/tmp/appier_proxy_events.jsonl")
+ADMOB_RAW_FILES = (
+    Path("/tmp/admob_pubsetting_request.bin"),
+    Path("/tmp/admob_pubsetting_response.bin"),
+    Path("/tmp/admob_gma_request.bin"),
+    Path("/tmp/admob_gma_response.bin"),
+)
 LOGCAT_FILE = Path("/tmp/appier_aos_logcat.txt")
 DETECTOR_FILES = (
     FLAG_FILE,
@@ -68,6 +74,7 @@ DETECTOR_FILES = (
     BID_RESPONSE_FILE,
     IMPRESSION_FILE,
     EVENTS_FILE,
+    *ADMOB_RAW_FILES,
 )
 
 
@@ -273,6 +280,7 @@ def _capture_e2e_interactions(driver, config, folder):
     folder = Path(folder)
     result = {
         "sequence": ["rendered-ad", "privacy", "return-to-ad", "click", "landing"],
+        "ad_state": _screen_state(driver),
         "privacy": {"attempted": False, "opened": False},
         "click": {"attempted": False, "opened": False},
         "errors": [],
@@ -293,7 +301,10 @@ def _capture_e2e_interactions(driver, config, folder):
         privacy.click()
         time.sleep(4)
         result["privacy"]["destination"] = _screen_state(driver)
-        result["privacy"]["opened"] = driver.current_package != config.app_package
+        result["privacy"]["opened"] = (
+            driver.current_package != result["ad_state"]["package"]
+            or driver.current_activity != result["ad_state"]["activity"]
+        )
         driver.save_screenshot(str(folder / "privacy-landing.png"))
 
         driver.back()

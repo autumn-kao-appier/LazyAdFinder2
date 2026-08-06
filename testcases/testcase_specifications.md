@@ -203,6 +203,11 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   cellular round 定義 populated value，不能沿用空字串規則。
 - `ipv6-address`：BLOCKED。雖然其他網路 round 曾觀察到 IPv6，本輪尚未確認 payload path。
   IPv4 已依需求排除，不建立 TC。
+- iOS `R4` 是五步、同一 App session 的 IPv6 refresh sequence：冷啟動、Wi-Fi A→B、斷線恢復、
+  快速 A→B→A→B、slow-network A→B。程式負責每步等待、送廣告 request、保存 payload 與比較；
+  操作者只負責 Wi-Fi／hotspot／throttle checkpoint。
+- `R4` 第一個 capture 若確認測試網路沒有合法 IPv6，五條全部 BLOCKED（環境前提不足）。一旦
+  IPv6 環境成立，已執行步驟缺值、格式錯、保留舊 IP、request 被阻擋或 App crash 都是 FAILED。
 - `precise-gps-latitude`、`precise-gps-longitude`：BLOCKED / Not In Scope。正確觀察路徑是
   `device.geo_lat` / `device.geo_lon`；`device.lat` 已是 tracking flag，不能當緯度。
 - `foreground-session-duration`：BLOCKED。需 SampleApp 提供獨立 session start timestamp，並先
