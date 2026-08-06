@@ -1034,29 +1034,19 @@
 
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Config / Route → Appier Ad → Creative / Render → Impression / Fill → Click → Landing / Privacy → Attribution</p></div></div><div class="result-grid"><div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div></div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p><span class="lang-en">SDK fields, identifiers, and event signals</span><span class="lang-zh">SDK 欄位、識別碼與事件訊號</span></p></div></div><div class="result-grid"><div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div></div></div></section></section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1><span class="lang-en">TestCase Catalog</span><span class="lang-zh">TestCase 目錄</span></h1><p><span class="lang-en">Applicability is separate from execution status. Use these tables to find the contract; use Round Reports for PASS, FAILED, or BLOCKED.</span><span class="lang-zh">適用範圍不等於執行結果。這裡用來查 TC 契約；PASS／FAILED／BLOCKED 請看輪次報告。</span></p></div><b>71 TestCases</b></div>
-<section class="catalog-section" id="catalog-e2e"><div class="section-title"><span>01</span><div><h2>E2E TestCases</h2><p><span class="lang-en">Ordered user and network journeys, with Standalone and Mediation applicability.</span><span class="lang-zh">依操作與流量順序排列，並標示 Standalone／Mediation 適用性。</span></p></div><b>19 TestCases</b></div>
-<div class="table-wrap"><table class="catalog-table"><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>Standalone</th><th>Mediation</th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">DRAFT</span>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1><span class="lang-en">TestCase Catalog</span><span class="lang-zh">TestCase 目錄</span></h1><p><span class="lang-en">Applicability is separate from execution status. Use these tables to find the contract; use Round Reports for PASS, FAILED, or BLOCKED.</span><span class="lang-zh">適用範圍不等於執行結果。這裡用來查 TC 契約；PASS／FAILED／BLOCKED 請看輪次報告。</span></p></div><b>68 TestCases</b></div>
+<section class="catalog-section" id="catalog-e2e"><div class="section-title"><span>01</span><div><h2>E2E TestCases</h2><p><span class="lang-en">Ordered user and network journeys, with Standalone and Mediation applicability.</span><span class="lang-zh">依操作與流量順序排列，並標示 Standalone／Mediation 適用性。</span></p></div><b>16 TestCases</b></div>
+<div class="table-wrap"><table class="catalog-table catalog-e2e-table"><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>Standalone</th><th>Mediation</th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-S01</strong><code class="catalog-key">standalone-sdk-init</code><small>E2E-STANDALONE</small></td>
 <td><b><span class="lang-en">SDK Initialization</span><span class="lang-zh">SDK 初始化</span></b><p>E2E · A. Ad Serving</p>
 <code>platform init endpoint</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>不執行；Android Ads SDK 沒有獨立 Standalone Init endpoint。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：等待確認是否需要建立與 iOS Init 流程對齊的 AOS 等效契約；不得以 ad request 取代 Init 並判為 PASS。</p>
 <b>Evidence</b><p>Android SDK Code、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動 iOS Sample App；ATT 與 HTTPS proxy 前置完成。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>GET /v1/sdk/ios/init 成功，bundle 與 SDK version 正確，response 可用。</p>
 <b>Evidence</b><p>serving video、init request/response、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
-<strong class="catalog-id">E2E-M01</strong><code class="catalog-key">admob-sdk-init</code><small>E2E-ADMOB</small></td>
-<td><b><span class="lang-en">SDK Initialization</span><span class="lang-zh">SDK 初始化</span></b><p>E2E · A. Ad Serving</p>
-<code>platform init endpoint</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動含 AdMob Mediation 的 Android Sample App。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier 與 mediation 初始化成功；平台 endpoint/版本正確。</p>
-<b>Evidence</b><p>serving video、init traffic</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動含 AdMob Mediation 的 iOS Sample App。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier 與 mediation 初始化成功；GET /v1/sdk/ios/init 與版本正確。</p>
-<b>Evidence</b><p>serving video、init traffic</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-M02A</strong><code class="catalog-key">admob-pubsetting</code><small>E2E-ADMOB</small></td>
 <td><b><span class="lang-en">AdMob Pubsetting Mediation Config</span><span class="lang-zh">AdMob Mediation 設定</span></b><p>E2E · A. Ad Serving</p>
 <code>getconfig/pubsetting</code><span class="priority">P0</span></td>
@@ -1081,7 +1071,7 @@
 <td><b><span class="lang-en">Appier Direct Ad Request</span><span class="lang-zh">Appier 直接廣告請求</span></b><p>E2E · A. Ad Serving</p>
 <code>POST /v2/sdk/{platform}/ad</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Standalone 版位直接觸發廣告，並保存可追溯的 proxy/Charles traffic session。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>同一 traffic flow 必須證明 POST /v2/sdk/aos/ad 與 HTTP 200 response；request/response body 均保存，bundle、zone、SDK version、CID 正確，response 含有效 adUnits[0].ad。只有抽出的 JSON、Logcat 或 onAdLoaded 不足以 PASS。</p>
 <b>Evidence</b><p>traffic flow 摘要、完整 proxy/Charles session、request/response body、decoded payload</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Standalone 版位直接觸發廣告，並保存可追溯的 proxy/Charles traffic session。</p>
@@ -1101,7 +1091,7 @@
 <td><b><span class="lang-en">Creative Asset Loading</span><span class="lang-zh">廣告素材載入</span></b><p>E2E · A. Ad Serving</p>
 <code>icon/main/privacy asset URLs</code><span class="priority">P1</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>取得有素材的 Appier response 並等待畫面完成載入。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>所有實際使用的素材 request HTTP 200、MIME 正確且畫面無破圖。</p>
 <b>Evidence</b><p>asset requests、render screenshot、serving video</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>取得有素材的 Appier response 並等待畫面完成載入。</p>
@@ -1111,41 +1101,31 @@
 <td><b><span class="lang-en">Native Ad Rendering</span><span class="lang-zh">原生廣告渲染</span></b><p>E2E · A. Ad Serving</p>
 <code>visible native elements</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 Native ad 完整顯示並保存 response 與畫面。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>title/text/CTA/icon/main/privacy 與 response 對應，無破版且有廣告標示。</p>
 <b>Evidence</b><p>render screenshot、serving video、ad response</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 Native ad 完整顯示並保存 response 與畫面。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>title/text/CTA/icon/main/privacy 與 response 對應，無破版且有廣告標示。</p>
 <b>Evidence</b><p>render screenshot、serving video、ad response</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
-<strong class="catalog-id">E2E-M03</strong><code class="catalog-key">admob-creative-render</code><small>E2E-ADMOB</small></td>
-<td><b><span class="lang-en">Mediation Creative Assets and Rendering</span><span class="lang-zh">Mediation 素材載入與渲染</span></b><p>E2E · A. Ad Serving</p>
-<code>assets / visible ad</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 AdMob mediation 版位完成素材載入與顯示。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>素材 HTTP 成功，畫面元素與 Appier response 對應且無破版。</p>
-<b>Evidence</b><p>render screenshot、serving video、asset traffic</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 AdMob mediation 版位完成素材載入與顯示。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>素材 HTTP 成功，畫面元素與 Appier response 對應且無破版。</p>
-<b>Evidence</b><p>render screenshot、serving video、asset traffic</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-S04</strong><code class="catalog-key">standalone-impression</code><small>E2E-STANDALONE</small></td>
 <td><b><span class="lang-en">Appier Impression Tracking</span><span class="lang-zh">Appier 曝光追蹤</span></b><p>E2E · B. Tracking</p>
 <code>show_cb / winshowimg</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>廣告實際可見後保存 tracker chain 與影片時間軸。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告，且不早於顯示。</p>
 <b>Evidence</b><p>impression chain、interaction video、timeline</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>廣告實際可見後保存 tracker chain 與影片時間軸。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告，且不早於顯示。</p>
 <b>Evidence</b><p>impression chain、interaction video、timeline</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-M04A</strong><code class="catalog-key">admob-impression</code><small>E2E-ADMOB</small></td>
-<td><b><span class="lang-en">AdMob and Appier Impression Tracking</span><span class="lang-zh">AdMob 與 Appier 曝光追蹤</span></b><p>E2E · B. Tracking</p>
-<code>show_cb / winshowimg / imp_urls</code><span class="priority">P0</span></td>
+<td><b><span class="lang-en">AdMob Impression Reporting</span><span class="lang-zh">AdMob 與 Appier 曝光追蹤</span></b><p>E2E · B. Tracking</p>
+<code>AdMob imp_urls</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability no">—</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Mediation ad 可見後保存 Appier 與 Google impression events。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier show_cb/winshowimg 與 AdMob imp_urls 均成功且對應同一廣告。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>沿用 E2E-S04 驗證 Appier impression；本 TC 只驗證 AdMob imp_urls 成功送出且對應同一廣告。</p>
 <b>Evidence</b><p>impression timeline、interaction video、traffic session</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Mediation ad 可見後保存 Appier 與 Google impression events。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier show_cb/winshowimg 與 AdMob imp_urls 均成功且對應同一廣告。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>沿用 E2E-S04 驗證 Appier impression；本 TC 只驗證 AdMob imp_urls 成功送出且對應同一廣告。</p>
 <b>Evidence</b><p>impression timeline、interaction video、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-M04B</strong><code class="catalog-key">admob-fill-result</code><small>E2E-ADMOB</small></td>
 <td><b><span class="lang-en">Mediation Fill Result</span><span class="lang-zh">Mediation Fill 結果</span></b><p>E2E · B. Tracking</p>
@@ -1161,47 +1141,37 @@
 <td><b><span class="lang-en">Appier Click Tracking</span><span class="lang-zh">Appier 點擊追蹤</span></b><p>E2E · B. Tracking</p>
 <code>xclk redirect chain</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認允許真實點擊後點擊廣告。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>xclk 與 redirect chain 完整成功，識別碼對應本次廣告；不要求 AdMob aclk。</p>
 <b>Evidence</b><p>click chain、interaction video、traffic screenshot</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認允許真實點擊後點擊廣告。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>xclk 與 redirect chain 完整成功，識別碼對應本次廣告；不要求 AdMob aclk。</p>
 <b>Evidence</b><p>click chain、interaction video、traffic screenshot</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-M05</strong><code class="catalog-key">admob-click</code><small>E2E-ADMOB</small></td>
-<td><b><span class="lang-en">AdMob and Appier Click Tracking</span><span class="lang-zh">AdMob 與 Appier 點擊追蹤</span></b><p>E2E · B. Tracking</p>
-<code>aclk / xclk</code><span class="priority">P0</span></td>
+<td><b><span class="lang-en">AdMob Click Reporting</span><span class="lang-zh">AdMob 與 Appier 點擊追蹤</span></b><p>E2E · B. Tracking</p>
+<code>AdMob aclk</code><span class="priority">P0</span></td>
 <td class="mode-cell"><span class="mode-availability no">—</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認後點擊 mediation ad。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AdMob aclk、Appier xclk 與 redirect chain 均成功且識別碼一致。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>沿用 E2E-S05 驗證 Appier xclk；本 TC 只驗證 AdMob aclk 成功且與同一次 click 對應。</p>
 <b>Evidence</b><p>click timeline、interaction video、traffic session</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認後點擊 mediation ad。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AdMob aclk、Appier xclk 與 redirect chain 均成功且識別碼一致。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>沿用 E2E-S05 驗證 Appier xclk；本 TC 只驗證 AdMob aclk 成功且與同一次 click 對應。</p>
 <b>Evidence</b><p>click timeline、interaction video、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-S06A</strong><code class="catalog-key">standalone-landing</code><small>E2E-STANDALONE</small></td>
 <td><b><span class="lang-en">Landing Behavior</span><span class="lang-zh">Landing 跳轉</span></b><p>E2E · B. Tracking</p>
 <code>landing destination</code><span class="priority">P1</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S05 點擊並追蹤最終 destination。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AIBID 正確開啟 Google Play/指定頁；REEN 依 response 開啟 browser/deeplink，無白頁或 crash。</p>
 <b>Evidence</b><p>landing screenshot、interaction video、redirect chain</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S05 點擊並追蹤最終 destination。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AIBID 正確開啟 App Store store view；REEN 依 response 開啟 browser/deeplink，無白頁或 crash。</p>
 <b>Evidence</b><p>landing screenshot、interaction video、redirect chain</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
-<strong class="catalog-id">E2E-M06</strong><code class="catalog-key">admob-landing-privacy</code><small>E2E-ADMOB</small></td>
-<td><b><span class="lang-en">Mediation Landing and Privacy</span><span class="lang-zh">Mediation Landing 與隱私資訊</span></b><p>E2E · B. Tracking</p>
-<code>landing / privacyInformationLink</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>分別驗證一般 ad click 與 privacy icon。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Landing 與 privacy URL 各自正確開啟，無白頁/crash 且不互相誤觸。</p>
-<b>Evidence</b><p>landing/privacy video、screenshots、redirect chains</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>分別驗證一般 ad click 與 privacy icon。</p>
-<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Landing 與 privacy URL 各自正確開啟，無白頁/crash 且不互相誤觸。</p>
-<b>Evidence</b><p>landing/privacy video、screenshots、redirect chains</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
 <strong class="catalog-id">E2E-S06B</strong><code class="catalog-key">standalone-privacy</code><small>E2E-STANDALONE</small></td>
 <td><b><span class="lang-en">Privacy Information</span><span class="lang-zh">隱私資訊</span></b><p>E2E · B. Tracking</p>
 <code>privacyInformationLink</code><span class="priority">P2</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Response 有 privacy icon/link 時點擊右上 icon。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>開啟指定 privacy URL，無 TLS error/白頁/crash，且不誤觸一般 ad click。</p>
 <b>Evidence</b><p>privacy video、privacy page screenshot、response</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Response 有 privacy icon/link 時點擊右上 icon。</p>
@@ -1211,7 +1181,7 @@
 <td><b><span class="lang-en">AIBID Install Attribution</span><span class="lang-zh">AIBID 安裝歸因</span></b><p>E2E · C. Attribution</p>
 <code>install conversion/action</code><span class="priority">P2</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工協調窗口；測試機未安裝 promoted app，點擊、安裝、首次開啟。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>合理窗口內收到 install，且歸因 CID/click/bidobjid 正確。</p>
 <b>Evidence</b><p>install video、click evidence、conversion log</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工協調窗口；測試機未安裝 promoted app 且 ATT 前置完成。</p>
@@ -1221,323 +1191,284 @@
 <td><b><span class="lang-en">Backend Attribution Reconciliation</span><span class="lang-zh">後端歸因對帳</span></b><p>E2E · C. Attribution</p>
 <code>Spark raw_action / MMP</code><span class="priority">P2</span></td>
 <td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
-<td class="mode-cell"><span class="mode-availability no">—</span></td>
+<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Applicable</span><span class="lang-zh">適用</span></small></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S07 後由內部系統查詢 test CID。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>imp/click/install 與 traffic 識別碼及實際操作一致。</p>
 <b>Evidence</b><p>backend query、traffic timeline、correlation IDs</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S07 後由內部系統查詢 test CID。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>imp/click/install 與 traffic 識別碼及實際操作一致。</p>
 <b>Evidence</b><p>backend query、traffic timeline、correlation IDs</p></div></td></tr></tbody></table></div></section>
 <section class="catalog-section" id="catalog-signal"><div class="section-title"><span>02</span><div><h2>Signal TestCases</h2><p><span class="lang-en">SDK fields and device signals shared by the applicable integration modes.</span><span class="lang-zh">SDK 欄位與裝置訊號；適用的整合模式共用同一份欄位契約。</span></p></div><b>52 TestCases</b></div>
-<div class="table-wrap"><table class="catalog-table"><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>Standalone</th><th>Mediation</th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
+<div class="table-wrap"><table class="catalog-table catalog-signal-table"><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">advertising-id</strong><small>R1</small></td>
 <td><b><span class="lang-en">Advertising ID (GAID)</span><span class="lang-zh">廣告識別碼（GAID）</span></b><p>Signal · A. Core Identifiers</p>
 <code>device.ia</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>開啟 Google Ads 頁，確認 Opt out of Ads Personalization 關閉，截取人眼可見的 GAID，再啟動 App capture。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>設定頁、Request、Extended 的 GAID 必須完全相同；格式為小寫 UUID，且不可為空或全零。</p>
 <b>Evidence</b><p>設定頁截圖、bid_decoded.json、summary.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 對應識別為 IDFA，另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">app-set-id</strong><small>R1</small></td>
 <td><b><span class="lang-en">Vendor ID (App Set ID)</span><span class="lang-zh">供應商識別碼（App Set ID）</span></b><p>Signal · A. Core Identifiers</p>
 <code>device.ifv</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture。App Set ID 不可寫死為某一台裝置曾出現的值。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Extended 的 device.ifv 必須存在，且為全小寫 UUID 8-4-4-4-12 格式。</p>
 <b>Evidence</b><p>app-set-id.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 的 device.ifv 是 IDFV，來源與生命週期不同，另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">installed-app-list</strong><small>R1</small></td>
 <td><b><span class="lang-en">Installed App List</span><span class="lang-zh">已安裝 App 清單</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.applist</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture。不可寫死套件數量、清單內容或順序。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>欄位不存在、空陣列或合法的非空套件陣列都允許；有內容時每項必須是唯一且格式合法的 package-name 字串。</p>
 <b>Evidence</b><p>installed-apps-settings.png、installed-app-list.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 不適用 Android Installed App List。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">in-app-purchase-history</strong><small>R1</small></td>
 <td><b><span class="lang-en">In App Purchase History</span><span class="lang-zh">App 內購買紀錄</span></b><p>Signal · C. App Activity</p>
 <code>device.ext.iaphistory</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；目前 Sample App 沒有購買流程。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>欄位缺少或格式錯誤為 FAILED；合法陣列在 Sample App 尚無購買流程與 expected product IDs 時為 BLOCKED，待 RD 提供可核對答案後才判 PASS／FAILED。</p>
 <b>Evidence</b><p>in-app-purchase-history.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS StoreKit 購買訊號需另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">boot-timestamps</strong><small>R1</small></td>
 <td><b><span class="lang-en">System Boot Timestamps</span><span class="lang-zh">系統開機時間</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.pot</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture，並在 capture 前讀取裝置 epoch time 與 /proc/uptime。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>pot 必須有 1～5 筆嚴格遞增的正整數 epoch milliseconds；最後一筆須符合裝置時間減 uptime，誤差不超過 120 秒。</p>
 <b>Evidence</b><p>boot-time-calculation.png、boot-timestamps.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS boot／uptime 訊號需另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">ram-total</strong><small>R1</small></td>
 <td><b><span class="lang-en">RAM Status (Total)</span><span class="lang-zh">RAM 總容量</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.mem_total</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture，送出 request 前讀取 /proc/meminfo。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>必須是正整數 bytes，且與 MemTotal × 1024 的獨立系統讀值誤差不超過 2%。</p>
 <b>Evidence</b><p>mem-total-evidence.png、resource-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS memory signal 另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">ram-available</strong><small>R1</small></td>
 <td><b><span class="lang-en">RAM Status (Available)</span><span class="lang-zh">可用 RAM</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.mem_available</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture，送出 request 前立即讀取 /proc/meminfo。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>必須是正整數 bytes、不得大於 mem_total，且與近時間 MemAvailable 的差異不超過 max(RAM total 10%, 512 MiB)。</p>
 <b>Evidence</b><p>mem-available-evidence.png、resource-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS memory signal 另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">disk-total</strong><small>R1</small></td>
 <td><b><span class="lang-en">Disk Storage (Total)</span><span class="lang-zh">儲存空間總容量</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.disk_total</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture，以 df -k /data 換算 bytes，對照 App data 所在 filesystem。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>必須是正整數 bytes，且與 /data filesystem 總容量誤差不超過 2%。</p>
 <b>Evidence</b><p>disk-total-evidence.png、storage-settings.png、resource-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS storage signal 另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">disk-free</strong><small>R1</small></td>
 <td><b><span class="lang-en">Disk Storage (Free)</span><span class="lang-zh">可用儲存空間</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.disk_free</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture，以 df -k /data 換算 bytes，對照 App data 所在 filesystem。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>必須是正整數 bytes、不得大於 disk_total，且與近時間 /data 可用容量差異不超過 max(Disk total 2%, 512 MiB)。</p>
 <b>Evidence</b><p>disk-free-evidence.png、storage-settings.png、resource-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS storage signal 另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">battery-level</strong><small>R1</small></td>
 <td><b><span class="lang-en">Battery Level</span><span class="lang-zh">電池電量</span></b><p>Signal · B. Device Signals</p>
 <code>device.batterylevel</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 Android Battery 原生頁。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>整數 0～100，與同時間系統電量差異不超過 2%。</p>
 <b>Evidence</b><p>battery-settings.png、battery-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS battery signal 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">charging-status</strong><small>R1</small></td>
 <td><b><span class="lang-en">Charging Status</span><span class="lang-zh">充電狀態</span></b><p>Signal · B. Device Signals</p>
 <code>device.charging</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 Battery 頁與同輪 capture。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>整數 0/1；AC、USB、Wireless 或 Dock powered 時為 1，否則為 0。100% Full 但仍接電源也允許為 1。</p>
 <b>Evidence</b><p>battery-settings.png、battery-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS charging signal 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">battery-saver</strong><small>R1</small></td>
 <td><b><span class="lang-en">Battery Saver</span><span class="lang-zh">省電模式</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.battery_saver</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>開啟 Android Battery Saver 原生頁。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>JSON boolean，必須與 Use Battery Saver 開關完全一致。</p>
 <b>Evidence</b><p>battery-saver-settings.png、battery-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS Low Power Mode 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">screen-width</strong><small>R1</small></td>
 <td><b><span class="lang-en">Screen Width</span><span class="lang-zh">螢幕寬度</span></b><p>Signal · B. Device Signals</p>
 <code>device.sw</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>保持直向，沿用本輪 Display 原生畫面。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>正整數 pixels，等於 Android 當下 display width。</p>
 <b>Evidence</b><p>screen-width-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS screen size 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">screen-height</strong><small>R1</small></td>
 <td><b><span class="lang-en">Screen Height</span><span class="lang-zh">螢幕高度</span></b><p>Signal · B. Device Signals</p>
 <code>device.sh</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>保持直向，沿用本輪 Display 原生畫面。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>正整數 pixels，等於 Android 當下 display height。</p>
 <b>Evidence</b><p>screen-height-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS screen size 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">screen-ppi</strong><small>R1</small></td>
 <td><b><span class="lang-en">Screen PPI</span><span class="lang-zh">螢幕 PPI</span></b><p>Signal · B. Device Signals</p>
 <code>device.ppi</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture，以 wm density 取得直接 OS 值；若型號已收錄，再查官方面板規格。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>等於 Android logical density DPI；收錄型號另須與官方 physical PPI 差異在 ±5%。</p>
 <b>Evidence</b><p>screen-ppi-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS scale/PPI 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">pixel-ratio</strong><small>R1</small></td>
 <td><b><span class="lang-en">Pixel Ratio</span><span class="lang-zh">像素比例</span></b><p>Signal · B. Device Signals</p>
 <code>device.pxratio</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 Display capture 與 wm density。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>等於 Android logical density DPI ÷ 160；允許 0.000001 浮點誤差。</p>
 <b>Evidence</b><p>pixel-ratio-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS scale 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">screen-brightness</strong><small>R1</small></td>
 <td><b><span class="lang-en">Screen Brightness</span><span class="lang-zh">螢幕亮度</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.screen_bright</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 Android Display 原生頁；capture 前讀取 system screen_brightness。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>0～1 數值，等於 Android brightness 整數 ÷ 255；容許 1/255 誤差。</p>
 <b>Evidence</b><p>screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS brightness 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">font-scale</strong><small>R1</small></td>
 <td><b><span class="lang-en">Font Scale</span><span class="lang-zh">字型縮放</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.fontscale</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 Display size &amp; text 狀態，讀取 system font_scale。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>正數，與 Android system font_scale 相等。</p>
 <b>Evidence</b><p>font-scale-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS font scale 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">dark-mode</strong><small>R1</small></td>
 <td><b><span class="lang-en">Dark Mode</span><span class="lang-zh">深色模式</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.darkmode</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 Display 原生頁的 Dark theme 開關，並讀取 cmd uimode night。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>JSON boolean，必須與 Android 當下 Dark theme 狀態一致。</p>
 <b>Evidence</b><p>dark-mode-evidence.png、display-status.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS dark mode 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">gyroscope</strong><small>R1</small></td>
 <td><b><span class="lang-en">Gyroscope</span><span class="lang-zh">陀螺儀</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.gyroscope</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Not In Scope；本輪不建立感測器動作。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED；即使欄位存在且為 []，也不宣稱內容正確。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS sensor TC 另立。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">accelerometer</strong><small>R1</small></td>
 <td><b><span class="lang-en">Accelerometer</span><span class="lang-zh">加速度計</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.accelerometer</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Not In Scope；本輪不建立感測器動作。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED；即使欄位存在且為 []，也不宣稱內容正確。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS sensor TC 另立。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">tracking-allowed</strong><small>R1</small></td>
 <td><b><span class="lang-en">Limit Ad Tracking Flag (tracking allowed)</span><span class="lang-zh">允許廣告追蹤</span></b><p>Signal · A. Core Identifiers</p>
 <code>device.lat</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 Advertising ID：Ads 頁面的 Opt out of Ads Personalization 關閉，同一次 capture，不重抓流量。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>設定頁 Opt out 關閉時，Request／Extended LAT 必須是 0 或不傳送。</p>
 <b>Evidence</b><p>ads-settings.png、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS 對應行為另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">output-volume</strong><small>R1</small></td>
 <td><b><span class="lang-en">Output Volume</span><span class="lang-zh">輸出音量</span></b><p>Signal · B. Device Signals</p>
 <code>device.ext.volume</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 Android Sound &amp; vibration，讀取 Media volume current/max。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>0～1 數值，等於 Android STREAM_MUSIC current ÷ max；容許一個音量級距誤差。</p>
 <b>Evidence</b><p>volume-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS output volume 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">device-make</strong><small>R1</small></td>
 <td><b><span class="lang-en">Device Make</span><span class="lang-zh">裝置品牌</span></b><p>Signal · B. Device Signals</p>
 <code>device.make</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 About phone。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req/ext device.make 均須等於 Android ro.product.manufacturer。</p>
 <b>Evidence</b><p>make-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS make 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">device-model</strong><small>R1</small></td>
 <td><b><span class="lang-en">Device Model</span><span class="lang-zh">裝置型號</span></b><p>Signal · B. Device Signals</p>
 <code>device.model / device.hwv</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 About phone。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req/ext 的 model 與 hwv 均須等於 Android ro.product.model。</p>
 <b>Evidence</b><p>model-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS model/hwv 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">sdk-version</strong><small>R1</small></td>
 <td><b><span class="lang-en">SDK Version (sdk_version)</span><span class="lang-zh">SDK 版本</span></b><p>Signal · D. App State - Format</p>
 <code>app.sdk_version</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；沿用本輪 capture。expected 由本次 build 資訊決定，目前為 2.2.0。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Request SDK version 必須是本次 Build 的 2.2.0。</p>
 <b>Evidence</b><p>sdk-build-info.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS SDK version 另立 iOS TestCase。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">default-timezone</strong><small>R1</small></td>
 <td><b><span class="lang-en">Default Timezone</span><span class="lang-zh">預設時區</span></b><p>Signal · B. Device Signals</p>
 <code>device.utcoffset</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 Date &amp; time 原生頁。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req/ext utcoffset 均須等於 capture 當下 Android UTC offset，單位為分鐘；不可固定寫 480。</p>
 <b>Evidence</b><p>utcoffset-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS timezone 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">default-language-iso</strong><small>R1</small></td>
 <td><b><span class="lang-en">Default Language (ISO-639-1)</span><span class="lang-zh">預設語言（ISO-639-1）</span></b><p>Signal · B. Device Signals</p>
 <code>device.lang</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 Languages 原生頁。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>ext device.lang 必須等於 Android system locale 的 ISO-639-1 language component。</p>
 <b>Evidence</b><p>lang-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS language 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">default-language-bcp47</strong><small>R1</small></td>
 <td><b><span class="lang-en">Default Language (BCP 47)</span><span class="lang-zh">預設語言（BCP 47）</span></b><p>Signal · B. Device Signals</p>
 <code>device.langb</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 Languages 原生頁。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req/ext device.langb 均須等於 Android system locale 正規化後的 BCP 47 tag。</p>
 <b>Evidence</b><p>langb-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS BCP 47 language 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">keyboard-languages</strong><small>R1</small></td>
 <td><b><span class="lang-en">Installed Keyboard Languages</span><span class="lang-zh">已安裝的鍵盤語言</span></b><p>Signal · B. Device Signals</p>
 <code>device.input_lang</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>開啟 Gboard Languages，讀取 enabled input-method subtypes。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>字串陣列，順序與啟用的 Gboard BCP 47 language tags 完全一致。</p>
 <b>Evidence</b><p>input_lang-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS keyboard languages 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">root-status</strong><small>R1</small></td>
 <td><b><span class="lang-en">Root Status</span><span class="lang-zh">Root 狀態</span></b><p>Signal · C. Device Integrity</p>
 <code>device.ext.jailbreak</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 rooted QA device；開啟 Magisk 並執行 su -c id。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>JSON boolean，必須與獨立 root probe 一致；Android 欄位名稱仍為 jailbreak。</p>
 <b>Evidence</b><p>jailbreak-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS jailbreak 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">emulator-detection</strong><small>R1</small></td>
 <td><b><span class="lang-en">Emulator Detection</span><span class="lang-zh">模擬器偵測</span></b><p>Signal · C. Device Integrity</p>
 <code>device.ext.emulator</code><span class="priority">P0</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用實體 Pixel；讀取 qemu/product hardware properties。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>JSON boolean，實體 Pixel 應為 false；模擬器另建正向 round。</p>
 <b>Evidence</b><p>emulator-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS simulator detection 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">ipv6-address</strong><small>R1</small></td>
 <td><b><span class="lang-en">IPv6 Address</span><span class="lang-zh">IPv6 位址</span></b><p>Signal · D. Network</p>
 <code>待確認</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>公司測試網路目前沒有 IPv6，等待 IT 提供可用環境。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：公司網路沒有 IPv6，現階段無法執行 IPv6 正向驗證。</p>
 <b>Evidence</b><p>verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS IPv6 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">connection-type</strong><small>R1</small></td>
 <td><b><span class="lang-en">Connection Type</span><span class="lang-zh">連線類型</span></b><p>Signal · D. Network</p>
 <code>device.conntype</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；開啟 Network &amp; internet 並讀取 active default transport。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req/ext conntype 均須等於 Android active network；本輪為 wifi。</p>
 <b>Evidence</b><p>conntype-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS connection type 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">carrier</strong><small>R1</small></td>
 <td><b><span class="lang-en">Carrier</span><span class="lang-zh">電信業者</span></b><p>Signal · D. Network</p>
 <code>device.carrier</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>QA device 無 active SIM；保留 Network &amp; internet／SIM 狀態作為硬體限制證明。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：沒有 active SIM 時無法取得並驗證 Carrier 正確值；空字串只記為觀察結果，不視為 PASS。</p>
 <b>Evidence</b><p>carrier-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS carrier 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">mcc-mnc</strong><small>R1</small></td>
 <td><b><span class="lang-en">MCC/MNC</span><span class="lang-zh">MCC/MNC</span></b><p>Signal · D. Network</p>
 <code>device.mccmnc</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>QA device 無 active SIM；保留 Network &amp; internet／SIM 狀態作為硬體限制證明。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：沒有 active SIM 時無法取得並驗證 MCC/MNC 正確值；空字串只記為觀察結果，不視為 PASS。</p>
 <b>Evidence</b><p>mccmnc-evidence.png、device-context.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS MCC/MNC 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">precise-gps-latitude</strong><small>R1</small></td>
 <td><b><span class="lang-en">Precise GPS Latitude</span><span class="lang-zh">精確 GPS 緯度</span></b><p>Signal · E. Location</p>
 <code>device.geo_lat</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Not In Scope；本輪無定位 ground truth。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED；device.lat 是 tracking flag，不是 GPS latitude。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS precise location 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">precise-gps-longitude</strong><small>R1</small></td>
 <td><b><span class="lang-en">Precise GPS Longitude</span><span class="lang-zh">精確 GPS 經度</span></b><p>Signal · E. Location</p>
 <code>device.geo_lon</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Not In Scope；本輪無定位 ground truth。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED；不得只因欄位存在或非零就判 PASS。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS precise location 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">last-foreground-times</strong><small>R1</small></td>
 <td><b><span class="lang-en">Last Foreground Times</span><span class="lang-zh">最近前景時間</span></b><p>Signal · F. User Session</p>
 <code>user.last_foreground_time</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪第一個廣告 capture。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>非空陣列；每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用對應 iOS capture。</p>
@@ -1546,8 +1477,7 @@
 <strong class="catalog-id">last-background-times</strong><small>R1</small></td>
 <td><b><span class="lang-en">Last Background Times</span><span class="lang-zh">最近背景時間</span></b><p>Signal · F. User Session</p>
 <code>user.last_background_time</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪 capture；沒有 background 事件時允許空陣列。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>陣列可為空；有值時每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用對應 iOS capture。</p>
@@ -1556,8 +1486,7 @@
 <strong class="catalog-id">impression-history</strong><small>R2</small></td>
 <td><b><span class="lang-en">Impression History</span><span class="lang-zh">曝光紀錄</span></b><p>Signal · F. User Session</p>
 <code>user.impression_history</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>同一個 App session 先讓第一個廣告成功曝光，再抓第二個廣告 request。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>第二個 request 的 impression_history 必須為非空陣列；第一個廣告的 impression callback 必須已被獨立保存。</p>
 <b>Evidence</b><p>previous-impression.json、bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>同一個 iOS App session 完成第一個曝光後抓第二個 request。</p>
@@ -1566,16 +1495,14 @@
 <strong class="catalog-id">vpn-status</strong><small>R1</small></td>
 <td><b><span class="lang-en">VPN Status</span><span class="lang-zh">VPN 狀態</span></b><p>Signal · D. Network</p>
 <code>device.ext.vpn</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Not In Scope；本輪不建立 VPN 狀態。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：目前 AOS payload 沒有已確認的 device.ext.vpn 欄位。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS VPN 另行定義。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">argus-sdk-version</strong><small>R1</small></td>
 <td><b><span class="lang-en">Argus SDK Version</span><span class="lang-zh">Argus SDK 版本</span></b><p>Signal · A. Core Identifiers</p>
 <code>device.argus_ver</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用本輪第二段 Argus payload；版本目標以已確認整合版本為準。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>ext device.argus_ver 必須等於已確認的 Argus SDK 版本；本輪目標為 1.0.0。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用對應 iOS Argus payload。</p>
@@ -1584,16 +1511,14 @@
 <strong class="catalog-id">network-latency</strong><small>R1</small></td>
 <td><b><span class="lang-en">Connection Latency</span><span class="lang-zh">網路延遲</span></b><p>Signal · K. Network Latency (Partial)</p>
 <code>device.ext.latency</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>先跳過；SDK 會自行對 cr.adsappier.com 的固定資源送 HEAD latency probe。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：尚未獨立擷取該 HEAD probe 的 request-to-response timing，不得再拿 bid RTT 當答案。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS latency probe 需對照 iOS 實作。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">session-duration-continuous</strong><small>R3</small></td>
 <td><b><span class="lang-en">Session Duration — Continuous App Session</span><span class="lang-zh">Session 時長 — App 持續開啟</span></b><p>Signal · G. In-Session</p>
 <code>user.session_duration</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>冷啟動後抓 Request 1；關閉廣告但不離開 App，等待後抓 Request 2。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Request 1 與 2 的 App PID 相同，且 Request 2 session_duration &gt; Request 1。</p>
 <b>Evidence</b><p>01-cold-start.png、02-continuous.png、session-duration-sequence.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>iOS 使用相同四段連續流程。</p>
@@ -1602,8 +1527,7 @@
 <strong class="catalog-id">session-duration-background</strong><small>R3</small></td>
 <td><b><span class="lang-en">Session Duration — Resume from Background</span><span class="lang-zh">Session 時長 — 背景恢復</span></b><p>Signal · G. In-Session</p>
 <code>user.session_duration</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Request 2 後按 Home 保留 App process；再次開啟 App 並抓 Request 3。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Request 2 與 3 的 PID 相同，且 Request 3 session_duration &gt; Request 2；若系統殺掉 process 則 BLOCKED。</p>
 <b>Evidence</b><p>02-continuous.png、03-after-background.png、session-duration-sequence.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>iOS 進背景但保留 process，再回前景抓下一次 request。</p>
@@ -1612,8 +1536,7 @@
 <strong class="catalog-id">session-duration-termination</strong><small>R3</small></td>
 <td><b><span class="lang-en">Session Duration — Reset after Termination</span><span class="lang-zh">Session 時長 — 終止後重設</span></b><p>Signal · G. In-Session</p>
 <code>user.session_duration</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Request 3 後從 Recent Apps 向上滑掉 App，確認舊 PID 消失；重開後抓 Request 4。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Request 4 使用新 PID，且 session_duration &lt; Request 3，證明終止後 reset。</p>
 <b>Evidence</b><p>03-after-background.png、04-after-termination.png、session-duration-sequence.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>終止 App process 後重開並抓下一次 request。</p>
@@ -1622,8 +1545,7 @@
 <strong class="catalog-id">app-initialization-time</strong><small>R3</small></td>
 <td><b><span class="lang-en">App Initialization Time</span><span class="lang-zh">App 初始化時間</span></b><p>Signal · G. In-Session</p>
 <code>user.app_init_time</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 R3 四份 request；Request 1～3 保持同一 process，Request 4 終止後重新啟動。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Request 1～3 app_init_time 必須完全相同；Request 4 使用新 PID、值必須更新，且落在 relaunch 到 Request 4 擷取之間。</p>
 <b>Evidence</b><p>04-after-termination.png、session-duration-sequence.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 iOS R3 的四份 request。</p>
@@ -1632,8 +1554,7 @@
 <strong class="catalog-id">app-duration-today</strong><small>R3</small></td>
 <td><b><span class="lang-en">Total App Usage Time Today</span><span class="lang-zh">今日 App 使用總時長</span></b><p>Signal · G. In-Session</p>
 <code>user.app_duration</code><span class="priority">P1</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 R3 四份 request；包含持續前景、背景恢復與 process 終止重開。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>四個 app_duration 都是非負整數 milliseconds 且單調不減；Request 4 換 PID 後仍不得小於 Request 3。</p>
 <b>Evidence</b><p>04-after-termination.png、session-duration-sequence.json、verdicts.json</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>沿用 iOS R3 四份 request。</p>
@@ -1642,28 +1563,25 @@
 <strong class="catalog-id">connection-type-cellular</strong><small>R1</small></td>
 <td><b><span class="lang-en">Connection Type (Cellular)</span><span class="lang-zh">連線類型（行動網路）</span></b><p>Signal · D. Network - Format</p>
 <code>device.conntype</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>先跳過；目前 QA 裝置沒有 active SIM，無法建立 cellular transport。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：需要有 SIM 的裝置；未來 4G 應為 6、5G 應為 7。</p>
 <b>Evidence</b><p>verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS Cellular 另立 TC。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">force-gdpr-override</strong><small>R1</small></td>
 <td><b><span class="lang-en">Force GDPR Override</span><span class="lang-zh">強制套用 GDPR</span></b><p>Signal · L. Privacy Compliance</p>
 <code>compliance.force_gdpr_applies</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>先跳過；SDK API 是 Appier.setForceGDPRApplies(true)，但 Sample App 目前沒有呼叫或測試入口。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>BLOCKED：待 Sample App 暴露 true/false 觸發方式後，再比較 request compliance.force_gdpr_applies。</p>
 <b>Evidence</b><p>bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS Force GDPR 需對照 iOS API。</p></div></td></tr><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">coppa-applies</strong><small>R1</small></td>
 <td><b><span class="lang-en">COPPA Applicability Flag</span><span class="lang-zh">COPPA 適用旗標</span></b><p>Signal · L. Privacy Compliance</p>
 <code>compliance.coppa_applies</code><span class="priority">P2</span></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
-<td class="mode-cell"><span class="mode-availability yes">✓</span><small><span class="lang-en">Shared</span><span class="lang-zh">共用</span></small></td>
+
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；Sample App 已呼叫 Appier.setCoppaApplies(true)，沿用 R1 capture。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req compliance.coppa_applies 必須存在、型別為整數且等於 1。</p>
 <b>Evidence</b><p>Sample App AppierAdHelper.java、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS COPPA 需對照 iOS Sample App 設定。</p></div></td></tr></tbody></table></div></section></section>
-<p class="meta"><span class="lang-en">Results</span><span class="lang-zh">結果</span>: 56 · PASS 34 · FAILED 1 · BLOCKED 21<br><span class="lang-en">Raw captures</span><span class="lang-zh">原始擷取</span>: 23 · <span class="lang-en">Verdict files</span><span class="lang-zh">Verdict 檔案</span>: 18 · <span class="lang-en">Generated</span><span class="lang-zh">產生時間</span>: 2026-08-06T17:10:02+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main>
+<p class="meta"><span class="lang-en">Results</span><span class="lang-zh">結果</span>: 56 · PASS 34 · FAILED 1 · BLOCKED 21<br><span class="lang-en">Raw captures</span><span class="lang-zh">原始擷取</span>: 23 · <span class="lang-en">Verdict files</span><span class="lang-zh">Verdict 檔案</span>: 18 · <span class="lang-en">Generated</span><span class="lang-zh">產生時間</span>: 2026-08-06T17:17:37+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main>
 <div class="image-lightbox" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Evidence full image" hidden><button class="image-lightbox-close" type="button" aria-label="Close">×</button><img alt=""><p></p></div><script>
 (function(){
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
