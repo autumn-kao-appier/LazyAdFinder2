@@ -40,6 +40,8 @@ class TestCase:
 class Round:
     capture_name: str
     testcase_keys: tuple
+    warmup_ads: int = 0
+    strategy: str = "standard"
 
 
 def _decoded(folder):
@@ -54,6 +56,12 @@ def _decoded_device_value(document, section, field):
     plaintext = document.get(section, {}).get("plaintext", {})
     device = plaintext.get("device") if isinstance(plaintext, dict) else None
     return device.get(field) if isinstance(device, dict) else None
+
+
+def _decoded_user_value(document, field):
+    plaintext = document.get("ext", {}).get("plaintext", {})
+    user = plaintext.get("user") if isinstance(plaintext, dict) else None
+    return user.get(field) if isinstance(user, dict) else None
 
 
 def _verdict(key, title, description, expected, actual, evidence, failures):
@@ -103,9 +111,8 @@ def _comparison_view(key, expected, actual):
         "root-status": ("Android root probe", expected.get("jailbreak"), "SDK jailbreak", actual.get("jailbreak"), "="),
         "emulator-detection": ("Android hardware probe", expected.get("emulator"), "SDK emulator", actual.get("emulator"), "="),
         "connection-type": ("Active Android network", expected.get("conntype"), "SDK req/ext", f'{actual.get("req_conntype")} / {actual.get("conntype")}', "="),
-        "carrier": ("Android SIM state", expected.get("carrier"), "SDK Payload", actual.get("carrier"), "="),
-        "mcc-mnc": ("Android SIM state", expected.get("mccmnc"), "SDK Payload", actual.get("mccmnc"), "="),
         "tracking-allowed": ("Visible opt-out state", actual.get("visible_opt_out"), "SDK Payload · req/ext", f'{actual.get("req_device_lat")} / {actual.get("ext_device_lat")}', "↔"),
+        "app-initialization-time": ("Requests 1–3 · same PID", actual.get("stable_app_init_time"), "Request 4 · new PID", actual.get("restarted_app_init_time"), "≠"),
     }
     criteria = {
         "advertising-id": "Visible GAID and SDK req/ext values must be the same valid lowercase UUID.",
@@ -134,9 +141,8 @@ def _comparison_view(key, expected, actual):
         "root-status": "Payload jailbreak boolean must match an independent Android root probe.",
         "emulator-detection": "Payload emulator boolean must match Android hardware properties.",
         "connection-type": "Request and extended connection types must match the active Android network transport.",
-        "carrier": "With no active SIM, carrier must be an empty string.",
-        "mcc-mnc": "With no active SIM, MCC/MNC must be an empty string.",
         "tracking-allowed": "Visible opt-out OFF must agree with SDK tracking-allowed flags.",
+        "app-initialization-time": "Initialization time stays fixed within one process and is renewed after process restart.",
     }
     if key in compare:
         captured_label, captured, payload_label, payload, operator = compare[key]
@@ -625,25 +631,206 @@ def validate_emulator_detection(folder): return _validate_context_exact(folder, 
 def validate_connection_type(folder): return _validate_context_exact(folder, "connection-type", "Connection Type", "conntype", ("req_conntype", "conntype"), "conntype-evidence.png")
 
 
-def _validate_no_sim_value(folder, key, title, actual_key, evidence):
-    info = _context_info(folder); actual = info["actual"]; failures = []
-    if not info.get("no_active_sim"): failures.append("device has an active SIM; populated carrier validation is not defined yet")
-    elif actual.get(actual_key) != "": failures.append(f"{actual_key} must be empty when Android has no active SIM")
-    return _verdict(key, title, f"{title} reflects Android subscription state.", {actual_key: "", "no_active_sim": info.get("no_active_sim")}, actual, evidence, failures)
+def _validate_cellular_identity(folder, key, title):
+    info = _context_info(folder)
+    if info.get("no_active_sim"):
+        reason = f"Hardware limitation: QA device has no active SIM; {title} cannot be captured or verified"
+    else:
+        reason = f"Round limitation: an independent Android {title} reference is not captured yet"
+    row = blocked(key, reason).to_dict()
+    row.update({"layer": "Signal", "title": title, "description": reason})
+    return row
 
 
-def validate_carrier(folder): return _validate_no_sim_value(folder, "carrier", "Carrier", "carrier", "carrier-evidence.png")
-def validate_mcc_mnc(folder): return _validate_no_sim_value(folder, "mcc-mnc", "MCC/MNC", "mccmnc", "mccmnc-evidence.png")
+def validate_carrier(folder): return _validate_cellular_identity(folder, "carrier", "Carrier")
+def validate_mcc_mnc(folder): return _validate_cellular_identity(folder, "mcc-mnc", "MCC/MNC")
 
 
 def _round_blocked(key, title, reason):
     row = blocked(key, reason).to_dict(); row.update({"layer": "Signal", "title": title, "description": reason}); return row
 
 
-def validate_ipv6(_folder): return _round_blocked("ipv6-address", "IPv6 Address", "Round limitation: no reviewed IPv6 payload field is present in this capture")
+def validate_ipv6(_folder): return _round_blocked("ipv6-address", "IPv6 Address", "Environment limitation: company network has no IPv6; waiting for IT support")
 def validate_precise_latitude(_folder): return _round_blocked("precise-gps-latitude", "Precise GPS Latitude", "Not In Scope: location ground-truth capture is not defined; device.lat is the tracking flag, not latitude")
 def validate_precise_longitude(_folder): return _round_blocked("precise-gps-longitude", "Precise GPS Longitude", "Not In Scope: location ground-truth capture is not defined; the observed payload path is device.geo_lon")
-def validate_session_duration(_folder): return _round_blocked("foreground-session-duration", "Current Foreground Session Duration", "Round limitation: SampleApp session start timestamp and field unit are not yet exposed")
+def _session_sequence(folder):
+    return json.loads((Path(folder) / "session-duration-sequence.json").read_text())
+
+
+def _session_pair_verdict(folder, key, title, before_index, after_index, relation, evidence):
+    document = _session_sequence(folder)
+    steps = document.get("steps", [])
+    failures = []
+    if len(steps) != 4:
+        failures.append(f"R3 must contain exactly four requests, got {len(steps)}")
+        before = after = {}
+    else:
+        before, after = steps[before_index], steps[after_index]
+    before_value = before.get("session_duration")
+    after_value = after.get("session_duration")
+    if type(before_value) is not int or before_value < 0:
+        failures.append("before session_duration must be a non-negative integer")
+    if type(after_value) is not int or after_value < 0:
+        failures.append("after session_duration must be a non-negative integer")
+    if relation == "increase":
+        if before.get("pid") != after.get("pid"):
+            failures.append("App PID changed during a session that must remain alive")
+        if not failures and after_value <= before_value:
+            failures.append("session_duration did not increase")
+        criterion = "Session duration increases while the same App process remains alive."
+    else:
+        if before.get("pid") == after.get("pid"):
+            failures.append("App PID did not change after termination")
+        if not document.get("terminated_pid_confirmed"):
+            failures.append("the pre-termination PID was not confirmed to have exited")
+        if not failures and after_value >= before_value:
+            failures.append("session_duration did not reset after termination")
+        criterion = "Session duration resets after the old App process exits and a new process starts."
+    return _verdict(
+        key, title, criterion,
+        {"relation": ">" if relation == "increase" else "<", "process_requirement": "same PID" if relation == "increase" else "new PID"},
+        {"before_ms": before_value, "after_ms": after_value, "before_pid": before.get("pid"), "after_pid": after.get("pid")},
+        evidence, failures,
+    )
+
+
+def validate_session_duration_continuous(folder):
+    return _session_pair_verdict(folder, "session-duration-continuous", "Session Duration — Continuous App Session", 0, 1, "increase", "02-continuous.png")
+
+
+def validate_session_duration_background(folder):
+    return _session_pair_verdict(folder, "session-duration-background", "Session Duration — Resume from Background", 1, 2, "increase", "03-after-background.png")
+
+
+def validate_session_duration_termination(folder):
+    return _session_pair_verdict(folder, "session-duration-termination", "Session Duration — Reset after Termination", 2, 3, "reset", "04-after-termination.png")
+
+
+def validate_app_initialization_time(folder):
+    key = "app-initialization-time"
+    title = "App Initialization Time"
+    document = _session_sequence(folder)
+    steps = document.get("steps", [])
+    failures = []
+    values = [step.get("app_init_time") for step in steps]
+    if len(steps) != 4:
+        failures.append(f"R3 must contain exactly four requests, got {len(steps)}")
+    if len(values) != 4 or any(type(value) is not int or value <= 0 for value in values):
+        failures.append("all app_init_time values must be positive Unix epoch milliseconds")
+    elif len(set(values[:3])) != 1:
+        failures.append("app_init_time changed while the same App process remained alive")
+    elif values[3] <= values[2]:
+        failures.append("app_init_time was not renewed after process restart")
+    if len(steps) == 4:
+        if len({step.get("pid") for step in steps[:3]}) != 1:
+            failures.append("Requests 1–3 do not share one App PID")
+        if steps[3].get("pid") == steps[2].get("pid"):
+            failures.append("Request 4 does not use a new App PID")
+        lower = document.get("relaunch_requested_epoch_ms")
+        upper = steps[3].get("captured_epoch_ms")
+        if type(values[3]) is int and type(lower) is int and type(upper) is int:
+            if not lower - 2_000 <= values[3] <= upper:
+                failures.append("new app_init_time is outside the relaunch-to-request time window")
+        else:
+            failures.append("R3 relaunch timing evidence is incomplete")
+    return _verdict(
+        key, title, "Argus initialization time is stable per process and renewed at process restart.",
+        {"requests_1_to_3": "same timestamp", "request_4": "new timestamp within relaunch window"},
+        {
+            "stable_app_init_time": values[0] if values else None,
+            "restarted_app_init_time": values[3] if len(values) == 4 else None,
+            "values": values,
+        },
+        "04-after-termination.png", failures,
+    )
+
+
+def _validate_epoch_history(folder, key, title, field, allow_empty):
+    value = _decoded_user_value(_decoded(folder), field)
+    failures = []
+    if not isinstance(value, list):
+        failures.append(f"ext.user.{field} must be an array")
+    else:
+        if not allow_empty and not value:
+            failures.append(f"ext.user.{field} must contain the current lifecycle timestamp")
+        if any(type(item) is not int or item <= 0 for item in value):
+            failures.append(f"ext.user.{field} must contain positive Unix epoch milliseconds")
+        if any(left >= right for left, right in zip(value, value[1:])):
+            failures.append(f"ext.user.{field} must be strictly increasing")
+    expected = {
+        "type": "array of strictly increasing Unix epoch milliseconds",
+        "empty_allowed": allow_empty,
+        "cross_platform_contract": True,
+    }
+    actual = {"timestamp_count": len(value) if isinstance(value, list) else None, "timestamps": value}
+    return _verdict(key, title, f"{title} follows the shared Android/iOS lifecycle-history contract.", expected, actual, "bid_decoded.json", failures)
+
+
+def validate_last_foreground_times(folder):
+    return _validate_epoch_history(folder, "last-foreground-times", "Last Foreground Times", "last_foreground_time", False)
+
+
+def validate_last_background_times(folder):
+    return _validate_epoch_history(folder, "last-background-times", "Last Background Times", "last_background_time", True)
+
+
+def validate_impression_history(folder):
+    key = "impression-history"
+    title = "Impression History"
+    value = _decoded_user_value(_decoded(folder), "impression_history")
+    failures = []
+    previous = Path(folder) / "previous-impression.json"
+    if not previous.is_file():
+        failures.append("first-ad impression evidence is missing")
+    if not isinstance(value, list):
+        failures.append("ext.user.impression_history must be an array")
+    elif not value:
+        failures.append("second-ad capture must contain the previous impression history")
+    return _verdict(
+        key, title, "The second ad request must carry history after the first ad impression.",
+        {"capture": "second ad request", "previous_impression_confirmed": True, "history_non_empty": True},
+        {"previous_impression_confirmed": previous.is_file(), "impression_history": value}, "previous-impression.json", failures,
+    )
+
+
+def validate_network_latency(folder):
+    key = "network-latency"
+    title = "Network Latency"
+    timing_path = Path(folder) / "previous-bid-timing.json"
+    if not timing_path.is_file():
+        return _round_blocked(key, title, "Round limitation: first-ad proxy timing evidence is missing")
+    timing = json.loads(timing_path.read_text())
+    measured = timing.get("duration_ms")
+    actual = _decoded_device_value(_decoded(folder), "ext", "ext")
+    latency = actual.get("latency") if isinstance(actual, dict) else None
+    tolerance = max(50, round(measured * 0.2)) if type(measured) is int else None
+    failures = []
+    if type(measured) is not int or measured < 0:
+        failures.append("first-ad proxy duration_ms must be a non-negative integer")
+    if type(latency) is not int or latency < 0:
+        failures.append("ext.device.ext.latency must be a non-negative integer in milliseconds")
+    if not failures and abs(latency - measured) > tolerance:
+        failures.append(f"latency differs from first-ad proxy timing by more than {tolerance} ms")
+    return _verdict(
+        key, title, "Second-ad latency matches the first request/response duration in milliseconds.",
+        {"first_ad_proxy_duration_ms": measured, "tolerance_ms": tolerance},
+        {"latency_ms": latency}, "previous-bid-timing.json", failures,
+    )
+
+
+def validate_vpn_status(_folder):
+    return _round_blocked("vpn-status", "VPN Status", "Not In Scope: this Android payload has no reviewed device.ext.vpn field")
+
+
+def validate_argus_sdk_version(folder):
+    expected = "1.0.0"
+    actual = _decoded_device_value(_decoded(folder), "ext", "argus_ver")
+    failures = [] if actual == expected else [f"ext.device.argus_ver {actual!r} does not match reviewed Argus version {expected!r}"]
+    return _verdict(
+        "argus-sdk-version", "Argus SDK Version",
+        "Extended device.argus_ver matches the independently reviewed Argus SDK version.",
+        {"reviewed_argus_version": expected}, {"argus_ver": actual}, "bid_decoded.json", failures,
+    )
 
 
 def _sensor_out_of_scope(key, title):
@@ -730,7 +917,16 @@ TC_DEFINITIONS = {
     "mcc-mnc": TestCase("mcc-mnc", "MCC/MNC", "MCC/MNC reflects SIM state.", (DEVICE_CONTEXT, BID), validate_mcc_mnc),
     "precise-gps-latitude": TestCase("precise-gps-latitude", "Precise GPS Latitude", "Precise location is outside this round scope.", (BID,), validate_precise_latitude),
     "precise-gps-longitude": TestCase("precise-gps-longitude", "Precise GPS Longitude", "Precise location is outside this round scope.", (BID,), validate_precise_longitude),
-    "foreground-session-duration": TestCase("foreground-session-duration", "Current Foreground Session Duration", "Session timing requires app instrumentation.", (BID,), validate_session_duration),
+    "session-duration-continuous": TestCase("session-duration-continuous", "Session Duration — Continuous App Session", "Session duration increases without leaving the App.", (BID,), validate_session_duration_continuous),
+    "session-duration-background": TestCase("session-duration-background", "Session Duration — Resume from Background", "Session duration increases after background and resume.", (BID,), validate_session_duration_background),
+    "session-duration-termination": TestCase("session-duration-termination", "Session Duration — Reset after Termination", "Session duration resets after process termination.", (BID,), validate_session_duration_termination),
+    "app-initialization-time": TestCase("app-initialization-time", "App Initialization Time", "Argus initialization timestamp is stable per process and renewed after restart.", (BID,), validate_app_initialization_time),
+    "last-foreground-times": TestCase("last-foreground-times", "Last Foreground Times", "Foreground history follows the shared Android/iOS contract.", (BID,), validate_last_foreground_times),
+    "last-background-times": TestCase("last-background-times", "Last Background Times", "Background history follows the shared Android/iOS contract.", (BID,), validate_last_background_times),
+    "impression-history": TestCase("impression-history", "Impression History", "The second ad request carries the first impression history.", (BID,), validate_impression_history),
+    "network-latency": TestCase("network-latency", "Network Latency", "Second-ad latency matches the preceding bid request duration.", (BID,), validate_network_latency),
+    "vpn-status": TestCase("vpn-status", "VPN Status", "VPN is outside this round scope.", (BID,), validate_vpn_status),
+    "argus-sdk-version": TestCase("argus-sdk-version", "Argus SDK Version", "Argus version matches the reviewed integration version.", (BID,), validate_argus_sdk_version),
     "sdk-version": TestCase(
         "sdk-version",
         "SDK Version (sdk_version)",
@@ -780,9 +976,22 @@ ROUND_DEFINITIONS = {
             "mcc-mnc",
             "precise-gps-latitude",
             "precise-gps-longitude",
-            "foreground-session-duration",
+            "last-foreground-times",
+            "last-background-times",
+            "vpn-status",
+            "argus-sdk-version",
             "tracking-allowed",
             "sdk-version",
         ),
+    ),
+    "R2": Round(
+        "SECOND-AD-HISTORY",
+        ("impression-history", "network-latency"),
+        warmup_ads=1,
+    ),
+    "R3": Round(
+        "SESSION-DURATION",
+        ("session-duration-continuous", "session-duration-background", "session-duration-termination", "app-initialization-time"),
+        strategy="session-duration",
     ),
 }

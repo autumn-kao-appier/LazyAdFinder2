@@ -231,6 +231,97 @@ DISPLAY_LABELS = {
     "source": "Answer key source",
 }
 
+TC_TITLES_ZH = {
+    "advertising-id": "廣告識別碼（GAID）", "app-set-id": "供應商識別碼（App Set ID）",
+    "installed-app-list": "已安裝 App 清單", "in-app-purchase-history": "App 內購買紀錄",
+    "boot-timestamps": "系統開機時間", "ram-total": "RAM 總容量", "ram-available": "可用 RAM",
+    "disk-total": "儲存空間總容量", "disk-free": "可用儲存空間", "battery-level": "電池電量",
+    "charging-status": "充電狀態", "battery-saver": "省電模式", "screen-width": "螢幕寬度",
+    "screen-height": "螢幕高度", "screen-ppi": "螢幕 PPI", "pixel-ratio": "像素比例",
+    "screen-brightness": "螢幕亮度", "font-scale": "字型縮放", "dark-mode": "深色模式",
+    "gyroscope": "陀螺儀", "accelerometer": "加速度計", "tracking-allowed": "允許廣告追蹤",
+    "sdk-version": "SDK 版本", "output-volume": "輸出音量", "device-make": "裝置品牌",
+    "device-model": "裝置型號", "default-timezone": "預設時區",
+    "default-language-iso": "預設語言（ISO-639-1）", "default-language-bcp47": "預設語言（BCP 47）",
+    "keyboard-languages": "已安裝的鍵盤語言", "root-status": "Root 狀態",
+    "emulator-detection": "模擬器偵測", "ipv6-address": "IPv6 位址", "connection-type": "連線類型",
+    "carrier": "電信業者", "mcc-mnc": "MCC/MNC", "precise-gps-latitude": "精確 GPS 緯度",
+    "precise-gps-longitude": "精確 GPS 經度",
+    "session-duration-continuous": "Session 時長 — App 持續開啟",
+    "session-duration-background": "Session 時長 — 背景恢復",
+    "session-duration-termination": "Session 時長 — 終止後重設",
+    "app-initialization-time": "App 初始化時間",
+    "last-foreground-times": "最近前景時間", "last-background-times": "最近背景時間",
+    "impression-history": "曝光紀錄", "vpn-status": "VPN 狀態", "argus-sdk-version": "Argus SDK 版本",
+    "network-latency": "網路延遲",
+}
+
+
+def _bi(en, zh):
+    return (
+        f'<span class="lang-en">{html.escape(str(en))}</span>'
+        f'<span class="lang-zh">{html.escape(str(zh))}</span>'
+    )
+
+
+DYNAMIC_ZH = {
+    "Actual SDK Payload": "SDK 實際內容",
+    "Active Android network": "Android 目前使用的網路",
+    "Android Media volume": "Android 媒體音量",
+    "Android SIM state": "Android SIM 狀態",
+    "Android UTC offset": "Android UTC 時差",
+    "Android font scale": "Android 字型大小比例",
+    "Android hardware probe": "Android 硬體檢查",
+    "Android language": "Android 語言",
+    "Android locale tag": "Android 地區語言標籤",
+    "Android logical density": "Android 邏輯密度",
+    "Android manufacturer": "Android 製造商",
+    "Android product model": "Android 產品型號",
+    "Android root probe": "Android Root 檢查",
+    "Calculated boot time": "推算的開機時間",
+    "Captured OS bytes": "實機系統容量（bytes）",
+    "Captured brightness": "實機亮度",
+    "Captured build": "擷取時的 Build",
+    "Captured power state": "實機電源狀態",
+    "Captured screen height": "實機螢幕高度",
+    "Captured screen width": "實機螢幕寬度",
+    "Decoded Bid Request": "解碼後的 Bid Request",
+    "Density ÷ 160": "螢幕密度 ÷ 160",
+    "Enabled Gboard languages": "已啟用的 Gboard 語言",
+    "Latest SDK timestamp": "SDK 最新時間戳",
+    "Required version": "要求版本",
+    "Reviewed Build Target": "已確認的 Build 目標",
+    "SDK Payload": "SDK 解碼內容",
+    "SDK payload bytes": "SDK 解碼容量（bytes）",
+    "Visible Android GAID": "畫面可見的 Android GAID",
+    "Visible Battery Saver": "畫面可見的省電模式",
+    "Visible Dark theme": "畫面可見的深色主題",
+    "Visible battery level": "畫面可見的電池電量",
+    "Visible opt-out state": "畫面可見的退出個人化廣告狀態",
+    "Official physical PPI: 422.2 (supporting check)": "官方實體 PPI：422.2（輔助檢查）",
+    "Sample App has no purchase flow or independent expected product IDs; the captured array cannot be verified for correctness": "Sample App 沒有購買流程，也沒有獨立定義的預期商品 ID，因此目前無法驗證擷取陣列的內容是否正確。",
+    "Round limitation: SampleApp session start timestamp and field unit are not yet exposed": "本輪限制：Sample App 尚未提供 session 開始時間與欄位單位。",
+    "Round limitation: no reviewed IPv6 payload field is present in this capture": "本輪限制：這次擷取中沒有已確認的 IPv6 payload 欄位。",
+    "Not In Scope: location ground-truth capture is not defined; device.lat is the tracking flag, not latitude": "不在本輪範圍：尚未定義定位真值的擷取方式；device.lat 是追蹤旗標，不是緯度。",
+    "Not In Scope: location ground-truth capture is not defined; the observed payload path is device.geo_lon": "不在本輪範圍：尚未定義定位真值的擷取方式；目前觀察到的欄位路徑是 device.geo_lon。",
+    "Not In Scope: this round has no sensor motion setup or reviewed expected samples": "不在本輪範圍：本輪沒有感測器動作設定，也沒有已確認的預期樣本。",
+    "Not In Scope: this Android payload has no reviewed device.ext.vpn field": "不在本輪範圍：目前 Android payload 沒有已確認的 device.ext.vpn 欄位。",
+    "Hardware limitation: QA device has no active SIM; Carrier cannot be captured or verified": "硬體限制：QA 裝置沒有 active SIM，因此無法取得或驗證 Carrier。",
+    "Hardware limitation: QA device has no active SIM; MCC/MNC cannot be captured or verified": "硬體限制：QA 裝置沒有 active SIM，因此無法取得或驗證 MCC/MNC。",
+    "Round limitation: first-ad proxy timing evidence is missing": "本輪限制：缺少第一個廣告的 proxy timing 證據。",
+    "Environment limitation: company network has no IPv6; waiting for IT support": "環境限制：公司網路目前沒有 IPv6，等待 IT 支援。",
+    "req_langb, langb do not match Android locale tag": "req.langb 與 ext.langb 未符合 Android 系統地區語言標籤。",
+}
+
+
+def _dynamic_bi(text, zh=None):
+    text = str(text)
+    return _bi(text, zh or DYNAMIC_ZH.get(text, text))
+
+
+def _tc_title(row):
+    return _bi(row["title"], TC_TITLES_ZH.get(row["tc"], row["title"]))
+
 
 def _friendly_value(key, value):
     if key in {"opt_out", "visible_opt_out"} and isinstance(value, bool):
@@ -254,31 +345,31 @@ def _fact_list(value):
 
 def _evidence_content(row, guidance=""):
     guidance_html = (
-        f'<div class="evidence-guidance"><b>Evidence 說明</b><p>{html.escape(guidance)}</p></div>'
+        f'<div class="evidence-guidance"><b>{_bi("Evidence guidance", "Evidence 說明")}</b><p>{html.escape(guidance)}</p></div>'
         if guidance else ""
     )
     reference = row.get("evidence")
     if not reference:
-        return guidance_html + '<div class="evidence-missing">此結果沒有 Evidence。</div>'
+        return guidance_html + f'<div class="evidence-missing">{_bi("No evidence is attached to this result.", "此結果沒有 Evidence。")}</div>'
     target = Path(reference)
     if not target.is_absolute():
         target = row["source"].parent / target
     if not target.exists():
-        return guidance_html + f'<div class="evidence-missing">找不到 {html.escape(reference)}</div>'
+        return guidance_html + f'<div class="evidence-missing">{_bi("Evidence file not found", "找不到 Evidence 檔案")} · {html.escape(reference)}</div>'
     mime, _encoding = mimetypes.guess_type(target.name)
     if mime and mime.startswith("image/"):
         encoded = base64.b64encode(target.read_bytes()).decode("ascii")
         return guidance_html + f'''<figure class="evidence-image"><button class="evidence-zoom" type="button" aria-label="放大 {html.escape(reference)}"><img src="data:{mime};base64,{encoded}" alt="{html.escape(reference)}"></button>
-<figcaption>{html.escape(reference)} · 點擊查看全圖</figcaption></figure>'''
+<figcaption>{html.escape(reference)} · {_bi("Click to view full image", "點擊查看全圖")}</figcaption></figure>'''
     if target.suffix.lower() == ".json":
         document = _load_json(target)
         expected_html = ""
         if "expected" in document:
-            expected_html = f'<label>Expected</label>{_fact_list(document.get("expected"))}'
+            expected_html = f'<label>{_bi("Expected", "預期")}</label>{_fact_list(document.get("expected"))}'
         note_html = ""
         if document.get("note"):
-            note_html = f'<div class="result-note"><b>Note</b><p>{html.escape(str(document["note"]))}</p></div>'
-        return guidance_html + f'''<div class="evidence-data"><b>{html.escape(reference)}</b>{expected_html}<label>Captured evidence</label>{_fact_list(document.get("actual", {}))}{note_html}</div>'''
+            note_html = f'<div class="result-note"><b>{_bi("Note", "補充說明")}</b><p>{_dynamic_bi(document["note"])}</p></div>'
+        return guidance_html + f'''<div class="evidence-data"><b>{html.escape(reference)}</b>{expected_html}<label>{_bi("Captured evidence", "擷取證據")}</label>{_fact_list(document.get("actual", {}))}{note_html}</div>'''
     return guidance_html + f'<pre class="evidence-text">{html.escape(target.read_text(errors="replace"))}</pre>'
 
 
@@ -304,17 +395,17 @@ def _comparison_cell(item, css_class):
         ) + "</ul>"
     else:
         rendered_value = f'<b>{html.escape(_comparison_value(value))}</b>'
-    return f'''<div class="comparison-value {css_class}"><label>{html.escape(label)}</label>
+    return f'''<div class="comparison-value {css_class}"><label>{_dynamic_bi(label)}</label>
 {rendered_value}</div>'''
 
 
 def _comparison_summary(row, fallback_criterion):
     if row["status"] == Status.BLOCKED.value:
-        return '<section class="comparison-hero blocked-comparison"><b>Not executed</b><span>No comparison is claimed.</span></section>'
+        return f'<section class="comparison-hero blocked-comparison"><b>{_bi("Not executed", "未執行")}</b><span>{_bi("No comparison is claimed.", "未宣稱任何比較結果。")}</span></section>'
     view = row.get("comparison_view")
     if not isinstance(view, dict):
         return f'''<section class="comparison-hero rule-comparison">{_comparison_cell({"label": "Actual SDK Payload", "value": row.get("actual")}, "actual-value")}
-<p><span>Pass criterion</span>{html.escape(fallback_criterion)}</p></section>'''
+<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion)}</p></section>'''
     kind = view.get("kind")
     if row["tc"] == "installed-app-list" and kind == "rule":
         view = dict(view)
@@ -342,9 +433,9 @@ def _comparison_summary(row, fallback_criterion):
 <div class="comparison-operator">=</div>{_comparison_cell(view.get("actual"), "actual-value")}</div>'''
     else:
         body = f'<div class="comparison-rule-value">{_comparison_cell(view.get("actual"), "actual-value")}</div>'
-    supporting = f'<small>{html.escape(str(view["supporting"]))}</small>' if view.get("supporting") else ""
+    supporting = f'<small>{_dynamic_bi(view["supporting"])}</small>' if view.get("supporting") else ""
     return f'''<section class="comparison-hero {html.escape(str(kind or "rule"))}-comparison">{body}
-<p><span>Pass criterion</span>{html.escape(criterion)}</p>{supporting}</section>'''
+<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(criterion, fallback_criterion)}</p>{supporting}</section>'''
 
 
 def _result_card(row, catalog_by_key):
@@ -354,22 +445,22 @@ def _result_card(row, catalog_by_key):
     priority = str(spec.get("priority") or "—")
     result_note = ""
     if row["reason"]:
-        result_note = f'<div class="result-note"><b>Result note</b><p>{html.escape(row["reason"])}</p></div>'
+        result_note = f'<div class="result-note"><b>{_bi("Result note", "結果說明")}</b><p>{_dynamic_bi(row["reason"])}</p></div>'
     override_key = ":".join((
         row["platform"], row["mode_group"], row["test_type"], row["captured_at"], row["tc"]
     ))
     comparison_html = _comparison_summary(row, expected_text)
     return f'''<article class="result-card" data-result-status="{row["status"].lower()}" data-automation-status="{row["status"].lower()}" data-layer="{html.escape(row["layer"])}" data-override-key="{html.escape(override_key, quote=True)}">
-<div class="result-head"><div><strong>{html.escape(row["title"])}</strong>
+<div class="result-head"><div><strong>{_tc_title(row)}</strong>
 <span class="tc-id">{html.escape(_tc_label(row["tc"], catalog_by_key))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
-<div class="card-tabs"><button class="on" data-card-tab="summary">Result</button><button data-card-tab="evidence">Evidence</button></div>
+<div class="card-tabs"><button class="on" data-card-tab="summary">{_bi("Result", "結果")}</button><button data-card-tab="evidence">Evidence</button></div>
 <div class="card-page" data-card-page="summary">{comparison_html}{result_note}</div>
-<div class="card-page" data-card-page="evidence" hidden><section class="evidence-contract captured-block"><label>Captured source</label>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""))}</section>
+<div class="card-page" data-card-page="evidence" hidden><section class="evidence-contract captured-block"><label>{_bi("Captured source", "擷取來源")}</label>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""))}</section>
 {comparison_html}
-<details class="manual-review"><summary><span>Manual override</span><span class="manual-indicator" hidden>MANUAL</span></summary><div class="manual-form"><small>Automation status：{row["status"]}</small>
-<label>Status<select data-manual-status><option value="">Use automation result</option><option value="PASS">PASS</option><option value="FAILED">FAILED</option><option value="BLOCKED">BLOCKED</option></select></label>
-<label>Reason<textarea data-manual-reason rows="2" placeholder="請填寫人工修改理由"></textarea></label>
-<div class="manual-actions"><button data-manual-save>Save override</button><button data-manual-reset>Clear override</button></div>
+<details class="manual-review"><summary><span>{_bi("Manual override", "人工覆寫")}</span><span class="manual-indicator" hidden>MANUAL</span></summary><div class="manual-form"><small>{_bi("Automation status", "自動化狀態")}：{row["status"]}</small>
+<label>{_bi("Status", "狀態")}<select data-manual-status><option value="">Use automation result／使用自動化結果</option><option value="PASS">PASS</option><option value="FAILED">FAILED</option><option value="BLOCKED">BLOCKED</option></select></label>
+<label>{_bi("Reason", "理由")}<textarea data-manual-reason rows="2" placeholder="Manual override reason／人工修改理由"></textarea></label>
+<div class="manual-actions"><button data-manual-save>{_bi("Save override", "儲存覆寫")}</button><button data-manual-reset>{_bi("Clear override", "清除覆寫")}</button></div>
 <div class="manual-saved" hidden></div></div></details></div></article>'''
 
 
@@ -383,19 +474,19 @@ def _run_information(rows):
     sdk = device.get("sdk")
     os_text = f"Android {os_version}" + (f" · API {sdk}" if sdk else "")
     values = (
-        ("Device", device_name),
-        ("System", os_text),
-        ("Round", row["test_round"] or "—"),
-        ("Mode", row["test_mode"] or "—"),
-        ("Type", row["test_type"] or "—"),
+        (_bi("Device", "裝置"), device_name),
+        (_bi("System", "系統"), os_text),
+        (_bi("Round", "輪次"), row["test_round"] or "—"),
+        (_bi("Mode", "模式"), row["test_mode"] or "—"),
+        (_bi("Type", "類型"), row["test_type"] or "—"),
         ("CID", row["test_cid"] or "—"),
-        ("Executed", row["captured_at"] or "—"),
+        (_bi("Executed", "執行時間"), row["captured_at"] or "—"),
     )
     cells = "".join(
-        f'<div><label>{html.escape(label)}</label><b>{html.escape(str(value))}</b></div>'
+        f'<div><label>{label}</label><b>{html.escape(str(value))}</b></div>'
         for label, value in values
     )
-    return f'<section class="run-info"><div class="run-info-title"><span>Latest Run</span><b>Test specification</b></div><div class="run-info-grid">{cells}</div></section>'
+    return f'<section class="run-info"><div class="run-info-title"><span>{_bi("Latest Run", "最新執行")}</span><b>{_bi("Test specification", "測試規格")}</b></div><div class="run-info-grid">{cells}</div></section>'
 
 
 def _status_filters(rows):
@@ -409,7 +500,7 @@ def _status_filters(rows):
             f'<button class="status-filter {value.lower()}" data-status-filter="{value.lower()}"{disabled}>'
             f'<span>{value}</span><b>{count}</b></button>'
         )
-    return f'''<section class="status-filters"><div><span>Result filter</span><small>再次點擊可顯示全部</small></div><div class="status-filter-buttons">{"".join(buttons)}</div></section>'''
+    return f'''<section class="status-filters"><div><span>{_bi("Result filter", "結果篩選")}</span><small>{_bi("Click again to show all", "再次點擊可顯示全部")}</small></div><div class="status-filter-buttons">{"".join(buttons)}</div></section>'''
 
 
 def _slot_card(platform, mode, kind, label, description, rows):
@@ -418,11 +509,11 @@ def _slot_card(platform, mode, kind, label, description, rows):
     signal = Counter(row["status"] for row in signal_rows)
     e2e = Counter(row["status"] for row in e2e_rows)
     return f'''<button class="type-card" data-slot="{platform}:{mode}:{kind}">
-<div><span class="type-id">{html.escape(kind)}</span><span class="total">{len(rows)} results</span></div>
+<div><span class="type-id">{html.escape(kind)}</span><span class="total" data-result-count="{len(rows)}">{len(rows)} {_bi("results", "筆結果")}</span></div>
 <h3>{html.escape(label)}</h3><p>{html.escape(description)}</p>
-<div class="layer-row" data-layer-row="e2e"><b>E2E</b><span class="pass-text">{e2e[Status.PASS.value]}✓</span><span class="failed-text">{e2e[Status.FAILED.value]}✗</span><span class="blocked-text">{e2e[Status.BLOCKED.value]} blocked</span><small>{len(e2e_rows)} TC</small></div>
-<div class="layer-row" data-layer-row="signal"><b>Signal</b><span class="pass-text">{signal[Status.PASS.value]}✓</span><span class="failed-text">{signal[Status.FAILED.value]}✗</span><span class="blocked-text">{signal[Status.BLOCKED.value]} blocked</span><small>{len(signal_rows)} TC</small></div>
-<b class="open">查看結果 →</b></button>'''
+<div class="layer-row" data-layer-row="e2e"><b>E2E</b><span class="pass-text">{e2e[Status.PASS.value]}✓</span><span class="failed-text">{e2e[Status.FAILED.value]}✗</span><span class="blocked-text" title="BLOCKED">{e2e[Status.BLOCKED.value]}▲</span><small>{len(e2e_rows)} TC</small></div>
+<div class="layer-row" data-layer-row="signal"><b>Signal</b><span class="pass-text">{signal[Status.PASS.value]}✓</span><span class="failed-text">{signal[Status.FAILED.value]}✗</span><span class="blocked-text" title="BLOCKED">{signal[Status.BLOCKED.value]}▲</span><small>{len(signal_rows)} TC</small></div>
+<b class="open">{_bi("View results →", "查看結果 →")}</b></button>'''
 
 
 def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
@@ -436,18 +527,18 @@ def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
     platform_label = next(item[1] for item in PLATFORMS if item[0] == platform)
     mode_label = next(item[1] for item in MODES if item[0] == mode)
     return f'''<section class="slot-detail" data-slot="{platform}:{mode}:{kind}" hidden>
-<div class="detail-bar"><button class="back">← 返回分類</button><div><span class="crumb">{platform_label} / {mode_label}</span><h2>{html.escape(label)}</h2></div></div>
+<div class="detail-bar"><button class="back">{_bi("← Back to categories", "← 返回分類")}</button><div><span class="crumb">{platform_label} / {mode_label}</span><h2>{html.escape(label)}</h2></div></div>
 {_status_filters(rows)}
 {_run_information(rows)}
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Bid → Render → Impression → Click → Landing</p></div></div><div class="result-grid">{e2e_cards}</div></div>
-<div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>SDK 欄位、識別碼與事件訊號</p></div></div><div class="result-grid">{signal_cards}</div></div></section>'''
+<div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>{_bi("SDK fields, identifiers, and event signals", "SDK 欄位、識別碼與事件訊號")}</p></div></div><div class="result-grid">{signal_cards}</div></div></section>'''
 
 
 def _catalog_cell(spec):
     if not spec.get("applicable", False):
         return f'<div class="na"><b>N/A</b><p>{html.escape(str(spec.get("expected", "")))}</p></div>'
-    return f'''<div class="platform-spec"><b>Setup</b><p>{html.escape(str(spec.get("setup", "—")))}</p>
-<b>Expected</b><p>{html.escape(str(spec.get("expected", "—")))}</p>
+    return f'''<div class="platform-spec"><b>{_bi("Setup", "設定")}</b><p>{html.escape(str(spec.get("setup", "—")))}</p>
+<b>{_bi("Expected", "預期")}</b><p>{html.escape(str(spec.get("expected", "—")))}</p>
 <b>Evidence</b><p>{html.escape(str(spec.get("evidence", "—")))}</p></div>'''
 
 
@@ -459,15 +550,17 @@ def _catalog_table(catalog, catalog_by_key):
         key_line = f'<code class="catalog-key">{html.escape(key)}</code>' if label != key else ""
         rows.append(f'''<tr><td><span class="draft">{html.escape(str(tc.get("status", "DRAFT")))}</span>
 <strong class="catalog-id">{html.escape(label)}</strong>{key_line}<small>{html.escape(str(tc.get("round", "")))}</small></td>
-<td><b>{html.escape(str(tc.get("title", "")))}</b><p>{html.escape(str(tc.get("layer", "Signal")))} · {html.escape(str(tc.get("category", "")))}</p>
+<td><b>{_bi(str(tc.get("title", "")), TC_TITLES_ZH.get(key, str(tc.get("title", ""))))}</b><p>{html.escape(str(tc.get("layer", "Signal")))} · {html.escape(str(tc.get("category", "")))}</p>
 <code>{html.escape(str(tc.get("field", "")))}</code><span class="priority">{html.escape(str(tc.get("priority", "")))}</span></td>
 <td>{_catalog_cell(tc.get("aos", {}))}</td><td>{_catalog_cell(tc.get("ios", {}))}</td></tr>''')
-    body = "".join(rows) or '<tr><td colspan="4" class="empty">尚未定義 TestCase。</td></tr>'
-    return f'''<div class="table-wrap"><table><thead><tr><th>TestCase</th><th>目的／欄位</th><th>AOS</th><th>iOS</th></tr></thead><tbody>{body}</tbody></table></div>'''
+    body = "".join(rows) or f'<tr><td colspan="4" class="empty">{_bi("No TestCase is defined.", "尚未定義 TestCase。")}</td></tr>'
+    return f'''<div class="table-wrap"><table><thead><tr><th>TestCase</th><th>{_bi("Purpose / field", "目的／欄位")}</th><th>AOS</th><th>iOS</th></tr></thead><tbody>{body}</tbody></table></div>'''
 
 
 CSS = r"""
 :root{--bg:#eef1f4;--panel:#fff;--panel2:#f6f8fa;--ink:#131a21;--soft:#516069;--faint:#7d8b94;--line:#dbe2e8;--accent:#0e7c86;--accent2:#e2eff1;--aos:#2e9e5b;--ios:#3a6ea5;--pass:#2f7d3a;--fail:#c0392b;--block:#b5761a;--shadow:0 1px 2px #131a210f,0 8px 24px #131a210f;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif}
+:root[data-lang=en] .lang-zh,:root[data-lang=zh] .lang-en{display:none!important}.language{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 10px;border-radius:8px;cursor:pointer;font:750 11px var(--mono)}
+.type-card h3,.type-card p,.type-card .total,.type-card .layer-row,.type-card .open{font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}.type-card .lang-en,.type-card .lang-zh{font-size:inherit;line-height:inherit;font-weight:inherit;letter-spacing:inherit}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1216;--panel:#151d23;--panel2:#111820;--ink:#e7edf1;--soft:#a6b6c1;--faint:#71828d;--line:#243039;--accent:#38bdc9;--accent2:#123037;--aos:#4cc57d;--ios:#6ba6dd;--pass:#5cc46a;--fail:#f0766a;--block:#e0a94a;--shadow:0 10px 30px #0006}}
 :root[data-theme=dark]{--bg:#0d1216;--panel:#151d23;--panel2:#111820;--ink:#e7edf1;--soft:#a6b6c1;--faint:#71828d;--line:#243039;--accent:#38bdc9;--accent2:#123037;--aos:#4cc57d;--ios:#6ba6dd;--pass:#5cc46a;--fail:#f0766a;--block:#e0a94a;--shadow:0 10px 30px #0006}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}button,select{font:inherit}.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:10px 18px;background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}.brand{font-weight:800}.brand small{display:block;color:var(--faint);font:10px var(--mono)}.main-nav{display:flex;gap:4px}.main-nav button,.seg button,.back,.theme{border:1px solid transparent;background:transparent;color:var(--soft);padding:7px 12px;border-radius:8px;cursor:pointer}.main-nav button.on,.seg button.on{background:var(--accent2);color:var(--accent);font-weight:750}.theme{margin-left:auto;border-color:var(--line)}main{max-width:1180px;margin:auto;padding:25px 20px 50px}.hero h1{margin:0;font-size:23px}.hero p{color:var(--soft)}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}.seg{display:flex;gap:3px;padding:3px;background:var(--panel);border:1px solid var(--line);border-radius:11px}.seg.platform button[data-value=aos].on{color:var(--aos)}.seg.platform button[data-value=ios].on{color:var(--ios)}.type-grid,.result-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:15px}.type-card{background:var(--panel);color:inherit;text-align:left;border:1px solid var(--line);border-radius:14px;padding:17px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}.type-card:hover{transform:translateY(-2px);border-color:var(--accent)}.type-card>div:first-child,.result-head,footer{display:flex;justify-content:space-between;gap:10px}.type-id,.tc-id,.crumb{font:700 11px var(--mono);color:var(--accent)}.total{color:var(--faint);font-size:11px}.type-card h3{margin:8px 0 2px;font-size:18px}.type-card p{color:var(--soft);min-height:40px}.counts{display:flex;gap:10px;font-size:10px}.pass-text{color:var(--pass)}.failed-text{color:var(--fail)}.blocked-text{color:var(--block)}.open{display:block;color:var(--accent);margin-top:15px;font-size:12px}.detail-bar{display:flex;align-items:center;gap:15px;margin-bottom:18px}.detail-bar h2{margin:2px 0}.back{border-color:var(--line);background:var(--panel)}.result-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px;box-shadow:var(--shadow)}.result-head>div{display:flex;flex-direction:column}.status{font:750 11px var(--mono);padding:4px 9px;border-radius:999px;height:max-content}.status.pass{color:var(--pass);background:#2f7d3a20}.status.failed{color:var(--fail);background:#c0392b20}.status.blocked{color:var(--block);background:#b5761a20}.context{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.context span{background:var(--panel2);padding:4px 7px;border-radius:6px;font-size:11px}.answers{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answers label,.platform-spec>b{font-size:10px;color:var(--faint);text-transform:uppercase}.answers pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel2);padding:9px;border-radius:7px;min-height:50px;font:12px var(--mono)}footer{color:var(--faint);font-size:11px}a{color:var(--accent)}.missing{color:var(--fail);text-decoration:line-through}.empty{padding:45px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:13px;color:var(--soft)}.catalog-head{display:flex;justify-content:space-between;align-items:end;gap:20px}.catalog-head p{color:var(--soft)}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}table{border-collapse:collapse;width:100%;min-width:980px}th,td{text-align:left;vertical-align:top;padding:14px;border-bottom:1px solid var(--line)}th{position:sticky;top:0;background:var(--panel2);font-size:11px;color:var(--faint);text-transform:uppercase}td:first-child{width:120px}.catalog-id{display:block;font:750 13px var(--mono);margin:7px 0}.draft,.priority{display:inline-block;padding:2px 6px;border-radius:5px;background:var(--accent2);color:var(--accent);font:700 9px var(--mono)}td code{color:var(--accent)}.priority{margin-left:7px}.platform-spec p,.na p{margin:3px 0 10px;color:var(--soft);min-width:250px}.na{color:var(--faint)}.meta{color:var(--faint);font-size:11px;margin-top:20px}[hidden]{display:none!important}@media(max-width:650px){main{padding:18px 12px}.top{flex-wrap:wrap}.main-nav{order:3;width:100%}.answers{grid-template-columns:1fr}}
@@ -487,8 +580,11 @@ SCRIPT = r"""
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
  var overrideStorageKey="laf2-manual-overrides-v1",overrides={};
  try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
+ try{root.dataset.lang=localStorage.getItem("laf2-language")||"zh"}catch(e){root.dataset.lang="zh"}
  try{overrides=JSON.parse(localStorage.getItem(overrideStorageKey)||"{}")||{}}catch(e){overrides={}}
  document.getElementById("theme").onclick=function(){var dark=root.dataset.theme==="dark";root.dataset.theme=dark?"light":"dark";try{localStorage.setItem("laf2-theme",root.dataset.theme)}catch(e){}};
+ function applyLanguage(){var zh=root.dataset.lang==="zh",button=document.getElementById("language");button.textContent=zh?"EN":"中文";button.title=zh?"Switch to English":"切換為中文";document.documentElement.lang=zh?"zh-Hant":"en";document.querySelectorAll(".type-card").forEach(function(card){var count=card.querySelectorAll(".result-card").length||Number((card.querySelector(".total")||{}).dataset&&card.querySelector(".total").dataset.resultCount)||0,total=card.querySelector(".total");if(total)total.textContent=count+(zh?" 筆結果":" results")})}
+ document.getElementById("language").onclick=function(){root.dataset.lang=root.dataset.lang==="zh"?"en":"zh";try{localStorage.setItem("laf2-language",root.dataset.lang)}catch(e){}applyLanguage()};
  function persistOverrides(){try{localStorage.setItem(overrideStorageKey,JSON.stringify(overrides));return true}catch(e){alert("無法儲存 manual override："+e);return false}}
  function applyManualOverride(card){
   var item=overrides[card.dataset.overrideKey],automation=card.dataset.automationStatus,status=item&&item.status?item.status.toLowerCase():automation;
@@ -504,7 +600,7 @@ SCRIPT = r"""
    detail.querySelectorAll("[data-status-filter]").forEach(function(button){var count=counts[button.dataset.statusFilter]||0;button.querySelector("b").textContent=count;button.disabled=count===0});
    applyStatusFilter(detail,detail.dataset.statusFilter||"");
    var typeCard=Array.from(document.querySelectorAll(".type-card")).find(function(card){return card.dataset.slot===detail.dataset.slot});
-   if(typeCard){typeCard.querySelector(".total").textContent=cards.length+" results";["e2e","signal"].forEach(function(layer){var rows=cards.filter(function(card){return card.dataset.layer===layer}),row=typeCard.querySelector('[data-layer-row="'+layer+'"]'),layerCounts={pass:0,failed:0,blocked:0};rows.forEach(function(card){layerCounts[card.dataset.resultStatus]++});row.querySelector(".pass-text").textContent=layerCounts.pass+"✓";row.querySelector(".failed-text").textContent=layerCounts.failed+"✗";row.querySelector(".blocked-text").textContent=layerCounts.blocked+" blocked";row.querySelector("small").textContent=rows.length+" TC"})}
+   if(typeCard){var total=typeCard.querySelector(".total");total.dataset.resultCount=cards.length;total.textContent=cards.length+(root.dataset.lang==="zh"?" 筆結果":" results");["e2e","signal"].forEach(function(layer){var rows=cards.filter(function(card){return card.dataset.layer===layer}),row=typeCard.querySelector('[data-layer-row="'+layer+'"]'),layerCounts={pass:0,failed:0,blocked:0};rows.forEach(function(card){layerCounts[card.dataset.resultStatus]++});row.querySelector(".pass-text").textContent=layerCounts.pass+"✓";row.querySelector(".failed-text").textContent=layerCounts.failed+"✗";row.querySelector(".blocked-text").textContent=layerCounts.blocked+"▲";row.querySelector("small").textContent=rows.length+" TC"})}
   })
  }
  document.querySelectorAll(".main-nav button").forEach(function(b){b.onclick=function(){activePage=b.dataset.page;document.querySelectorAll(".main-nav button").forEach(function(x){x.classList.toggle("on",x===b)});document.querySelectorAll(".app-page").forEach(function(p){p.hidden=p.id!==activePage+"-page"});if(activePage==="reports")showOverview()}});
@@ -527,7 +623,7 @@ SCRIPT = r"""
  function closeLightbox(){lightbox.hidden=true;lightboxImage.removeAttribute("src");document.body.style.overflow=""}
  document.querySelectorAll(".evidence-zoom").forEach(function(button){button.onclick=function(){var source=button.querySelector("img");lightboxImage.src=source.src;lightboxImage.alt=source.alt;lightboxCaption.textContent=source.alt;lightbox.hidden=false;document.body.style.overflow="hidden"}});
  lightbox.onclick=function(e){if(e.target===lightbox||e.target===lightboxImage)closeLightbox()};lightbox.querySelector("button").onclick=closeLightbox;
- addEventListener("keydown",function(e){if(e.key==="Escape"){if(!lightbox.hidden)closeLightbox();else showOverview()}});update();
+ addEventListener("keydown",function(e){if(e.key==="Escape"){if(!lightbox.hidden)closeLightbox();else showOverview()}});applyLanguage();update();
 })();
 """
 
@@ -544,14 +640,14 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
     counts = Counter(row["status"] for row in verdicts)
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
     roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
-    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
-<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">Round Reports</button><button data-page="catalog">TestCase Catalog</button></nav><button class="export-overrides" id="export-overrides">Export overrides</button><button class="theme" id="theme">◐</button></header>
-<main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>Round Reports</h1><p>一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。</p></div>
+    return f'''<!doctype html><html lang="zh-Hant" data-lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
+<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">{_bi("Round Reports", "輪次報告")}</button><button data-page="catalog">{_bi("TestCase Catalog", "TestCase 目錄")}</button></nav><button class="export-overrides" id="export-overrides">{_bi("Export overrides", "匯出人工覆寫")}</button><button class="language" id="language">EN</button><button class="theme" id="theme">◐</button></header>
+<main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>{_bi("Round Reports", "輪次報告")}</h1><p>{_bi("Each Round contains Signal and E2E results. Select a platform and integration mode, then open AIBID, REEN Static, or REEN Dynamic.", "一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。")}</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid">{"".join(cards)}</div></div>{"".join(details)}</section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>TestCase Catalog</h1><p>整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</p></div><b>{len(catalog)} TestCases</b></div>{_catalog_table(catalog, catalog_by_key)}</section>
-<p class="meta">Results: {len(verdicts)} · PASS {counts[Status.PASS.value]} · FAILED {counts[Status.FAILED.value]} · BLOCKED {counts[Status.BLOCKED.value]}<br>Raw captures: {len(captures)} · Verdict files: {len(verdict_files)} · Generated: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main>
-<div class="image-lightbox" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Evidence 全圖" hidden><button class="image-lightbox-close" type="button" aria-label="關閉">×</button><img alt=""><p></p></div><script>{SCRIPT}</script></body></html>'''
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>{_bi("TestCase Catalog", "TestCase 目錄")}</h1><p>{_bi("All Signal and E2E TestCases. A Draft is not a test result; only a Verdict can be PASS, FAILED, or BLOCKED.", "整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。")}</p></div><b>{len(catalog)} TestCases</b></div>{_catalog_table(catalog, catalog_by_key)}</section>
+<p class="meta">{_bi("Results", "結果")}: {len(verdicts)} · PASS {counts[Status.PASS.value]} · FAILED {counts[Status.FAILED.value]} · BLOCKED {counts[Status.BLOCKED.value]}<br>{_bi("Raw captures", "原始擷取")}: {len(captures)} · {_bi("Verdict files", "Verdict 檔案")}: {len(verdict_files)} · {_bi("Generated", "產生時間")}: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main>
+<div class="image-lightbox" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Evidence full image" hidden><button class="image-lightbox-close" type="button" aria-label="Close">×</button><img alt=""><p></p></div><script>{SCRIPT}</script></body></html>'''
 
 
 def write_report(output, content):

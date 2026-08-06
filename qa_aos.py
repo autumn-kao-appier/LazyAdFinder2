@@ -36,7 +36,7 @@ from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from evidence_aos import collect as collect_evidence
-from evidence_bundle import finalize_bundle
+from evidence_bundle import decoded_bid, finalize_bundle
 from testcases.android_signal_testcases import ROUND_DEFINITIONS, TC_DEFINITIONS
 from verdict import blocked
 
@@ -53,6 +53,7 @@ FLAG_FILE = Path("/tmp/appier_hit")
 BID_FILE = Path("/tmp/appier_bid.json")
 BID_STATUS_FILE = Path("/tmp/appier_bid_status")
 BID_RESPONSE_FILE = Path("/tmp/appier_bid_response.json")
+BID_TIMING_FILE = Path("/tmp/appier_bid_timing.json")
 IMPRESSION_FILE = Path("/tmp/appier_impression.json")
 LOGCAT_FILE = Path("/tmp/appier_aos_logcat.txt")
 DETECTOR_FILES = (
@@ -60,6 +61,7 @@ DETECTOR_FILES = (
     BID_FILE,
     BID_STATUS_FILE,
     BID_RESPONSE_FILE,
+    BID_TIMING_FILE,
     IMPRESSION_FILE,
 )
 
@@ -292,13 +294,22 @@ def observe_bid():
     return request, status, identity, source
 
 
-def wait_for_bid(config):
+def wait_for_bid(config, proxy_only=False):
     deadline = time.monotonic() + config.bid_timeout
     while time.monotonic() < deadline:
-        request, status, identity, source = observe_bid()
+        if proxy_only:
+            request = _read_json(BID_FILE)
+            status = _read_text(BID_STATUS_FILE) or None
+            identity = _read_json(IMPRESSION_FILE)
+            source = "proxy" if request is not None else None
+        else:
+            request, status, identity, source = observe_bid()
         if eligible(config, request, status, identity):
             return request, status, identity, source
         time.sleep(0.2)
+    if proxy_only:
+        request = _read_json(BID_FILE)
+        return request, _read_text(BID_STATUS_FILE) or None, _read_json(IMPRESSION_FILE), "proxy" if request is not None else None
     return observe_bid()
 
 
@@ -361,12 +372,113 @@ def save_evidence(driver, config, folder, started_at, request, status, identity,
     )
 
 
-def capture(config, capture_name="MANUAL", setup=None):
+def _app_pid(config):
+    return adb(config.udid, "shell", "pidof", config.app_package, check=False).strip() or None
+
+
+def _return_to_placement(driver, config):
+    driver.back()
+    time.sleep(1)
+    if find_visible_text(driver, config.trigger_text) is None:
+        driver.activate_app(config.app_package)
+        time.sleep(1)
+    if find_visible_text(driver, config.trigger_text) is None:
+        select_tab(driver, config.tab_text, config.trigger_text)
+
+
+def _sequence_request(driver, config, folder, number, label):
+    clear_detector_state()
+    if not tap_placement(driver, config):
+        raise CaptureError(f"R3 {label}: cannot tap {config.trigger_text!r}")
+    request, status, identity, source = wait_for_bid(config, proxy_only=True)
+    if not eligible(config, request, status, identity):
+        raise CaptureError(f"R3 {label}: no eligible bid/impression")
+    decoded = decoded_bid(request)
+    user = decoded.get("ext", {}).get("plaintext", {}).get("user", {})
+    value = user.get("session_duration") if isinstance(user, dict) else None
+    app_init_time = user.get("app_init_time") if isinstance(user, dict) else None
+    prefix = f"{number:02d}-{label}"
+    (folder / f"{prefix}-bid-raw.json").write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n")
+    (folder / f"{prefix}-bid-decoded.json").write_text(json.dumps(decoded, ensure_ascii=False, indent=2) + "\n")
+    driver.get_screenshot_as_file(str(folder / f"{prefix}.png"))
+    return {
+        "step": number,
+        "label": label,
+        "session_duration": value,
+        "app_init_time": app_init_time,
+        "captured_epoch_ms": round(time.time() * 1000),
+        "pid": _app_pid(config),
+        "http_status": status,
+        "cid": identity.get("cid") if identity else None,
+        "request_file": f"{prefix}-bid-raw.json",
+        "decoded_file": f"{prefix}-bid-decoded.json",
+        "screenshot": f"{prefix}.png",
+    }, request, status, identity, source
+
+
+def _capture_session_duration_sequence(driver, config, folder, started_at):
+    steps = []
+    last = (None, None, None, None)
+
+    step, *last = _sequence_request(driver, config, folder, 1, "cold-start")
+    steps.append(step)
+    time.sleep(2)
+    _return_to_placement(driver, config)
+
+    step, *last = _sequence_request(driver, config, folder, 2, "continuous")
+    steps.append(step)
+    _return_to_placement(driver, config)
+    pid_before_background = _app_pid(config)
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_HOME")
+    time.sleep(3)
+    if _app_pid(config) != pid_before_background:
+        raise CaptureError("R3 background: App process did not remain alive")
+    driver.activate_app(config.app_package)
+    time.sleep(1)
+    if find_visible_text(driver, config.trigger_text) is None:
+        select_tab(driver, config.tab_text, config.trigger_text)
+
+    step, *last = _sequence_request(driver, config, folder, 3, "after-background")
+    steps.append(step)
+    _return_to_placement(driver, config)
+    terminated_pid = _app_pid(config)
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_HOME")
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_APP_SWITCH")
+    time.sleep(1)
+    size = driver.get_window_size()
+    driver.swipe(size["width"] // 2, int(size["height"] * 0.75), size["width"] // 2, int(size["height"] * 0.12), 700)
+    time.sleep(2)
+    terminated_pid_confirmed = _app_pid(config) is None
+    if not terminated_pid_confirmed:
+        raise CaptureError("R3 termination: swiping the App from Recents did not stop its process")
+    relaunch_requested_epoch_ms = round(time.time() * 1000)
+    driver.activate_app(config.app_package)
+    time.sleep(2)
+    select_tab(driver, config.tab_text, config.trigger_text)
+
+    step, *last = _sequence_request(driver, config, folder, 4, "after-termination")
+    steps.append(step)
+    document = {
+        "strategy": "four-request session-duration sequence",
+        "terminated_pid": terminated_pid,
+        "terminated_pid_confirmed": terminated_pid_confirmed,
+        "relaunch_requested_epoch_ms": relaunch_requested_epoch_ms,
+        "steps": steps,
+    }
+    (folder / "session-duration-sequence.json").write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+    request, status, identity, source = last
+    save_evidence(driver, config, folder, started_at, request, status, identity, source)
+    return folder
+
+
+def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="standard"):
     started_at = datetime.now().astimezone().isoformat()
     folder = create_capture_folder(config, capture_name)
     clear_detector_state()
     driver = None
     request = status = identity = source = None
+    warmup_timing = warmup_impression = None
+    completed_warmups = 0
     failed_step = "setup"
     started = time.monotonic()
     try:
@@ -381,6 +493,12 @@ def capture(config, capture_name="MANUAL", setup=None):
             time.sleep(1)
             failed_step = "select-placement"
             select_tab(driver, config.tab_text, config.trigger_text)
+
+            if strategy == "session-duration":
+                failed_step = "session-duration-sequence"
+                result = _capture_session_duration_sequence(driver, config, folder, started_at)
+                print(f"[captured] {result}")
+                return result
 
             attempt = 0
             while True:
@@ -402,11 +520,32 @@ def capture(config, capture_name="MANUAL", setup=None):
                     time.sleep(config.retry_delay)
                     continue
 
-                request, status, identity, source = wait_for_bid(config)
+                request, status, identity, source = wait_for_bid(config, proxy_only=completed_warmups > 0)
                 if eligible(config, request, status, identity):
+                    if completed_warmups < warmup_ads:
+                        if not identity:
+                            print("[warmup] bid received without a confirmed impression; retrying")
+                            time.sleep(config.retry_delay)
+                            continue
+                        warmup_timing = _read_json(BID_TIMING_FILE)
+                        warmup_impression = identity
+                        if not warmup_timing:
+                            raise CaptureError("Warmup ad has no proxy request/response timing evidence")
+                        completed_warmups += 1
+                        print(f"[warmup] confirmed ad {completed_warmups}/{warmup_ads}; continuing in the same app session")
+                        time.sleep(config.retry_delay)
+                        continue
                     save_evidence(
                         driver, config, folder, started_at, request, status, identity, source
                     )
+                    if warmup_timing is not None:
+                        (folder / "previous-bid-timing.json").write_text(
+                            json.dumps(warmup_timing, ensure_ascii=False, indent=2) + "\n"
+                        )
+                    if warmup_impression is not None:
+                        (folder / "previous-impression.json").write_text(
+                            json.dumps(warmup_impression, ensure_ascii=False, indent=2) + "\n"
+                        )
                     print(f"[captured] {folder}")
                     return folder
 
@@ -466,6 +605,8 @@ def run_round(config, name):
                 config,
                 capture_name=round_definition.capture_name,
                 setup=setup,
+                warmup_ads=round_definition.warmup_ads,
+                strategy=round_definition.strategy,
             ),
         )
         phase = "TestCase validation"

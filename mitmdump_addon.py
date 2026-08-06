@@ -24,6 +24,7 @@ FLAG_FILE = "/tmp/appier_hit"
 BID_FILE = "/tmp/appier_bid.json"
 BID_STATUS_FILE = "/tmp/appier_bid_status"
 BID_RESPONSE_FILE = "/tmp/appier_bid_response.json"
+BID_TIMING_FILE = "/tmp/appier_bid_timing.json"
 IMPRESSION_FILE = "/tmp/appier_impression.json"
 BID_HOST_SUFFIX = "apx.appier.net"
 BID_PATHS = ("/v2/sdk/aos/ad", "/v2/sdk/ios/ad")
@@ -123,6 +124,15 @@ class AppierDetector:
         if not _is_bid(flow) or flow.response is None:
             return
         status = flow.response.status_code
+        started = flow.request.timestamp_start
+        finished = flow.response.timestamp_end or flow.response.timestamp_start
+        with open(BID_TIMING_FILE, "w") as f:
+            _json.dump({
+                "request_started_epoch_ms": round(started * 1000),
+                "response_finished_epoch_ms": round(finished * 1000),
+                "duration_ms": round((finished - started) * 1000),
+                "http_status": status,
+            }, f, indent=2)
         with open(BID_STATUS_FILE, "w") as f:
             f.write(str(status))
         if status == 200 and flow.response.content:
