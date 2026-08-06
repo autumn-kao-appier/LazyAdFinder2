@@ -25,6 +25,7 @@ import getpass
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -38,8 +39,10 @@ from appium.webdriver.common.appiumby import AppiumBy
 from evidence_aos import collect as collect_evidence
 from evidence_bundle import decoded_bid, finalize_bundle
 from testcases.android_signal_testcases import ROUND_DEFINITIONS, TC_DEFINITIONS
-from testcases.e2e.android_standalone_e2e import TESTCASES as STANDALONE_E2E_TESTCASES
-from testcases.e2e.android_standalone_e2e import validate_bundle as validate_standalone_e2e
+from testcases.e2e.android_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
+from testcases.e2e.android_e2e_baseline import validate_bundle as validate_baseline_e2e
+from testcases.e2e.android_admob_mediation_extensions import TESTCASES as ADMOB_E2E_EXTENSIONS
+from testcases.e2e.android_admob_mediation_extensions import validate_bundle as validate_admob_extensions
 from verdict import blocked
 
 
@@ -243,6 +246,94 @@ def tap_placement(driver, config):
         return False
     element.click()
     return True
+
+
+def _visible_url(driver):
+    for resource_id in (
+        "com.android.chrome:id/url_bar",
+        "com.google.android.webview:id/url_bar",
+    ):
+        for element in driver.find_elements(AppiumBy.ID, resource_id):
+            value = element.get_attribute("text") or element.get_attribute("content-desc")
+            if value:
+                return value
+    return ""
+
+
+def _screen_state(driver):
+    return {
+        "package": driver.current_package,
+        "activity": driver.current_activity,
+        "url": _visible_url(driver),
+    }
+
+
+def _capture_e2e_interactions(driver, config, folder):
+    """Exercise Privacy first, then CTA, preserving human-readable evidence."""
+    folder = Path(folder)
+    result = {
+        "sequence": ["rendered-ad", "privacy", "return-to-ad", "click", "landing"],
+        "privacy": {"attempted": False, "opened": False},
+        "click": {"attempted": False, "opened": False},
+        "errors": [],
+    }
+    recording_path = "/sdcard/laf2-e2e-interactions.mp4"
+    recorder = subprocess.Popen(
+        _adb_command(config.udid, "shell", "screenrecord", "--time-limit", "120", recording_path),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        driver.save_screenshot(str(folder / "ad-before-interactions.png"))
+        privacy = driver.find_element(
+            AppiumBy.ID,
+            f"{config.app_package}:id/native_privacy_information_icon_image",
+        )
+        result["privacy"]["attempted"] = True
+        privacy.click()
+        time.sleep(4)
+        result["privacy"]["destination"] = _screen_state(driver)
+        result["privacy"]["opened"] = driver.current_package != config.app_package
+        driver.save_screenshot(str(folder / "privacy-landing.png"))
+
+        driver.back()
+        time.sleep(2)
+        result["returned_to_ad"] = driver.current_package == config.app_package
+        driver.save_screenshot(str(folder / "ad-before-click.png"))
+
+        cta = driver.find_element(
+            AppiumBy.ID,
+            f"{config.app_package}:id/native_cta",
+        )
+        result["click"]["attempted"] = True
+        cta.click()
+        time.sleep(5)
+        result["click"]["destination"] = _screen_state(driver)
+        result["click"]["opened"] = driver.current_package != config.app_package
+        driver.save_screenshot(str(folder / "click-landing.png"))
+        time.sleep(2)
+    except Exception as exc:
+        result["errors"].append(f"{type(exc).__name__}: {exc}")
+        try:
+            result["failure_state"] = _screen_state(driver)
+            driver.save_screenshot(str(folder / "interaction-failure.png"))
+        except Exception as evidence_exc:
+            result["errors"].append(f"evidence: {type(evidence_exc).__name__}: {evidence_exc}")
+    finally:
+        recorder.terminate()
+        try:
+            recorder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+            recorder.wait()
+        adb(config.udid, "pull", recording_path, str(folder / "e2e-interactions.mp4"), check=False)
+        adb(config.udid, "shell", "rm", recording_path, check=False)
+        if EVENTS_FILE.is_file():
+            shutil.copyfile(EVENTS_FILE, folder / "proxy-events.jsonl")
+        (folder / "e2e-interactions.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        )
+    return result
 
 
 AD_REQUEST_RE = re.compile(
@@ -475,7 +566,7 @@ def _capture_session_duration_sequence(driver, config, folder, started_at):
     return folder
 
 
-def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="standard"):
+def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="standard", settle_delay=0):
     started_at = datetime.now().astimezone().isoformat()
     folder = create_capture_folder(config, capture_name)
     clear_detector_state()
@@ -536,9 +627,15 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                         print(f"[warmup] confirmed ad {completed_warmups}/{warmup_ads}; continuing in the same app session")
                         time.sleep(config.retry_delay)
                         continue
+                    if settle_delay:
+                        print(f"[capture] waiting {settle_delay:g}s for trailing E2E events")
+                        time.sleep(settle_delay)
                     save_evidence(
                         driver, config, folder, started_at, request, status, identity, source
                     )
+                    if strategy == "e2e":
+                        print("[e2e] privacy → return → click → landing")
+                        _capture_e2e_interactions(driver, config, folder)
                     if warmup_impression is not None:
                         (folder / "previous-impression.json").write_text(
                             json.dumps(warmup_impression, ensure_ascii=False, indent=2) + "\n"
@@ -587,9 +684,22 @@ def run_round(config, name):
         folder = collect_evidence(
             config,
             ("bid",),
-            lambda setup: capture(config, capture_name="E2E-STANDALONE", setup=setup),
+            lambda setup: capture(config, capture_name="E2E-STANDALONE", setup=setup, settle_delay=2, strategy="e2e"),
         )
-        rows = validate_standalone_e2e(folder)
+        rows = validate_baseline_e2e(folder)
+        (folder / "verdicts.json").write_text(
+            json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+        )
+        return [folder]
+    if name == "E2E-ADMOB":
+        if config.test_mode != "admob-mediation":
+            raise CaptureError("E2E-ADMOB requires TEST_MODE=admob-mediation")
+        folder = collect_evidence(
+            config,
+            ("bid",),
+            lambda setup: capture(config, capture_name="E2E-ADMOB", setup=setup, settle_delay=2, strategy="e2e"),
+        )
+        rows = validate_baseline_e2e(folder) + validate_admob_extensions(folder)
         (folder / "verdicts.json").write_text(
             json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
         )
@@ -775,7 +885,8 @@ def main(argv=None):
         for name, definition in sorted(ROUND_DEFINITIONS.items()):
             tc_ids = ", ".join(definition.testcase_keys)
             print(f"{name}: {definition.capture_name} [{tc_ids}]")
-        print("E2E-STANDALONE: E2E-STANDALONE [" + ", ".join(STANDALONE_E2E_TESTCASES) + "]")
+        print("E2E-STANDALONE: S baseline [" + ", ".join(BASELINE_E2E_TESTCASES) + "]")
+        print("E2E-ADMOB: S baseline + M extensions [" + ", ".join(ADMOB_E2E_EXTENSIONS) + "]")
         return 0
 
     config = config_from_args(args)

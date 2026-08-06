@@ -1,4 +1,4 @@
-"""iOS Appier Standalone E2E definitions."""
+"""iOS E2E S baseline shared by Standalone and Mediation."""
 
 from .e2e_shared_contracts import E2ETestCase, definitions
 

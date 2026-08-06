@@ -67,6 +67,7 @@ def _append_event(flow, phase):
     if kind is None:
         return
     row = {
+        "flow_id": flow.id,
         "timestamp": _timestamp(),
         "phase": phase,
         "kind": kind,

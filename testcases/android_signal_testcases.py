@@ -622,9 +622,16 @@ def validate_default_language_iso(folder):
 
 
 def validate_default_language_bcp47(folder):
-    info = _context_info(folder); actual = info["actual"]; expected = info["langb"]
-    failures = [name for name in ("req_langb", "langb") if actual.get(name) != expected]
-    return _verdict("default-language-bcp47", "Default Language (BCP 47)", "Language tag matches Android locale.", {"langb": expected}, actual, "langb-evidence.png", [f"{', '.join(failures)} do not match Android locale tag"] if failures else [])
+    row = blocked(
+        "default-language-bcp47",
+        "Sample App limitation: process Locale.getDefault().toLanguageTag() is not exposed; persist.sys.locale is only supporting context and cannot be the expected answer",
+    ).to_dict()
+    row.update({
+        "layer": "Signal",
+        "title": "Default Language (BCP 47)",
+        "description": "req/ext device.langb must match the Sample App process BCP 47 language tag.",
+    })
+    return row
 
 
 def _validate_context_exact(folder, key, title, expected_key, actual_names, evidence):
