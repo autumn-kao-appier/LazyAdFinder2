@@ -920,7 +920,7 @@
 
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Bid → Render → Impression → Click → Landing</p></div></div><div class="result-grid"><div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div></div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p><span class="lang-en">SDK fields, identifiers, and event signals</span><span class="lang-zh">SDK 欄位、識別碼與事件訊號</span></p></div></div><div class="result-grid"><div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div></div></div></section></section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1><span class="lang-en">TestCase Catalog</span><span class="lang-zh">TestCase 目錄</span></h1><p><span class="lang-en">All Signal and E2E TestCases. A Draft is not a test result; only a Verdict can be PASS, FAILED, or BLOCKED.</span><span class="lang-zh">整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</span></p></div><b>52 TestCases</b></div><div class="table-wrap"><table><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1><span class="lang-en">TestCase Catalog</span><span class="lang-zh">TestCase 目錄</span></h1><p><span class="lang-en">All Signal and E2E TestCases. A Draft is not a test result; only a Verdict can be PASS, FAILED, or BLOCKED.</span><span class="lang-zh">整理 Signal 與 E2E 的全部 TC；Draft 不是測試結果，只有 Verdict 才會是 PASS／FAILED／BLOCKED。</span></p></div><b>71 TestCases</b></div><div class="table-wrap"><table><thead><tr><th>TestCase</th><th><span class="lang-en">Purpose / field</span><span class="lang-zh">目的／欄位</span></th><th>AOS</th><th>iOS</th></tr></thead><tbody><tr><td><span class="draft">IMPLEMENTED</span>
 <strong class="catalog-id">advertising-id</strong><small>R1</small></td>
 <td><b><span class="lang-en">Advertising ID (GAID)</span><span class="lang-zh">廣告識別碼（GAID）</span></b><p>Signal · A. Core Identifiers</p>
 <code>device.ia</code><span class="priority">P0</span></td>
@@ -1250,8 +1250,160 @@
 <code>compliance.coppa_applies</code><span class="priority">P2</span></td>
 <td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>免設定；Sample App 已呼叫 Appier.setCoppaApplies(true)，沿用 R1 capture。</p>
 <b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>req compliance.coppa_applies 必須存在、型別為整數且等於 1。</p>
-<b>Evidence</b><p>Sample App AppierAdHelper.java、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS COPPA 需對照 iOS Sample App 設定。</p></div></td></tr></tbody></table></div></section>
-<p class="meta"><span class="lang-en">Results</span><span class="lang-zh">結果</span>: 46 · PASS 33 · FAILED 1 · BLOCKED 12<br><span class="lang-en">Raw captures</span><span class="lang-zh">原始擷取</span>: 18 · <span class="lang-en">Verdict files</span><span class="lang-zh">Verdict 檔案</span>: 15 · <span class="lang-en">Generated</span><span class="lang-zh">產生時間</span>: 2026-08-06T11:29:27+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main>
+<b>Evidence</b><p>Sample App AppierAdHelper.java、bid_decoded.json、verdicts.json</p></div></td><td><div class="na"><b>N/A</b><p>iOS COPPA 需對照 iOS Sample App 設定。</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S01</strong><code class="catalog-key">standalone-sdk-init</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">SDK Initialization</span><span class="lang-zh">SDK 初始化</span></b><p>E2E · A. Ad Serving</p>
+<code>platform init endpoint</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動 Android Sample App 並保存完整 proxy session。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Android init endpoint、bundle、SDK version 與 HTTP response 均正確；endpoint 由 AOS Code/實機封包確認。</p>
+<b>Evidence</b><p>serving video、init request/response、traffic session</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動 iOS Sample App；ATT 與 HTTPS proxy 前置完成。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>GET /v1/sdk/ios/init 成功，bundle 與 SDK version 正確，response 可用。</p>
+<b>Evidence</b><p>serving video、init request/response、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S02</strong><code class="catalog-key">standalone-appier-ad-request</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Appier Direct Ad Request</span><span class="lang-zh">Appier 直接廣告請求</span></b><p>E2E · A. Ad Serving</p>
+<code>Appier ad endpoint</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Standalone 版位直接觸發 Appier ad request。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>HTTP 成功；CID/zone、package、SDK version 正確；response ad payload 完整。</p>
+<b>Evidence</b><p>ad request/response、decoded payload、traffic screenshot</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Standalone 版位直接觸發 Appier ad request。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>HTTP 成功；CID/zone、bundle、SDK version 正確；response ad payload 完整。</p>
+<b>Evidence</b><p>ad request/response、decoded payload、traffic screenshot</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S03</strong><code class="catalog-key">standalone-creative-assets</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Creative Asset Loading</span><span class="lang-zh">廣告素材載入</span></b><p>E2E · A. Ad Serving</p>
+<code>icon/main/privacy asset URLs</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>取得有素材的 Appier response 並等待畫面完成載入。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>所有實際使用的素材 request HTTP 200、MIME 正確且畫面無破圖。</p>
+<b>Evidence</b><p>asset requests、render screenshot、serving video</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>取得有素材的 Appier response 並等待畫面完成載入。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>所有實際使用的素材 request HTTP 200、MIME 正確且畫面無破圖。</p>
+<b>Evidence</b><p>asset requests、render screenshot、serving video</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S04</strong><code class="catalog-key">standalone-native-render</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Native Ad Rendering</span><span class="lang-zh">原生廣告渲染</span></b><p>E2E · A. Ad Serving</p>
+<code>visible native elements</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 Native ad 完整顯示並保存 response 與畫面。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>title/text/CTA/icon/main/privacy 與 response 對應，無破版且有廣告標示。</p>
+<b>Evidence</b><p>render screenshot、serving video、ad response</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 Native ad 完整顯示並保存 response 與畫面。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>title/text/CTA/icon/main/privacy 與 response 對應，無破版且有廣告標示。</p>
+<b>Evidence</b><p>render screenshot、serving video、ad response</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S05</strong><code class="catalog-key">standalone-impression</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Appier Impression Tracking</span><span class="lang-zh">Appier 曝光追蹤</span></b><p>E2E · B. Tracking</p>
+<code>show_cb / winshowimg</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>廣告實際可見後保存 tracker chain 與影片時間軸。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告，且不早於顯示。</p>
+<b>Evidence</b><p>impression chain、interaction video、timeline</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>廣告實際可見後保存 tracker chain 與影片時間軸。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告，且不早於顯示。</p>
+<b>Evidence</b><p>impression chain、interaction video、timeline</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S06</strong><code class="catalog-key">standalone-click</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Appier Click Tracking</span><span class="lang-zh">Appier 點擊追蹤</span></b><p>E2E · B. Tracking</p>
+<code>xclk redirect chain</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認允許真實點擊後點擊廣告。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>xclk 與 redirect chain 完整成功，識別碼對應本次廣告；不要求 AdMob aclk。</p>
+<b>Evidence</b><p>click chain、interaction video、traffic screenshot</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認允許真實點擊後點擊廣告。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>xclk 與 redirect chain 完整成功，識別碼對應本次廣告；不要求 AdMob aclk。</p>
+<b>Evidence</b><p>click chain、interaction video、traffic screenshot</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S07</strong><code class="catalog-key">standalone-landing</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Landing Behavior</span><span class="lang-zh">Landing 跳轉</span></b><p>E2E · B. Tracking</p>
+<code>landing destination</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S06 點擊並追蹤最終 destination。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AIBID 正確開啟 Google Play/指定頁；REEN 依 response 開啟 browser/deeplink，無白頁或 crash。</p>
+<b>Evidence</b><p>landing screenshot、interaction video、redirect chain</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S06 點擊並追蹤最終 destination。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AIBID 正確開啟 App Store store view；REEN 依 response 開啟 browser/deeplink，無白頁或 crash。</p>
+<b>Evidence</b><p>landing screenshot、interaction video、redirect chain</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S08</strong><code class="catalog-key">standalone-privacy</code><small>E2E-STANDALONE</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Privacy Information</span><span class="lang-zh">隱私資訊</span></b><p>E2E · B. Tracking</p>
+<code>privacyInformationLink</code><span class="priority">P2</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Response 有 privacy icon/link 時點擊右上 icon。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>開啟指定 privacy URL，無 TLS error/白頁/crash，且不誤觸一般 ad click。</p>
+<b>Evidence</b><p>privacy video、privacy page screenshot、response</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Response 有 privacy icon/link 時點擊右上 icon。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>開啟指定 privacy URL，無 TLS error/白頁/crash，且不誤觸一般 ad click。</p>
+<b>Evidence</b><p>privacy video、privacy page screenshot、response</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S09</strong><code class="catalog-key">standalone-install-attribution</code><small>E2E-STANDALONE-ATTRIBUTION</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">AIBID Install Attribution</span><span class="lang-zh">AIBID 安裝歸因</span></b><p>E2E · C. Attribution</p>
+<code>install conversion/action</code><span class="priority">P2</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工協調窗口；測試機未安裝 promoted app，點擊、安裝、首次開啟。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>合理窗口內收到 install，且歸因 CID/click/bidobjid 正確。</p>
+<b>Evidence</b><p>install video、click evidence、conversion log</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工協調窗口；測試機未安裝 promoted app 且 ATT 前置完成。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>合理窗口內收到 install，且歸因 CID/click/bidobjid 正確。</p>
+<b>Evidence</b><p>install video、click evidence、conversion log</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-S10</strong><code class="catalog-key">standalone-attribution-reconciliation</code><small>E2E-STANDALONE-ATTRIBUTION</small><small class="catalog-modes">standalone</small></td>
+<td><b><span class="lang-en">Backend Attribution Reconciliation</span><span class="lang-zh">後端歸因對帳</span></b><p>E2E · C. Attribution</p>
+<code>Spark raw_action / MMP</code><span class="priority">P2</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S09 後由內部系統查詢 test CID。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>imp/click/install 與 traffic 識別碼及實際操作一致。</p>
+<b>Evidence</b><p>backend query、traffic timeline、correlation IDs</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 E2E-S09 後由內部系統查詢 test CID。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>imp/click/install 與 traffic 識別碼及實際操作一致。</p>
+<b>Evidence</b><p>backend query、traffic timeline、correlation IDs</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M01</strong><code class="catalog-key">admob-sdk-init</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">SDK Initialization</span><span class="lang-zh">SDK 初始化</span></b><p>E2E · A. Ad Serving</p>
+<code>platform init endpoint</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動含 AdMob Mediation 的 Android Sample App。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier 與 mediation 初始化成功；平台 endpoint/版本正確。</p>
+<b>Evidence</b><p>serving video、init traffic</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>啟動含 AdMob Mediation 的 iOS Sample App。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier 與 mediation 初始化成功；GET /v1/sdk/ios/init 與版本正確。</p>
+<b>Evidence</b><p>serving video、init traffic</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M02</strong><code class="catalog-key">admob-pubsetting</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">AdMob Pubsetting Mediation Config</span><span class="lang-zh">AdMob Mediation 設定</span></b><p>E2E · A. Ad Serving</p>
+<code>getconfig/pubsetting</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>保存 Google pubsetting request/response。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>HTTP/status 正常，mediation config 含 Appier adapter 與對應 zoneId。</p>
+<b>Evidence</b><p>pubsetting request/response、traffic screenshot</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>保存 Google pubsetting request/response。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>HTTP/status 正常，mediation config 含 Appier adapter 與對應 zoneId。</p>
+<b>Evidence</b><p>pubsetting request/response、traffic screenshot</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M03</strong><code class="catalog-key">admob-gma-request</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">AdMob GMA Request and Mediation Routing</span><span class="lang-zh">AdMob GMA 請求與 Mediation 分流</span></b><p>E2E · A. Ad Serving</p>
+<code>mads/gma</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>觸發 AdMob 版位並保存 mads/gma response。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>HTTP 成功且 ad_networks/adapter/zoneId 對應 Appier mediation。</p>
+<b>Evidence</b><p>GMA request/response、traffic session</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>觸發 AdMob 版位並保存 mads/gma response。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>HTTP 成功且 ad_networks/adapter/zoneId 對應 Appier mediation。</p>
+<b>Evidence</b><p>GMA request/response、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M04</strong><code class="catalog-key">admob-appier-ad-request</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">Appier Adapter Ad Request</span><span class="lang-zh">Appier Adapter 廣告請求</span></b><p>E2E · A. Ad Serving</p>
+<code>Appier ad endpoint</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>確認 GMA 觸發 Appier adapter 後保存 Appier request/response。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier request 的 zone/CID 與 pubsetting 一致，response ad payload 完整。</p>
+<b>Evidence</b><p>pubsetting、GMA、Appier request/response timeline</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>確認 GMA 觸發 Appier adapter 後保存 Appier request/response。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier request 的 zone/CID 與 pubsetting 一致，response ad payload 完整。</p>
+<b>Evidence</b><p>pubsetting、GMA、Appier request/response timeline</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M05</strong><code class="catalog-key">admob-creative-render</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">Mediation Creative Assets and Rendering</span><span class="lang-zh">Mediation 素材載入與渲染</span></b><p>E2E · A. Ad Serving</p>
+<code>assets / visible ad</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 AdMob mediation 版位完成素材載入與顯示。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>素材 HTTP 成功，畫面元素與 Appier response 對應且無破版。</p>
+<b>Evidence</b><p>render screenshot、serving video、asset traffic</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>等待 AdMob mediation 版位完成素材載入與顯示。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>素材 HTTP 成功，畫面元素與 Appier response 對應且無破版。</p>
+<b>Evidence</b><p>render screenshot、serving video、asset traffic</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M06</strong><code class="catalog-key">admob-impression</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">AdMob and Appier Impression Tracking</span><span class="lang-zh">AdMob 與 Appier 曝光追蹤</span></b><p>E2E · B. Tracking</p>
+<code>show_cb / winshowimg / imp_urls</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Mediation ad 可見後保存 Appier 與 Google impression events。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier show_cb/winshowimg 與 AdMob imp_urls 均成功且對應同一廣告。</p>
+<b>Evidence</b><p>impression timeline、interaction video、traffic session</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>Mediation ad 可見後保存 Appier 與 Google impression events。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Appier show_cb/winshowimg 與 AdMob imp_urls 均成功且對應同一廣告。</p>
+<b>Evidence</b><p>impression timeline、interaction video、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M07</strong><code class="catalog-key">admob-fill-result</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">Mediation Fill Result</span><span class="lang-zh">Mediation Fill 結果</span></b><p>E2E · B. Tracking</p>
+<code>pagead/interaction fill_urls</code><span class="priority">P2</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 Appier adapter fill 並保存 fill result event。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>fill result 正常送出且 mediation_fill_status 與實際 fill 一致。</p>
+<b>Evidence</b><p>fill event、GMA/Appier timeline</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>完成 Appier adapter fill 並保存 fill result event。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>fill result 正常送出且 mediation_fill_status 與實際 fill 一致。</p>
+<b>Evidence</b><p>fill event、GMA/Appier timeline</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M08</strong><code class="catalog-key">admob-click</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">AdMob and Appier Click Tracking</span><span class="lang-zh">AdMob 與 Appier 點擊追蹤</span></b><p>E2E · B. Tracking</p>
+<code>aclk / xclk</code><span class="priority">P0</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認後點擊 mediation ad。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AdMob aclk、Appier xclk 與 redirect chain 均成功且識別碼一致。</p>
+<b>Evidence</b><p>click timeline、interaction video、traffic session</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>人工確認後點擊 mediation ad。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>AdMob aclk、Appier xclk 與 redirect chain 均成功且識別碼一致。</p>
+<b>Evidence</b><p>click timeline、interaction video、traffic session</p></div></td></tr><tr><td><span class="draft">DRAFT</span>
+<strong class="catalog-id">E2E-M09</strong><code class="catalog-key">admob-landing-privacy</code><small>E2E-ADMOB</small><small class="catalog-modes">admob-mediation</small></td>
+<td><b><span class="lang-en">Mediation Landing and Privacy</span><span class="lang-zh">Mediation Landing 與隱私資訊</span></b><p>E2E · B. Tracking</p>
+<code>landing / privacyInformationLink</code><span class="priority">P1</span></td>
+<td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>分別驗證一般 ad click 與 privacy icon。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Landing 與 privacy URL 各自正確開啟，無白頁/crash 且不互相誤觸。</p>
+<b>Evidence</b><p>landing/privacy video、screenshots、redirect chains</p></div></td><td><div class="platform-spec"><b><span class="lang-en">Setup</span><span class="lang-zh">設定</span></b><p>分別驗證一般 ad click 與 privacy icon。</p>
+<b><span class="lang-en">Expected</span><span class="lang-zh">預期</span></b><p>Landing 與 privacy URL 各自正確開啟，無白頁/crash 且不互相誤觸。</p>
+<b>Evidence</b><p>landing/privacy video、screenshots、redirect chains</p></div></td></tr></tbody></table></div></section>
+<p class="meta"><span class="lang-en">Results</span><span class="lang-zh">結果</span>: 46 · PASS 33 · FAILED 1 · BLOCKED 12<br><span class="lang-en">Raw captures</span><span class="lang-zh">原始擷取</span>: 18 · <span class="lang-en">Verdict files</span><span class="lang-zh">Verdict 檔案</span>: 15 · <span class="lang-en">Generated</span><span class="lang-zh">產生時間</span>: 2026-08-06T11:41:41+08:00<br>Evidence roots: /Users/autumn.kao/LazyAdFinder2/evidence</p></main>
 <div class="image-lightbox" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Evidence full image" hidden><button class="image-lightbox-close" type="button" aria-label="Close">×</button><img alt=""><p></p></div><script>
 (function(){
  var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
