@@ -9,6 +9,13 @@ from pathlib import Path
 from apr_xorenc import decrypt
 
 
+PROXY_ARTIFACTS = {
+    Path("/tmp/appier_bid_response.json"): "bid_response.json",
+    Path("/tmp/appier_impression.json"): "impression.json",
+    Path("/tmp/appier_proxy_events.jsonl"): "proxy-events.jsonl",
+}
+
+
 def _json_or_text(plaintext):
     try:
         return json.loads(plaintext)
@@ -69,6 +76,10 @@ def finalize_bundle(
         (folder / "bid_decoded.json").write_text(
             json.dumps(decoded_bid(request), ensure_ascii=False, indent=2) + "\n"
         )
+
+    for source_path, filename in PROXY_ARTIFACTS.items():
+        if source_path.is_file():
+            shutil.copy2(source_path, folder / filename)
 
     screenshot_error = None
     if driver is not None:

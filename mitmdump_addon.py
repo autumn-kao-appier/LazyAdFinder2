@@ -16,6 +16,7 @@ Bid endpoints:
 
 import gzip
 import json as _json
+from datetime import datetime, timezone
 import zlib
 from urllib.parse import parse_qs, urlsplit
 from mitmproxy import ctx, http
@@ -24,15 +25,63 @@ FLAG_FILE = "/tmp/appier_hit"
 BID_FILE = "/tmp/appier_bid.json"
 BID_STATUS_FILE = "/tmp/appier_bid_status"
 BID_RESPONSE_FILE = "/tmp/appier_bid_response.json"
-BID_TIMING_FILE = "/tmp/appier_bid_timing.json"
 IMPRESSION_FILE = "/tmp/appier_impression.json"
+EVENTS_FILE = "/tmp/appier_proxy_events.jsonl"
 BID_HOST_SUFFIX = "apx.appier.net"
 BID_PATHS = ("/v2/sdk/aos/ad", "/v2/sdk/ios/ad")
 # 「已展示」callback（非 bid 端點，未被 cert pinning 排除，明碼 GET）：
 # 2026-07-20 實機觀察到 iOS standalone/mediation 中獎後都會打這支，帶 cid/crid/
 # crpid/bidobjid/idfa 等識別碼在 query string——bid 端點本身因 pinning 看不到內容時，
 # 這是唯一能拿到「這輪確實中獎、中的是哪個 creative」證據的地方。
-IMPRESSION_HOST_PATH = ("apn.c.appier.net", "/callback/show_cb")
+IMPRESSION_PATH = "/callback/show_cb"
+
+
+def _timestamp():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _event_kind(flow):
+    host = flow.request.host.lower()
+    path = flow.request.path.lower()
+    if _is_bid(flow):
+        return "bid"
+    if path.startswith(IMPRESSION_PATH) and (
+        host.endswith(".c.appier.net") or host == "c.appier.net"
+    ):
+        return "impression"
+    if "winshowimg" in path or "winshowimg" in host:
+        return "impression-win"
+    if "xclk" in path or host.startswith("tw.c.appier.net"):
+        return "click"
+    if "init" in path and "appier" in host:
+        return "sdk-init"
+    return None
+
+
+def _append_event(flow, phase):
+    kind = _event_kind(flow)
+    response = flow.response
+    content_type = response.headers.get("content-type", "") if response else ""
+    if kind is None and response is not None and content_type.lower().startswith("image/"):
+        kind = "asset"
+    if kind is None:
+        return
+    row = {
+        "timestamp": _timestamp(),
+        "phase": phase,
+        "kind": kind,
+        "method": flow.request.method,
+        "url": flow.request.pretty_url,
+    }
+    if response is not None:
+        row.update({
+            "status": response.status_code,
+            "content_type": content_type,
+            "content_length": len(response.raw_content or b""),
+            "location": response.headers.get("location"),
+        })
+    with open(EVENTS_FILE, "a") as f:
+        f.write(_json.dumps(row, ensure_ascii=False) + "\n")
 
 def _parse_body(content):
     """Try JSON parse with gzip/deflate fallback."""
@@ -58,8 +107,11 @@ def _is_bid(flow: http.HTTPFlow) -> bool:
 
 
 def _is_impression_win(flow: http.HTTPFlow) -> bool:
-    host, path = IMPRESSION_HOST_PATH
-    return flow.request.host.endswith(host) and flow.request.path.startswith(path)
+    host = flow.request.host.lower()
+    return (
+        flow.request.path.startswith(IMPRESSION_PATH)
+        and (host.endswith(".c.appier.net") or host == "c.appier.net")
+    )
 
 
 def _save_json(path, content):
@@ -99,6 +151,7 @@ class AppierDetector:
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.host
         entry = f"{flow.request.method} https://{host}{flow.request.path}"
+        _append_event(flow, "request")
 
         if _is_bid(flow):
             if flow.request.content:
@@ -121,18 +174,10 @@ class AppierDetector:
                   f"→ {IMPRESSION_FILE}  cid={ids.get('cid')} crid={ids.get('crid')}")
 
     def response(self, flow: http.HTTPFlow) -> None:
+        _append_event(flow, "response")
         if not _is_bid(flow) or flow.response is None:
             return
         status = flow.response.status_code
-        started = flow.request.timestamp_start
-        finished = flow.response.timestamp_end or flow.response.timestamp_start
-        with open(BID_TIMING_FILE, "w") as f:
-            _json.dump({
-                "request_started_epoch_ms": round(started * 1000),
-                "response_finished_epoch_ms": round(finished * 1000),
-                "duration_ms": round((finished - started) * 1000),
-                "http_status": status,
-            }, f, indent=2)
         with open(BID_STATUS_FILE, "w") as f:
             f.write(str(status))
         if status == 200 and flow.response.content:

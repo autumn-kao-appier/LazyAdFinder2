@@ -72,6 +72,9 @@ def load_catalog(path):
         order = row.get("order")
         if not isinstance(order, (int, float)) or isinstance(order, bool):
             raise ReportError(f"{path}: {tc}.order must be a number")
+        modes = row.get("integration_modes", [])
+        if not isinstance(modes, list) or any(mode not in {"standalone", "admob-mediation", "applovin-mediation"} for mode in modes):
+            raise ReportError(f"{path}: {tc}.integration_modes contains an unsupported mode")
         for platform, _label, _device in PLATFORMS:
             spec = row.get(platform, {})
             if not isinstance(spec, dict):
@@ -251,6 +254,24 @@ TC_TITLES_ZH = {
     "session-duration-background": "Session 時長 — 背景恢復",
     "session-duration-termination": "Session 時長 — 終止後重設",
     "app-initialization-time": "App 初始化時間",
+    "app-duration-today": "今日 App 使用總時長",
+    "connection-type-cellular": "連線類型（行動網路）",
+    "force-gdpr-override": "強制套用 GDPR",
+    "coppa-applies": "COPPA 適用旗標",
+    "standalone-sdk-init": "SDK 初始化", "standalone-appier-ad-request": "Appier 直接廣告請求",
+    "standalone-creative-assets": "廣告素材載入", "standalone-native-render": "原生廣告渲染",
+    "standalone-impression": "Appier 曝光追蹤", "standalone-click": "Appier 點擊追蹤",
+    "standalone-landing": "Landing 跳轉", "standalone-privacy": "隱私資訊",
+    "standalone-install-attribution": "AIBID 安裝歸因",
+    "standalone-attribution-reconciliation": "後端歸因對帳",
+    "admob-sdk-init": "SDK 初始化", "admob-pubsetting": "AdMob Mediation 設定",
+    "admob-gma-request": "AdMob GMA 請求與 Mediation 分流",
+    "admob-appier-ad-request": "Appier Adapter 廣告請求",
+    "admob-creative-render": "Mediation 素材載入與渲染",
+    "admob-impression": "AdMob 與 Appier 曝光追蹤",
+    "admob-fill-result": "Mediation Fill 結果",
+    "admob-click": "AdMob 與 Appier 點擊追蹤",
+    "admob-landing-privacy": "Mediation Landing 與隱私資訊",
     "last-foreground-times": "最近前景時間", "last-background-times": "最近背景時間",
     "impression-history": "曝光紀錄", "vpn-status": "VPN 狀態", "argus-sdk-version": "Argus SDK 版本",
     "network-latency": "網路延遲",
@@ -310,6 +331,9 @@ DYNAMIC_ZH = {
     "Hardware limitation: QA device has no active SIM; MCC/MNC cannot be captured or verified": "硬體限制：QA 裝置沒有 active SIM，因此無法取得或驗證 MCC/MNC。",
     "Round limitation: first-ad proxy timing evidence is missing": "本輪限制：缺少第一個廣告的 proxy timing 證據。",
     "Environment limitation: company network has no IPv6; waiting for IT support": "環境限制：公司網路目前沒有 IPv6，等待 IT 支援。",
+    "Hardware limitation: QA device has no active SIM; 4G/5G transport cannot be established": "硬體限制：QA 裝置沒有 active SIM，無法建立 4G／5G 連線。",
+    "Round limitation: the SDK latency probe endpoint timing is not captured independently yet": "本輪限制：尚未獨立擷取 SDK latency probe endpoint 的計時證據。",
+    "Sample App limitation: setForceGDPRApplies(true) is not exposed or invoked": "Sample App 限制：目前沒有提供或呼叫 setForceGDPRApplies(true)。",
     "req_langb, langb do not match Android locale tag": "req.langb 與 ext.langb 未符合 Android 系統地區語言標籤。",
 }
 
@@ -519,8 +543,18 @@ def _slot_card(platform, mode, kind, label, description, rows):
 def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
     def cards_for(layer):
         selected = [row for row in rows if (row["layer"] == "e2e") == (layer == "e2e")]
+        if layer == "e2e":
+            # E2E is one causal journey.  Its cards must remain in the reviewed
+            # Catalog sequence (Init -> Request -> Render -> Tracking ->
+            # Attribution), regardless of PASS/FAILED/BLOCKED status.
+            def sort_key(row):
+                spec = catalog_by_key.get(row["tc"], {})
+                return (spec.get("order", float("inf")), row["tc"])
+        else:
+            def sort_key(row):
+                return (STATUS_ORDER.index(row["status"]), row["captured_at"])
         return "".join(_result_card(row, catalog_by_key) for row in sorted(
-            selected, key=lambda row: (STATUS_ORDER.index(row["status"]), row["captured_at"])
+            selected, key=sort_key
         ))
     signal_cards = cards_for("signal") or '<div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div>'
     e2e_cards = cards_for("e2e") or '<div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div>'
@@ -548,8 +582,10 @@ def _catalog_table(catalog, catalog_by_key):
         key = str(tc["key"])
         label = _tc_label(key, catalog_by_key)
         key_line = f'<code class="catalog-key">{html.escape(key)}</code>' if label != key else ""
+        modes = " / ".join(str(mode) for mode in tc.get("integration_modes", []))
+        mode_line = f'<small class="catalog-modes">{html.escape(modes)}</small>' if modes else ""
         rows.append(f'''<tr><td><span class="draft">{html.escape(str(tc.get("status", "DRAFT")))}</span>
-<strong class="catalog-id">{html.escape(label)}</strong>{key_line}<small>{html.escape(str(tc.get("round", "")))}</small></td>
+<strong class="catalog-id">{html.escape(label)}</strong>{key_line}<small>{html.escape(str(tc.get("round", "")))}</small>{mode_line}</td>
 <td><b>{_bi(str(tc.get("title", "")), TC_TITLES_ZH.get(key, str(tc.get("title", ""))))}</b><p>{html.escape(str(tc.get("layer", "Signal")))} · {html.escape(str(tc.get("category", "")))}</p>
 <code>{html.escape(str(tc.get("field", "")))}</code><span class="priority">{html.escape(str(tc.get("priority", "")))}</span></td>
 <td>{_catalog_cell(tc.get("aos", {}))}</td><td>{_catalog_cell(tc.get("ios", {}))}</td></tr>''')

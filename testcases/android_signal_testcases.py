@@ -64,6 +64,12 @@ def _decoded_user_value(document, field):
     return user.get(field) if isinstance(user, dict) else None
 
 
+def _decoded_compliance_value(document, field):
+    plaintext = document.get("req", {}).get("plaintext", {})
+    compliance = plaintext.get("compliance") if isinstance(plaintext, dict) else None
+    return compliance.get(field) if isinstance(compliance, dict) else None
+
+
 def _verdict(key, title, description, expected, actual, evidence, failures):
     row = evaluate(
         key,
@@ -113,6 +119,7 @@ def _comparison_view(key, expected, actual):
         "connection-type": ("Active Android network", expected.get("conntype"), "SDK req/ext", f'{actual.get("req_conntype")} / {actual.get("conntype")}', "="),
         "tracking-allowed": ("Visible opt-out state", actual.get("visible_opt_out"), "SDK Payload · req/ext", f'{actual.get("req_device_lat")} / {actual.get("ext_device_lat")}', "↔"),
         "app-initialization-time": ("Requests 1–3 · same PID", actual.get("stable_app_init_time"), "Request 4 · new PID", actual.get("restarted_app_init_time"), "≠"),
+        "app-duration-today": ("Request 3 · before restart", actual.get("before_restart_ms"), "Request 4 · after restart", actual.get("after_restart_ms"), "≤"),
     }
     criteria = {
         "advertising-id": "Visible GAID and SDK req/ext values must be the same valid lowercase UUID.",
@@ -143,6 +150,7 @@ def _comparison_view(key, expected, actual):
         "connection-type": "Request and extended connection types must match the active Android network transport.",
         "tracking-allowed": "Visible opt-out OFF must agree with SDK tracking-allowed flags.",
         "app-initialization-time": "Initialization time stays fixed within one process and is renewed after process restart.",
+        "app-duration-today": "Today's foreground usage is monotonic and persists across process restart.",
     }
     if key in compare:
         captured_label, captured, payload_label, payload, operator = compare[key]
@@ -631,6 +639,10 @@ def validate_emulator_detection(folder): return _validate_context_exact(folder, 
 def validate_connection_type(folder): return _validate_context_exact(folder, "connection-type", "Connection Type", "conntype", ("req_conntype", "conntype"), "conntype-evidence.png")
 
 
+def validate_connection_type_cellular(_folder):
+    return _round_blocked("connection-type-cellular", "Connection Type (Cellular)", "Hardware limitation: QA device has no active SIM; 4G/5G transport cannot be established")
+
+
 def _validate_cellular_identity(folder, key, title):
     info = _context_info(folder)
     if info.get("no_active_sim"):
@@ -745,6 +757,36 @@ def validate_app_initialization_time(folder):
     )
 
 
+def validate_app_duration_today(folder):
+    key = "app-duration-today"
+    title = "Total App Usage Time Today"
+    document = _session_sequence(folder)
+    steps = document.get("steps", [])
+    values = [step.get("app_duration") for step in steps]
+    failures = []
+    if len(steps) != 4:
+        failures.append(f"R3 must contain exactly four requests, got {len(steps)}")
+    if len(values) != 4 or any(type(value) is not int or value < 0 for value in values):
+        failures.append("all app_duration values must be non-negative integer milliseconds")
+    elif any(before > after for before, after in zip(values, values[1:])):
+        failures.append("app_duration decreased within the same calendar-day R3 sequence")
+    if len(steps) == 4:
+        if steps[3].get("pid") == steps[2].get("pid"):
+            failures.append("Request 4 does not use a new App PID")
+        if not document.get("terminated_pid_confirmed"):
+            failures.append("the pre-termination PID was not confirmed to have exited")
+    return _verdict(
+        key, title, "Today's foreground usage remains monotonic across background and process restart.",
+        {"unit": "milliseconds", "requests_1_to_4": "monotonic non-decreasing", "restart_behavior": "must persist"},
+        {
+            "before_restart_ms": values[2] if len(values) == 4 else None,
+            "after_restart_ms": values[3] if len(values) == 4 else None,
+            "values": values,
+        },
+        "04-after-termination.png", failures,
+    )
+
+
 def _validate_epoch_history(folder, key, title, field, allow_empty):
     value = _decoded_user_value(_decoded(folder), field)
     failures = []
@@ -793,28 +835,21 @@ def validate_impression_history(folder):
     )
 
 
-def validate_network_latency(folder):
-    key = "network-latency"
-    title = "Network Latency"
-    timing_path = Path(folder) / "previous-bid-timing.json"
-    if not timing_path.is_file():
-        return _round_blocked(key, title, "Round limitation: first-ad proxy timing evidence is missing")
-    timing = json.loads(timing_path.read_text())
-    measured = timing.get("duration_ms")
-    actual = _decoded_device_value(_decoded(folder), "ext", "ext")
-    latency = actual.get("latency") if isinstance(actual, dict) else None
-    tolerance = max(50, round(measured * 0.2)) if type(measured) is int else None
-    failures = []
-    if type(measured) is not int or measured < 0:
-        failures.append("first-ad proxy duration_ms must be a non-negative integer")
-    if type(latency) is not int or latency < 0:
-        failures.append("ext.device.ext.latency must be a non-negative integer in milliseconds")
-    if not failures and abs(latency - measured) > tolerance:
-        failures.append(f"latency differs from first-ad proxy timing by more than {tolerance} ms")
+def validate_network_latency(_folder):
+    return _round_blocked("network-latency", "Connection Latency", "Round limitation: the SDK latency probe endpoint timing is not captured independently yet")
+
+
+def validate_force_gdpr_override(_folder):
+    return _round_blocked("force-gdpr-override", "Force GDPR Override", "Sample App limitation: setForceGDPRApplies(true) is not exposed or invoked")
+
+
+def validate_coppa_applies(folder):
+    value = _decoded_compliance_value(_decoded(folder), "coppa_applies")
+    failures = [] if type(value) is int and value == 1 else ["req.compliance.coppa_applies must be integer 1"]
     return _verdict(
-        key, title, "Second-ad latency matches the first request/response duration in milliseconds.",
-        {"first_ad_proxy_duration_ms": measured, "tolerance_ms": tolerance},
-        {"latency_ms": latency}, "previous-bid-timing.json", failures,
+        "coppa-applies", "COPPA Applicability Flag",
+        "Sample App calls setCoppaApplies(true), so the request flag must equal integer 1.",
+        {"coppa_applies": 1}, {"coppa_applies": value}, "bid_decoded.json", failures,
     )
 
 
@@ -913,6 +948,7 @@ TC_DEFINITIONS = {
     "emulator-detection": TestCase("emulator-detection", "Emulator Detection", "Emulator detection matches Android.", (DEVICE_CONTEXT, BID), validate_emulator_detection),
     "ipv6-address": TestCase("ipv6-address", "IPv6 Address", "IPv6 validation requires a reviewed payload field.", (BID,), validate_ipv6),
     "connection-type": TestCase("connection-type", "Connection Type", "Connection transport matches Android.", (DEVICE_CONTEXT, BID), validate_connection_type),
+    "connection-type-cellular": TestCase("connection-type-cellular", "Connection Type (Cellular)", "Cellular transport requires an active SIM.", (BID,), validate_connection_type_cellular),
     "carrier": TestCase("carrier", "Carrier", "Carrier reflects SIM state.", (DEVICE_CONTEXT, BID), validate_carrier),
     "mcc-mnc": TestCase("mcc-mnc", "MCC/MNC", "MCC/MNC reflects SIM state.", (DEVICE_CONTEXT, BID), validate_mcc_mnc),
     "precise-gps-latitude": TestCase("precise-gps-latitude", "Precise GPS Latitude", "Precise location is outside this round scope.", (BID,), validate_precise_latitude),
@@ -921,10 +957,13 @@ TC_DEFINITIONS = {
     "session-duration-background": TestCase("session-duration-background", "Session Duration — Resume from Background", "Session duration increases after background and resume.", (BID,), validate_session_duration_background),
     "session-duration-termination": TestCase("session-duration-termination", "Session Duration — Reset after Termination", "Session duration resets after process termination.", (BID,), validate_session_duration_termination),
     "app-initialization-time": TestCase("app-initialization-time", "App Initialization Time", "Argus initialization timestamp is stable per process and renewed after restart.", (BID,), validate_app_initialization_time),
+    "app-duration-today": TestCase("app-duration-today", "Total App Usage Time Today", "Today's foreground usage persists across process restart.", (BID,), validate_app_duration_today),
     "last-foreground-times": TestCase("last-foreground-times", "Last Foreground Times", "Foreground history follows the shared Android/iOS contract.", (BID,), validate_last_foreground_times),
     "last-background-times": TestCase("last-background-times", "Last Background Times", "Background history follows the shared Android/iOS contract.", (BID,), validate_last_background_times),
     "impression-history": TestCase("impression-history", "Impression History", "The second ad request carries the first impression history.", (BID,), validate_impression_history),
-    "network-latency": TestCase("network-latency", "Network Latency", "Second-ad latency matches the preceding bid request duration.", (BID,), validate_network_latency),
+    "network-latency": TestCase("network-latency", "Connection Latency", "Latency probe validation requires independent endpoint timing.", (BID,), validate_network_latency),
+    "force-gdpr-override": TestCase("force-gdpr-override", "Force GDPR Override", "Force GDPR requires a Sample App trigger.", (BID,), validate_force_gdpr_override),
+    "coppa-applies": TestCase("coppa-applies", "COPPA Applicability Flag", "COPPA flag reflects the Sample App setter.", (BID,), validate_coppa_applies),
     "vpn-status": TestCase("vpn-status", "VPN Status", "VPN is outside this round scope.", (BID,), validate_vpn_status),
     "argus-sdk-version": TestCase("argus-sdk-version", "Argus SDK Version", "Argus version matches the reviewed integration version.", (BID,), validate_argus_sdk_version),
     "sdk-version": TestCase(
@@ -972,6 +1011,7 @@ ROUND_DEFINITIONS = {
             "emulator-detection",
             "ipv6-address",
             "connection-type",
+            "connection-type-cellular",
             "carrier",
             "mcc-mnc",
             "precise-gps-latitude",
@@ -979,6 +1019,9 @@ ROUND_DEFINITIONS = {
             "last-foreground-times",
             "last-background-times",
             "vpn-status",
+            "network-latency",
+            "force-gdpr-override",
+            "coppa-applies",
             "argus-sdk-version",
             "tracking-allowed",
             "sdk-version",
@@ -986,12 +1029,12 @@ ROUND_DEFINITIONS = {
     ),
     "R2": Round(
         "SECOND-AD-HISTORY",
-        ("impression-history", "network-latency"),
+        ("impression-history",),
         warmup_ads=1,
     ),
     "R3": Round(
         "SESSION-DURATION",
-        ("session-duration-continuous", "session-duration-background", "session-duration-termination", "app-initialization-time"),
+        ("session-duration-continuous", "session-duration-background", "session-duration-termination", "app-initialization-time", "app-duration-today"),
         strategy="session-duration",
     ),
 }

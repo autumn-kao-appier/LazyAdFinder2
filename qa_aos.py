@@ -38,6 +38,8 @@ from appium.webdriver.common.appiumby import AppiumBy
 from evidence_aos import collect as collect_evidence
 from evidence_bundle import decoded_bid, finalize_bundle
 from testcases.android_signal_testcases import ROUND_DEFINITIONS, TC_DEFINITIONS
+from testcases.e2e.android_standalone_e2e import TESTCASES as STANDALONE_E2E_TESTCASES
+from testcases.e2e.android_standalone_e2e import validate_bundle as validate_standalone_e2e
 from verdict import blocked
 
 
@@ -53,16 +55,16 @@ FLAG_FILE = Path("/tmp/appier_hit")
 BID_FILE = Path("/tmp/appier_bid.json")
 BID_STATUS_FILE = Path("/tmp/appier_bid_status")
 BID_RESPONSE_FILE = Path("/tmp/appier_bid_response.json")
-BID_TIMING_FILE = Path("/tmp/appier_bid_timing.json")
 IMPRESSION_FILE = Path("/tmp/appier_impression.json")
+EVENTS_FILE = Path("/tmp/appier_proxy_events.jsonl")
 LOGCAT_FILE = Path("/tmp/appier_aos_logcat.txt")
 DETECTOR_FILES = (
     FLAG_FILE,
     BID_FILE,
     BID_STATUS_FILE,
     BID_RESPONSE_FILE,
-    BID_TIMING_FILE,
     IMPRESSION_FILE,
+    EVENTS_FILE,
 )
 
 
@@ -397,6 +399,7 @@ def _sequence_request(driver, config, folder, number, label):
     user = decoded.get("ext", {}).get("plaintext", {}).get("user", {})
     value = user.get("session_duration") if isinstance(user, dict) else None
     app_init_time = user.get("app_init_time") if isinstance(user, dict) else None
+    app_duration = user.get("app_duration") if isinstance(user, dict) else None
     prefix = f"{number:02d}-{label}"
     (folder / f"{prefix}-bid-raw.json").write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n")
     (folder / f"{prefix}-bid-decoded.json").write_text(json.dumps(decoded, ensure_ascii=False, indent=2) + "\n")
@@ -406,6 +409,7 @@ def _sequence_request(driver, config, folder, number, label):
         "label": label,
         "session_duration": value,
         "app_init_time": app_init_time,
+        "app_duration": app_duration,
         "captured_epoch_ms": round(time.time() * 1000),
         "pid": _app_pid(config),
         "http_status": status,
@@ -477,7 +481,7 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
     clear_detector_state()
     driver = None
     request = status = identity = source = None
-    warmup_timing = warmup_impression = None
+    warmup_impression = None
     completed_warmups = 0
     failed_step = "setup"
     started = time.monotonic()
@@ -527,10 +531,7 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                             print("[warmup] bid received without a confirmed impression; retrying")
                             time.sleep(config.retry_delay)
                             continue
-                        warmup_timing = _read_json(BID_TIMING_FILE)
                         warmup_impression = identity
-                        if not warmup_timing:
-                            raise CaptureError("Warmup ad has no proxy request/response timing evidence")
                         completed_warmups += 1
                         print(f"[warmup] confirmed ad {completed_warmups}/{warmup_ads}; continuing in the same app session")
                         time.sleep(config.retry_delay)
@@ -538,10 +539,6 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                     save_evidence(
                         driver, config, folder, started_at, request, status, identity, source
                     )
-                    if warmup_timing is not None:
-                        (folder / "previous-bid-timing.json").write_text(
-                            json.dumps(warmup_timing, ensure_ascii=False, indent=2) + "\n"
-                        )
                     if warmup_impression is not None:
                         (folder / "previous-impression.json").write_text(
                             json.dumps(warmup_impression, ensure_ascii=False, indent=2) + "\n"
@@ -584,6 +581,19 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
 
 
 def run_round(config, name):
+    if name == "E2E-STANDALONE":
+        if config.test_mode != "standalone":
+            raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
+        folder = collect_evidence(
+            config,
+            ("bid",),
+            lambda setup: capture(config, capture_name="E2E-STANDALONE", setup=setup),
+        )
+        rows = validate_standalone_e2e(folder)
+        (folder / "verdicts.json").write_text(
+            json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+        )
+        return [folder]
     round_definition = ROUND_DEFINITIONS.get(name)
     if not round_definition:
         available = ", ".join(sorted(ROUND_DEFINITIONS)) or "none"
@@ -765,6 +775,7 @@ def main(argv=None):
         for name, definition in sorted(ROUND_DEFINITIONS.items()):
             tc_ids = ", ".join(definition.testcase_keys)
             print(f"{name}: {definition.capture_name} [{tc_ids}]")
+        print("E2E-STANDALONE: E2E-STANDALONE [" + ", ".join(STANDALONE_E2E_TESTCASES) + "]")
         return 0
 
     config = config_from_args(args)
