@@ -26,10 +26,9 @@ class Status(str, Enum):
 class Verdict:
     """A JSON-serializable testcase result for ``page.py``.
 
-    ``expected`` and ``actual`` are populated only after a testcase has run and
-    its answer has been evaluated.  A blocked testcase instead carries a clear
-    ``reason`` explaining which Round or environment limitation prevented it
-    from running.
+    A blocked testcase may preserve observations and evidence when execution
+    completed but an independent expected answer is still unavailable.  It
+    must not claim an expected answer until a reviewer supplies one.
     """
 
     tc: str
@@ -45,8 +44,8 @@ class Verdict:
         if self.status is Status.BLOCKED:
             if not self.reason.strip():
                 raise ValueError("BLOCKED requires a concrete Round/environment reason")
-            if self.expected is not None or self.actual is not None or self.evidence is not None:
-                raise ValueError("BLOCKED cannot claim an evaluated answer or evidence")
+            if self.expected is not None:
+                raise ValueError("BLOCKED cannot claim an expected answer")
         elif not self.evidence or not self.evidence.strip():
             raise ValueError("PASS/FAILED requires an evidence reference")
 

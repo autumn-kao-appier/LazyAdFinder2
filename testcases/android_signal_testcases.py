@@ -117,7 +117,7 @@ def _comparison_view(key, expected, actual):
         "root-status": ("Android root probe", expected.get("jailbreak"), "SDK jailbreak", actual.get("jailbreak"), "="),
         "emulator-detection": ("Android hardware probe", expected.get("emulator"), "SDK emulator", actual.get("emulator"), "="),
         "connection-type": ("Active Android network", expected.get("conntype"), "SDK req/ext", f'{actual.get("req_conntype")} / {actual.get("conntype")}', "="),
-        "tracking-allowed": ("Visible opt-out state", actual.get("visible_opt_out"), "SDK Payload · req/ext", f'{actual.get("req_device_lat")} / {actual.get("ext_device_lat")}', "↔"),
+        "tracking-allowed": ("Settings: tracking allowed", actual.get("visible_tracking_allowed"), "LAT inverse flag · req/ext", f'{actual.get("req_limit_ad_tracking")} / {actual.get("ext_limit_ad_tracking")}', "↔"),
         "app-initialization-time": ("Requests 1–3 · same PID", actual.get("stable_app_init_time"), "Request 4 · new PID", actual.get("restarted_app_init_time"), "≠"),
         "app-duration-today": ("Request 3 · before restart", actual.get("before_restart_ms"), "Request 4 · after restart", actual.get("after_restart_ms"), "≤"),
     }
@@ -148,7 +148,7 @@ def _comparison_view(key, expected, actual):
         "root-status": "Payload jailbreak boolean must match an independent Android root probe.",
         "emulator-detection": "Payload emulator boolean must match Android hardware properties.",
         "connection-type": "Request and extended connection types must match the active Android network transport.",
-        "tracking-allowed": "Visible opt-out OFF must agree with SDK tracking-allowed flags.",
+        "tracking-allowed": "Tracking is allowed when Opt out is OFF; because LAT means Limit Ad Tracking, its inverse flag must be 0 or absent.",
         "app-initialization-time": "Initialization time stays fixed within one process and is renewed after process restart.",
         "app-duration-today": "Today's foreground usage is monotonic and persists across process restart.",
     }
@@ -235,20 +235,20 @@ def _allowed_lat(present, value):
 
 def validate_tracking_allowed(folder):
     key = "tracking-allowed"
-    title = "Limit Ad Tracking Flag (tracking allowed)"
-    description = "Visible opt-out OFF agrees with req/ext device.lat."
+    title = "Advertising Tracking Allowed"
+    description = "The user allows tracking; device.lat is the inverse Limit Ad Tracking flag."
     state = _ads_state(folder)
     decoded = _decoded(folder)
     req_present, req_value = _lat_value(decoded, "req")
     ext_present, ext_value = _lat_value(decoded, "ext")
     actual = {
-        "visible_opt_out": state.get("opt_out"),
-        "req_device_lat": req_value if req_present else ABSENT,
-        "ext_device_lat": ext_value if ext_present else ABSENT,
+        "visible_tracking_allowed": state.get("opt_out") is False,
+        "req_limit_ad_tracking": req_value if req_present else ABSENT,
+        "ext_limit_ad_tracking": ext_value if ext_present else ABSENT,
     }
     failures = []
-    if actual["visible_opt_out"] is not False:
-        failures.append("Opt out of Ads Personalization is not visibly off")
+    if actual["visible_tracking_allowed"] is not True:
+        failures.append("Ads settings do not visibly allow advertising tracking")
     if not _allowed_lat(req_present, req_value):
         failures.append(f"req.device.lat must be integer 0 or absent, got {req_value!r}")
     if not _allowed_lat(ext_present, ext_value):
@@ -257,9 +257,9 @@ def validate_tracking_allowed(folder):
         key,
         title,
         description,
-        {"visible_opt_out": False, "req_device_lat": "integer 0 or ABSENT", "ext_device_lat": "integer 0 or ABSENT"},
+        {"visible_tracking_allowed": True, "req_limit_ad_tracking": "0 (not limited) or ABSENT", "ext_limit_ad_tracking": "0 (not limited) or ABSENT"},
         actual,
-        "ads-settings.png",
+        "tracking-allowed.png",
         failures,
     )
 
@@ -273,9 +273,22 @@ def validate_sdk_version(folder):
     actual = info.get("actual", {})
     expected_version = expected.get("build_sdk_version")
     actual_version = actual.get("req_app_sdk_version")
-    failures = []
     if not isinstance(expected_version, str) or not expected_version:
-        failures.append("expected build SDK version is empty")
+        row = blocked(key, "Waiting for a reviewer to enter the expected SDK version in the report").to_dict()
+        row.update({
+            "layer": "Signal",
+            "title": title,
+            "description": "The request version was captured; comparison waits for an independently entered expected version.",
+            "actual": actual,
+            "evidence": "sdk-build-info.json",
+            "comparison_view": {
+                "kind": "manual-expected",
+                "criterion": "Enter the intended build SDK version; an exact match passes and a mismatch fails.",
+                "actual": {"label": "Decoded Bid Request", "value": actual_version},
+            },
+        })
+        return row
+    failures = []
     if not isinstance(actual_version, str) or not actual_version:
         failures.append("req.app.sdk_version is missing or empty")
     elif actual_version != expected_version:
@@ -865,14 +878,21 @@ def validate_vpn_status(_folder):
 
 
 def validate_argus_sdk_version(folder):
-    expected = "1.0.0"
     actual = _decoded_device_value(_decoded(folder), "ext", "argus_ver")
-    failures = [] if actual == expected else [f"ext.device.argus_ver {actual!r} does not match reviewed Argus version {expected!r}"]
-    return _verdict(
-        "argus-sdk-version", "Argus SDK Version",
-        "Extended device.argus_ver matches the independently reviewed Argus SDK version.",
-        {"reviewed_argus_version": expected}, {"argus_ver": actual}, "bid_decoded.json", failures,
-    )
+    row = blocked("argus-sdk-version", "Waiting for a reviewer to enter the expected Argus SDK version in the report").to_dict()
+    row.update({
+        "layer": "Signal",
+        "title": "Argus SDK Version",
+        "description": "The Argus version was captured; comparison waits for an independently entered expected version.",
+        "actual": {"argus_ver": actual},
+        "evidence": "bid_decoded.json",
+        "comparison_view": {
+            "kind": "manual-expected",
+            "criterion": "Enter the intended Argus SDK version; an exact match passes and a mismatch fails.",
+            "actual": {"label": "Decoded Bid Request", "value": actual},
+        },
+    })
+    return row
 
 
 def _sensor_out_of_scope(key, title):
@@ -895,8 +915,8 @@ TC_DEFINITIONS = {
     ),
     "tracking-allowed": TestCase(
         "tracking-allowed",
-        "Limit Ad Tracking Flag (tracking allowed)",
-        "Visible opt-out OFF agrees with req/ext device.lat.",
+        "Advertising Tracking Allowed",
+        "Opt out OFF means tracking is allowed; device.lat is the inverse limit-tracking flag.",
         (ADS_SETTINGS, BID),
         validate_tracking_allowed,
     ),
@@ -972,7 +992,7 @@ TC_DEFINITIONS = {
     "force-gdpr-override": TestCase("force-gdpr-override", "Force GDPR Override", "Force GDPR requires a Sample App trigger.", (BID,), validate_force_gdpr_override),
     "coppa-applies": TestCase("coppa-applies", "COPPA Applicability Flag", "COPPA flag reflects the Sample App setter.", (BID,), validate_coppa_applies),
     "vpn-status": TestCase("vpn-status", "VPN Status", "VPN is outside this round scope.", (BID,), validate_vpn_status),
-    "argus-sdk-version": TestCase("argus-sdk-version", "Argus SDK Version", "Argus version matches the reviewed integration version.", (BID,), validate_argus_sdk_version),
+    "argus-sdk-version": TestCase("argus-sdk-version", "Argus SDK Version", "Captured Argus version waits for a reviewer-supplied expected version.", (BID,), validate_argus_sdk_version),
     "sdk-version": TestCase(
         "sdk-version",
         "SDK Version (sdk_version)",

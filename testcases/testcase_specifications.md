@@ -169,8 +169,10 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   面板物理 PPI。若裝置型號已有官方規格 mapping，再以 ±5% 比對 logical density 與官方物理
   PPI，作為合理性檢查；未收錄型號只略過輔助檢查，不 BLOCK。Pixel 10a 官方值為 422.2 PPI。
 - `pixel-ratio` / `device.pxratio`：等於 logical density ÷ 160；Pixel 10a 為 420 ÷ 160 = 2.625。
-- `screen-brightness` / `device.ext.screen_bright`：Android `screen_brightness` ÷ 255；容許
-  1/255 誤差，原生 Display 頁是主要肉眼 Evidence。
+- `screen-brightness` / `device.ext.screen_bright`：原生 Display 頁顯示感知百分比；同時由
+  `dumpsys display` 保存該狀態的 float brightness，並由 `BrightnessSynchronizer` 保存
+  float ↔ legacy integer 對照。SDK 值驗證 integer ÷ 255，容許 1/255 誤差；不得直接宣稱
+  UI 70% 等於 38÷255。
 - `font-scale` / `device.ext.fontscale`：與 Android `system font_scale` 相等；設定頁輔助人眼確認。
 - `dark-mode` / `device.ext.darkmode`：JSON boolean，與可見 Dark theme 開關及 UI night mode 一致。
 - `gyroscope`、`accelerometer`：P2 / BLOCKED / Not In Scope。本輪沒有感測器動作與獨立正確
@@ -213,7 +215,7 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 - `foreground-session-duration`：BLOCKED。需 SampleApp 提供獨立 session start timestamp，並先
   確認 `user.session_duration` 單位；只檢查 payload 是正數不構成正確性驗證。
 
-## Limit Ad Tracking Flag (tracking allowed)
+## Advertising Tracking Allowed
 
 - Key: `tracking-allowed`
 - Signal / R1 / AOS / P0
@@ -222,12 +224,12 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 目的：確認 Ads 頁顯示允許個人化廣告時，SDK 不會宣告限制廣告追蹤。與 GAID 沿用同一次
 設定與 capture。
 
-Evidence：`ads-settings.png`、`ads-settings-state.json`、`bid_raw.json`、
+Evidence：`tracking-allowed.png`、`ads-settings-state.json`、`bid_raw.json`、
 `bid_decoded.json`、`verdicts.json`。
 
-PASS：人眼可見的 Opt out 為 OFF，req/ext 的 `device.lat` 各自必須是 JSON 整數 `0` 或欄位
-真正不存在。`null`、字串、布林或其他數字均為 FAILED；設定頁或 payload 無法取得才是
-BLOCKED。
+PASS：人眼可見的 Opt out 為 OFF，代表「允許追蹤」。`device.lat` 的名稱是 Limit Ad
+Tracking，語意相反，所以 req/ext 各自必須是 JSON 整數 `0`（未限制）或欄位真正不存在。
+`null`、字串、布林或其他數字均為 FAILED；設定頁或 payload 無法取得才是 BLOCKED。
 
 ## SDK Version
 
@@ -235,10 +237,10 @@ BLOCKED。
 - Signal / R1 / AOS / P1
 - Field: `app.sdk_version`
 
-目的：確認 request 宣告的 SDK 版號等於本次 Sample App build 使用的版號。預設人工確認值為
-`2.2.0`；測試其他 build 時必須用 `EXPECTED_SDK_VERSION` 提供獨立答案，不得從 request 反推。
+目的：先從 request 擷取 SDK 版號，再由 reviewer 在報告中輸入本次 Sample App build 應使用的
+Expected 版號。Expected 不得從 request 反推。
 
 Evidence：`sdk-build-info.json`、`bid_raw.json`、`bid_decoded.json`、`verdicts.json`。
 
-PASS：`req.plaintext.app.sdk_version` 存在、非空，且完全等於 expected build version。不符為
-FAILED；request 無法取得／解碼才是 BLOCKED。
+未輸入 Expected 時為 BLOCKED。輸入後，`req.plaintext.app.sdk_version` 存在、非空且完全相等
+為 PASS；不相等或缺值為 FAILED。

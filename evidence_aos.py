@@ -33,6 +33,7 @@ SDK_BUILD_INFO = "sdk-build-info"
 ADS_SETTINGS_ACTION = "com.google.android.gms.settings.ADS_PRIVACY"
 INSTALLED_APPS_SETTINGS_ACTION = "android.settings.MANAGE_APPLICATIONS_SETTINGS"
 SETUP_SCREENSHOT = Path("/tmp/laf2_ads_settings.png")
+SETUP_TRACKING_SCREENSHOT = Path("/tmp/laf2_tracking_allowed.png")
 SETUP_STATE = Path("/tmp/laf2_ads_settings_state.json")
 SETUP_INSTALLED_APPS_SCREENSHOT = Path("/tmp/laf2_installed_apps_settings.png")
 SETUP_BOOT_TIME_REFERENCE = Path("/tmp/laf2_boot_time_reference.json")
@@ -62,7 +63,6 @@ OFFICIAL_DISPLAY_SPECS = {
         "url": "https://support.google.com/pixelphone/answer/7158570?hl=en",
     },
 }
-DEFAULT_EXPECTED_SDK_VERSION = "2.2.0"
 VISIBLE_GAID_RE = re.compile(
     r"Your advertising ID:\s*([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
 )
@@ -119,13 +119,31 @@ def _visible_ads_state(udid):
 
 def capture_ads_settings(config):
     """Open the human-readable Ads page, enforce tracking allowed, and photograph it."""
-    for path in (SETUP_SCREENSHOT, SETUP_STATE):
+    for path in (SETUP_SCREENSHOT, SETUP_TRACKING_SCREENSHOT, SETUP_STATE):
         try:
             path.unlink()
         except FileNotFoundError:
             pass
     _adb(config.udid, "shell", "am", "start", "-a", ADS_SETTINGS_ACTION)
     time.sleep(2)
+    # The switch and GAID are on different parts of this page.  Capture them
+    # separately so each TC has direct, human-readable evidence.
+    for _ in range(5):
+        _adb(config.udid, "shell", "input", "swipe", "540", "550", "540", "1900", "350")
+        time.sleep(0.25)
+    gaid, opt_out, switch_center = _visible_ads_state(config.udid)
+    if opt_out is None or switch_center is None:
+        raise EvidenceCaptureError("Cannot read the visible 'Opt out of Ads Personalization' switch")
+    if opt_out:
+        _adb(config.udid, "shell", "input", "tap", str(switch_center[0]), str(switch_center[1]))
+        time.sleep(1)
+        _, opt_out, switch_center = _visible_ads_state(config.udid)
+        if opt_out:
+            raise EvidenceCaptureError("Opt out of Ads Personalization remained enabled after tap")
+    SETUP_TRACKING_SCREENSHOT.write_bytes(
+        _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
+    )
+
     gaid = ""
     opt_out = None
     switch_center = None
@@ -137,14 +155,6 @@ def capture_ads_settings(config):
         time.sleep(0.5)
     if not gaid:
         raise EvidenceCaptureError("Ads page did not visibly show 'Your advertising ID'")
-    if opt_out is None or switch_center is None:
-        raise EvidenceCaptureError("Cannot read the visible 'Opt out of Ads Personalization' switch")
-    if opt_out:
-        _adb(config.udid, "shell", "input", "tap", str(switch_center[0]), str(switch_center[1]))
-        time.sleep(1)
-        gaid, opt_out, _ = _visible_ads_state(config.udid)
-        if opt_out:
-            raise EvidenceCaptureError("Opt out of Ads Personalization remained enabled after tap")
     SETUP_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
     SETUP_STATE.write_text(json.dumps({"gaid": gaid, "opt_out": opt_out}, indent=2) + "\n")
 
@@ -152,11 +162,13 @@ def capture_ads_settings(config):
 def materialize_ads_settings(folder):
     folder = Path(folder)
     screenshot = folder / "ads-settings.png"
+    tracking_screenshot = folder / "tracking-allowed.png"
     state = folder / "ads-settings-state.json"
     if SETUP_SCREENSHOT.exists() and SETUP_STATE.exists():
         shutil.copy2(SETUP_SCREENSHOT, screenshot)
+        shutil.copy2(SETUP_TRACKING_SCREENSHOT, tracking_screenshot)
         shutil.copy2(SETUP_STATE, state)
-    if not screenshot.exists() or not state.exists():
+    if not screenshot.exists() or not tracking_screenshot.exists() or not state.exists():
         raise EvidenceCaptureError("visible Ads setting evidence is missing")
 
 
@@ -166,27 +178,13 @@ def _request_sdk_version(decoded):
     return app.get("sdk_version") if isinstance(app, dict) else None
 
 
-def _expected_sdk_version(folder):
-    configured = os.environ.get("EXPECTED_SDK_VERSION")
-    if configured is not None:
-        return configured.strip(), "EXPECTED_SDK_VERSION"
-    existing = Path(folder) / "sdk-build-info.json"
-    if existing.exists():
-        document = json.loads(existing.read_text())
-        value = document.get("expected", {}).get("build_sdk_version")
-        if isinstance(value, str):
-            return value, "saved sdk-build-info.json"
-    return DEFAULT_EXPECTED_SDK_VERSION, "reviewed project default"
-
-
 def capture_sdk_build_info(folder):
     folder = Path(folder)
     decoded = json.loads((folder / "bid_decoded.json").read_text())
-    expected, source = _expected_sdk_version(folder)
     (folder / "sdk-build-info.json").write_text(
         json.dumps(
             {
-                "expected": {"build_sdk_version": expected, "source": source},
+                "expected": {"build_sdk_version": None, "source": "manual report review"},
                 "actual": {"req_app_sdk_version": _request_sdk_version(decoded)},
             },
             ensure_ascii=False,
@@ -707,6 +705,15 @@ def capture_display_status(config):
     (density,) = _wm_value(_adb(config.udid, "shell", "wm", "density"), "density")
     model = _adb(config.udid, "shell", "getprop", "ro.product.model").strip()
     brightness_raw = int(_adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip())
+    display_dump = _adb(config.udid, "shell", "dumpsys", "display")
+    brightness_float_match = re.search(r"mLastUserSetScreenBrightness=([0-9.]+)", display_dump)
+    synchronizer_int_match = re.search(r"mLatestIntBrightness=(\d+)", display_dump)
+    synchronizer_float_match = re.search(r"mLatestFloatBrightness=([0-9.]+)", display_dump)
+    if not brightness_float_match or not synchronizer_int_match or not synchronizer_float_match:
+        raise EvidenceCaptureError("cannot read Android BrightnessSynchronizer evidence")
+    brightness_system_float = float(brightness_float_match.group(1))
+    brightness_sync_int = int(synchronizer_int_match.group(1))
+    brightness_sync_float = float(synchronizer_float_match.group(1))
     font_scale = float(_adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip())
     dark_mode = _adb(config.udid, "shell", "cmd", "uimode", "night").strip().lower().endswith("yes")
     SETUP_QUICK_BRIGHTNESS_SCREENSHOT.unlink(missing_ok=True)
@@ -731,6 +738,9 @@ def capture_display_status(config):
                 "brightness_raw": brightness_raw,
                 "screen_brightness": brightness_raw / 255,
                 "brightness_ui_percent": brightness_ui_percent,
+                "brightness_system_float": brightness_system_float,
+                "brightness_sync_int": brightness_sync_int,
+                "brightness_sync_float": brightness_sync_float,
                 "font_scale": font_scale,
                 "dark_mode": dark_mode,
                 "official_spec": OFFICIAL_DISPLAY_SPECS.get(model),
@@ -765,8 +775,7 @@ def _display_evidence_document(field, info, source_image):
     dimension = f'{info["width"]:,} px × {info["height"]:,} px'
     phone_class = "phone"
     if field == "screen_brightness":
-        dimension_marker = '<div class="dimension horizontal">BRIGHTNESS SLIDER · QUICK SETTINGS</div>'
-        phone_class = "phone quick-brightness"
+        dimension_marker = '<div class="dimension horizontal">DISPLAY SETTINGS · VISIBLE PERCENT</div>'
     elif field == "height":
         dimension_marker = f'<div class="dimension vertical">{info["height"]:,} px · HEIGHT</div>'
     elif field == "width":
@@ -794,10 +803,12 @@ def _display_evidence_document(field, info, source_image):
     elif field == "screen_brightness":
         official_row = (
             f'<div class="row"><span>Visible UI brightness</span><b>{html.escape(info.get("brightness_ui_percent") or "Unavailable")}</b></div>'
-            f'<div class="row"><span>Raw formula</span><b>{info["brightness_raw"]} ÷ 255 = {reference:.8f}</b></div>'
+            f'<div class="row"><span>Android display service</span><b>{info["brightness_system_float"]:.8f} · same UI state</b></div>'
+            f'<div class="row"><span>BrightnessSynchronizer</span><b>int {info["brightness_sync_int"]} ↔ float {info["brightness_sync_float"]:.8f}</b></div>'
+            f'<div class="row"><span>SDK normalization</span><b>{info["brightness_raw"]} ÷ 255 = {reference:.8f}</b></div>'
         )
-        explanation = "Quick Settings shows the slider position and Display Settings reports the exact UI percentage. Android uses a non-linear perceptual UI scale; bid validation therefore compares the independent linear raw value normalized to 0–1."
-        source_label = f'UI {info.get("brightness_ui_percent") or "—"} · raw {info["brightness_raw"]} ÷ 255 = {reference:.8f}'
+        explanation = "Display Settings shows the perceptual UI percentage. The same Android display-service snapshot links that UI state to a float brightness, while BrightnessSynchronizer links it to the legacy integer used by the SDK. The SDK value is that integer normalized to 0–1."
+        source_label = f'UI {info.get("brightness_ui_percent") or "—"} ↔ Android {info["brightness_sync_float"]:.8f} ↔ int {info["brightness_sync_int"]} → SDK {reference:.8f}'
     elif field == "font_scale":
         official_row = '<div class="row"><span>OS source</span><b>settings get system font_scale</b></div>'
         explanation = "Display size & text is the visible setting; Android font_scale supplies its exact numeric state."
@@ -827,7 +838,7 @@ def _render_display_evidence(folder, info):
         document = folder / f"{stem}.html"
         screenshot = folder / f"{stem}.png"
         source_image = (
-            SETUP_QUICK_BRIGHTNESS_SCREENSHOT
+            SETUP_DISPLAY_SCREENSHOT
             if field == "screen_brightness"
             else SETUP_FONT_SCALE_SCREENSHOT
             if field == "font_scale"
@@ -899,10 +910,14 @@ def capture_device_context(config):
         raise EvidenceCaptureError("native About phone page is unavailable")
     time.sleep(1.5)
     SETUP_ABOUT_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
-    if not _open_settings_screenshot(
-        config.udid, "com.android.settings/.Settings$NetworkDashboardActivity", SETUP_NETWORK_SCREENSHOT, "Network"
-    ):
-        raise EvidenceCaptureError("native Network & internet page is unavailable")
+    _adb(config.udid, "shell", "am", "start", "-a", "android.settings.WIFI_SETTINGS")
+    time.sleep(1.5)
+    _adb(config.udid, "shell", "uiautomator", "dump", "/sdcard/laf2_wifi_settings.xml")
+    wifi_document = _adb(config.udid, "exec-out", "cat", "/sdcard/laf2_wifi_settings.xml", binary=True)
+    wifi_text = "\n".join(node.attrib.get("text", "") for node in ET.fromstring(wifi_document).iter("node"))
+    if "Wi‑Fi" not in wifi_text and "Wi-Fi" not in wifi_text and "Internet" not in wifi_text:
+        raise EvidenceCaptureError("native Wi-Fi detail page is unavailable")
+    SETUP_NETWORK_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
     _adb(config.udid, "shell", "am", "force-stop", "com.google.android.inputmethod.latin")
     _adb(config.udid, "shell", "am", "start", "-n", "com.google.android.inputmethod.latin/com.google.android.apps.inputmethod.latin.preference.SettingsActivity")
     time.sleep(1.5)
@@ -936,6 +951,8 @@ def capture_device_context(config):
     product = _adb(config.udid, "shell", "getprop", "ro.product.name").strip().lower()
     connectivity = _adb(config.udid, "shell", "dumpsys", "connectivity")
     connection_type = "wifi" if re.search(r"Active default network:.*?Transports: WIFI", connectivity, re.DOTALL) else "cellular" if re.search(r"Active default network:.*?Transports: CELLULAR", connectivity, re.DOTALL) else "unknown"
+    wifi_info = _adb(config.udid, "shell", "dumpsys", "wifi")
+    ssid_match = re.search(r"SSID: ([^,\n]+)", wifi_info)
     subscriptions = _adb(config.udid, "shell", "dumpsys", "isub")
     no_active_sim = "activeDataSubId=-1" in subscriptions and "Active subscriptions:\n  [" not in subscriptions
     SETUP_DEVICE_CONTEXT.write_text(json.dumps({
@@ -956,6 +973,7 @@ def capture_device_context(config):
         "emulator": qemu == "1" or any(token in product for token in ("sdk", "generic", "emulator")),
         "emulator_source": {"ro.kernel.qemu": qemu, "ro.product.name": product},
         "conntype": connection_type,
+        "connected_wifi_ssid": ssid_match.group(1).strip().strip('"') if ssid_match else None,
         "no_active_sim": no_active_sim,
     }, ensure_ascii=False, indent=2) + "\n")
 
@@ -971,7 +989,7 @@ def _device_context_evidence(field, info, image_path):
         "input_lang": ("Installed Keyboard Languages", info["input_lang"], info["actual"]["input_lang"], "Enabled Gboard subtypes"),
         "jailbreak": ("Root Status", info["jailbreak"], info["actual"]["jailbreak"], "su -c id · Android field name remains jailbreak"),
         "emulator": ("Emulator Detection", info["emulator"], info["actual"]["emulator"], "Android hardware properties"),
-        "conntype": ("Connection Type", info["conntype"], f'{info["actual"]["req_conntype"]} / {info["actual"]["conntype"]}', "Active Android network · req / ext"),
+        "conntype": ("Connection Type", info["conntype"], f'{info["actual"]["req_conntype"]} / {info["actual"]["conntype"]}', f'Connected Wi-Fi {info.get("connected_wifi_ssid") or "unknown"} · req / ext'),
         "carrier": ("Carrier", "empty · no active SIM" if info["no_active_sim"] else "active carrier", info["actual"]["carrier"], "Android subscription state"),
         "mccmnc": ("MCC/MNC", "empty · no active SIM" if info["no_active_sim"] else "active MCC/MNC", info["actual"]["mccmnc"], "Android subscription state"),
     }
