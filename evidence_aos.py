@@ -129,11 +129,16 @@ def _visible_ads_state(udid):
         switch_center = _bounds_center(selected.attrib.get("bounds"))
     delete_visible = any(node.attrib.get("text") == "Delete advertising ID" for node in nodes)
     renew_visible = any(node.attrib.get("text") == "Renew advertising ID" for node in nodes)
+    reset_visible = any(node.attrib.get("text") == "Reset advertising ID" for node in nodes)
+    get_new_visible = any(node.attrib.get("text") == "Get new advertising ID" for node in nodes)
     if delete_visible:
         ui_model = "delete-renew"
         tracking_allowed = True
     elif renew_visible:
         ui_model = "delete-renew"
+        tracking_allowed = False
+    elif get_new_visible:
+        ui_model = "delete-get-new"
         tracking_allowed = False
     elif opt_out is not None:
         ui_model = "legacy-opt-out"
@@ -147,6 +152,8 @@ def _visible_ads_state(udid):
         "switch_center": switch_center,
         "delete_visible": delete_visible,
         "renew_visible": renew_visible,
+        "reset_visible": reset_visible,
+        "get_new_visible": get_new_visible,
         "ui_model": ui_model,
         "tracking_allowed": tracking_allowed,
     }
@@ -207,7 +214,10 @@ def _open_ads_settings_via_search(udid):
     _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_settings.xml")
     opened = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_settings.xml", binary=True))
     actions = {node.attrib.get("text") for node in opened.iter("node")}
-    if not ({"Delete advertising ID", "Renew advertising ID"} & actions):
+    has_ads_control = bool(
+        {"Delete advertising ID", "Renew advertising ID", "Reset advertising ID", "Get new advertising ID"} & actions
+    ) or "Opt out of Ads Personalization" in actions
+    if not has_ads_control:
         raise EvidenceCaptureError("Privacy controls → Ads did not open the Advertising ID page")
 
 
@@ -232,7 +242,7 @@ def _position_visible_opt_out(udid):
 
 
 def _tap_ads_action(udid, label):
-    """Tap a visible Ads action and its confirmation, then wait for the inverse action."""
+    """Tap a visible Ads action and confirm its resulting real device state."""
     _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_action.xml")
     root = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_action.xml", binary=True))
     matches = [node for node in root.iter("node") if node.attrib.get("text") == label]
@@ -248,22 +258,24 @@ def _tap_ads_action(udid, label):
     confirm = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_confirm.xml", binary=True))
     buttons = [
         node for node in confirm.iter("node")
-        if node.attrib.get("text") == label and node.attrib.get("class") == "android.widget.Button"
+        if node.attrib.get("text") in {label, "Confirm", "OK"}
+        and node.attrib.get("class") == "android.widget.Button"
     ]
     if buttons:
         x, y = _bounds_center(buttons[-1].attrib.get("bounds"))
         _adb(udid, "shell", "input", "tap", str(x), str(y))
     time.sleep(1.2)
 
-    expected = "Renew advertising ID" if label == "Delete advertising ID" else "Delete advertising ID"
     for _ in range(5):
         state = _visible_ads_state(udid)
-        if (expected == "Renew advertising ID" and state["renew_visible"]) or (
-            expected == "Delete advertising ID" and state["delete_visible"]
+        if label == "Delete advertising ID" and state["tracking_allowed"] is False:
+            return state
+        if label in {"Renew advertising ID", "Reset advertising ID", "Get new advertising ID"} and (
+            state["tracking_allowed"] is True
         ):
             return state
         time.sleep(0.5)
-    raise EvidenceCaptureError(f"{label} did not change the page to {expected}")
+    raise EvidenceCaptureError(f"{label} did not produce the expected Advertising ID state")
 
 
 def capture_ads_settings(config):
@@ -278,7 +290,9 @@ def capture_ads_settings(config):
     _open_ads_settings_via_search(config.udid)
     time.sleep(2)
     state = _position_visible_opt_out(config.udid)
-    if state["ui_model"] == "delete-renew" and state["renew_visible"]:
+    if state["get_new_visible"]:
+        state = _tap_ads_action(config.udid, "Get new advertising ID")
+    elif state["ui_model"] == "delete-renew" and state["renew_visible"]:
         state = _tap_ads_action(config.udid, "Renew advertising ID")
     elif state["ui_model"] == "legacy-opt-out" and state["opt_out"]:
         x, y = state["switch_center"]

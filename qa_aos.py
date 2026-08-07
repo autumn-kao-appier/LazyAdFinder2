@@ -32,6 +32,7 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
@@ -431,17 +432,17 @@ AD_REQUEST_RE = re.compile(
 )
 LOADED_RE = re.compile(r"onAdLoaded\(\)")
 NO_BID_RE = re.compile(r"onAdNoBid\(\)")
-IMPRESSION_RE = re.compile(
-    r"Requesting impression tracker:.*?[?&]cid=([^&\s]+).*?[&]crid=([^&\s]+)"
-)
+IMPRESSION_URL_RE = re.compile(r"Requesting impression tracker:\s*(\S+)")
 
 
-def scan_logcat():
+def scan_logcat(offset=0):
     request = None
     status = None
     identity = None
     try:
-        lines = LOGCAT_FILE.read_text(errors="replace").splitlines()
+        with LOGCAT_FILE.open("rb") as stream:
+            stream.seek(offset)
+            lines = stream.read().decode(errors="replace").splitlines()
     except OSError:
         return request, status, identity
 
@@ -456,19 +457,24 @@ def scan_logcat():
             status = "200"
         elif NO_BID_RE.search(line):
             status = "204"
-        match = IMPRESSION_RE.search(line)
+        match = IMPRESSION_URL_RE.search(line)
         if match:
-            identity = {"cid": match.group(1), "crid": match.group(2)}
+            values = parse_qs(urlsplit(match.group(1)).query)
+            identity = {
+                key: values[key][0]
+                for key in ("bidobjid", "cid", "crid")
+                if values.get(key) and values[key][0]
+            }
     return request, status, identity
 
 
-def observe_bid():
+def observe_bid(logcat_offset=0):
     request = _read_json(BID_FILE)
     status = _read_text(BID_STATUS_FILE) or None
     identity = _read_json(IMPRESSION_FILE)
     source = "proxy" if request is not None else None
 
-    log_request, log_status, log_identity = scan_logcat()
+    log_request, log_status, log_identity = scan_logcat(logcat_offset)
     if request is None and log_request is not None:
         request = log_request
         source = "logcat"
@@ -477,7 +483,7 @@ def observe_bid():
     return request, status, identity, source
 
 
-def wait_for_bid(config, proxy_only=False):
+def wait_for_bid(config, proxy_only=False, logcat_offset=0):
     deadline = time.monotonic() + config.bid_timeout
     while time.monotonic() < deadline:
         if proxy_only:
@@ -486,14 +492,14 @@ def wait_for_bid(config, proxy_only=False):
             identity = _read_json(IMPRESSION_FILE)
             source = "proxy" if request is not None else None
         else:
-            request, status, identity, source = observe_bid()
+            request, status, identity, source = observe_bid(logcat_offset)
         if eligible(config, request, status, identity):
             return request, status, identity, source
         time.sleep(0.2)
     if proxy_only:
         request = _read_json(BID_FILE)
         return request, _read_text(BID_STATUS_FILE) or None, _read_json(IMPRESSION_FILE), "proxy" if request is not None else None
-    return observe_bid()
+    return observe_bid(logcat_offset)
 
 
 def eligible(config, request, status, identity):
@@ -733,9 +739,10 @@ def _return_to_placement(driver, config):
 
 def _sequence_request(driver, config, folder, number, label):
     clear_detector_state()
+    logcat_offset = LOGCAT_FILE.stat().st_size if LOGCAT_FILE.exists() else 0
     if not tap_placement(driver, config):
         raise CaptureError(f"R3 {label}: cannot tap {config.trigger_text!r}")
-    request, status, identity, source = wait_for_bid(config, proxy_only=True)
+    request, status, identity, source = wait_for_bid(config, logcat_offset=logcat_offset)
     if not eligible(config, request, status, identity):
         raise CaptureError(f"R3 {label}: no eligible bid/impression")
     decoded = decoded_bid(request)
@@ -862,16 +869,19 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
 
                 print(f"[capture] attempt {attempt}: tap {config.trigger_text!r}")
                 failed_step = f"capture-attempt-{attempt}"
+                logcat_offset = LOGCAT_FILE.stat().st_size if LOGCAT_FILE.exists() else 0
                 if not tap_placement(driver, config):
                     driver.activate_app(config.app_package)
                     time.sleep(config.retry_delay)
                     continue
 
-                request, status, identity, source = wait_for_bid(config, proxy_only=completed_warmups > 0)
+                request, status, identity, source = wait_for_bid(
+                    config, logcat_offset=logcat_offset
+                )
                 if eligible(config, request, status, identity):
                     if completed_warmups < warmup_ads:
-                        if not identity:
-                            print("[warmup] bid received without a confirmed impression; retrying")
+                        if not identity or not identity.get("bidobjid"):
+                            print("[warmup] bid received without a confirmed bidobjid; retrying")
                             time.sleep(config.retry_delay)
                             continue
                         warmup_impression = identity
@@ -879,6 +889,16 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                         print(f"[warmup] confirmed ad {completed_warmups}/{warmup_ads}; continuing in the same app session")
                         time.sleep(config.retry_delay)
                         continue
+                    if warmup_impression is not None:
+                        previous_bidobjid = warmup_impression.get("bidobjid")
+                        current_bidobjid = identity.get("bidobjid") if identity else None
+                        if not current_bidobjid or current_bidobjid == previous_bidobjid:
+                            print(
+                                "[retry] waiting for a distinct second bidobjid "
+                                f"(previous={previous_bidobjid!r}, current={current_bidobjid!r})"
+                            )
+                            time.sleep(config.retry_delay)
+                            continue
                     if settle_delay:
                         print(f"[capture] waiting {settle_delay:g}s for trailing E2E events")
                         time.sleep(settle_delay)
@@ -891,6 +911,9 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                     if warmup_impression is not None:
                         (folder / "previous-impression.json").write_text(
                             json.dumps(warmup_impression, ensure_ascii=False, indent=2) + "\n"
+                        )
+                        (folder / "current-impression.json").write_text(
+                            json.dumps(identity, ensure_ascii=False, indent=2) + "\n"
                         )
                     print(f"[captured] {folder}")
                     return folder
