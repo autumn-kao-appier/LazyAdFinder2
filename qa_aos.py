@@ -29,16 +29,21 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
 from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
-from evidence_aos import collect as collect_evidence
+from evidence_aos import collect as collect_evidence, capture_ads_settings
 from evidence_bundle import decoded_bid, finalize_bundle
-from testcases.android_signal_testcases import ROUND_DEFINITIONS, TC_DEFINITIONS
+from testcases.android_signal_testcases import (
+    ROUND_DEFINITIONS, TC_DEFINITIONS, R5_PRIVACY_KEYS, R5_ALTERNATE_KEYS,
+    R5_DISPLAY_AUDIO_HIGH_KEYS, R5_TIMEZONE_KEYS, R5_LOCATION_DENIED_KEYS,
+)
+from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
+from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
 from testcases.e2e.android_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
 from testcases.e2e.android_e2e_baseline import validate_bundle as validate_baseline_e2e
 from testcases.e2e.android_admob_mediation_extensions import TESTCASES as ADMOB_E2E_EXTENSIONS
@@ -60,6 +65,7 @@ BID_STATUS_FILE = Path("/tmp/appier_bid_status")
 BID_RESPONSE_FILE = Path("/tmp/appier_bid_response.json")
 IMPRESSION_FILE = Path("/tmp/appier_impression.json")
 EVENTS_FILE = Path("/tmp/appier_proxy_events.jsonl")
+NET_PROBE_RESPONSE_FILE = Path("/tmp/appier_net_probe_response.json")
 ADMOB_RAW_FILES = (
     Path("/tmp/admob_pubsetting_request.bin"),
     Path("/tmp/admob_pubsetting_response.bin"),
@@ -74,6 +80,7 @@ DETECTOR_FILES = (
     BID_RESPONSE_FILE,
     IMPRESSION_FILE,
     EVENTS_FILE,
+    NET_PROBE_RESPONSE_FILE,
     *ADMOB_RAW_FILES,
 )
 
@@ -96,6 +103,23 @@ class CaptureConfig:
     max_attempts: int
     phase_timeout: float
     accept_request: bool
+
+
+@dataclass(frozen=True)
+class ScenarioPlan:
+    label: str
+    testcase_keys: tuple
+    decision: str = "RUN"
+    reason: str = ""
+    checks: object = None
+
+
+@dataclass(frozen=True)
+class ExecutionPlan:
+    round_name: str
+    test_mode: str
+    test_type: str
+    scenarios: tuple
 
 
 class CaptureError(RuntimeError):
@@ -143,6 +167,58 @@ def adb(udid, *args, check=True):
         detail = result.stderr.strip() or result.stdout.strip() or "unknown adb error"
         raise CaptureError(f"adb {' '.join(args)} failed: {detail}")
     return result.stdout.strip()
+
+
+def _restore_setting(udid, namespace, key, value):
+    if value in {"", "null", None}:
+        adb(udid, "shell", "settings", "delete", namespace, key, check=False)
+    else:
+        adb(udid, "shell", "settings", "put", namespace, key, str(value), check=False)
+
+
+def lock_portrait(config):
+    """Lock Android to portrait before any automation and verify the active viewport."""
+    state = {
+        "accelerometer_rotation": adb(
+            config.udid, "shell", "settings", "get", "system", "accelerometer_rotation",
+            check=False,
+        ).strip(),
+        "user_rotation": adb(
+            config.udid, "shell", "settings", "get", "system", "user_rotation",
+            check=False,
+        ).strip(),
+    }
+    try:
+        adb(config.udid, "shell", "settings", "put", "system", "accelerometer_rotation", "0")
+        adb(config.udid, "shell", "settings", "put", "system", "user_rotation", "0")
+        time.sleep(0.8)
+        current = adb(config.udid, "shell", "dumpsys", "input", check=False)
+        active_viewports = re.findall(
+            r"Viewport INTERNAL:.*?orientation=(\d).*?isActive=\[1\]",
+            current,
+        )
+        if not active_viewports or any(value != "0" for value in active_viewports):
+            raise CaptureError(
+                "Automation requires portrait orientation (ROTATION_0); "
+                f"active viewport rotations={active_viewports or ['unknown']}"
+            )
+        print("[orientation] portrait locked (ROTATION_0)")
+        return state
+    except Exception:
+        restore_orientation(config, state)
+        raise
+
+
+def restore_orientation(config, state):
+    if not state:
+        return
+    _restore_setting(
+        config.udid, "system", "user_rotation", state.get("user_rotation")
+    )
+    _restore_setting(
+        config.udid, "system", "accelerometer_rotation", state.get("accelerometer_rotation")
+    )
+    print("[orientation] restored original rotation settings")
 
 
 def detect_udid(requested=""):
@@ -218,7 +294,10 @@ def create_driver(config):
     options.app_activity = config.app_activity
     options.no_reset = True
     options.udid = config.udid
-    return webdriver.Remote(APPIUM_URL, options=options)
+    driver = webdriver.Remote(APPIUM_URL, options=options)
+    if str(driver.orientation).upper() != "PORTRAIT":
+        driver.orientation = "PORTRAIT"
+    return driver
 
 
 def find_visible_text(driver, text):
@@ -446,6 +525,168 @@ def create_capture_folder(config, capture_name):
     folder = round_dir / f"{_safe_label(capture_name, 'CAPTURE')}_{timestamp}"
     folder.mkdir(parents=True, exist_ok=False)
     return folder
+
+
+def record_skip(config, round_name, scenario, reason, checks=None):
+    """Record an unmet precondition without manufacturing a verdict."""
+    folder = create_capture_folder(config, f"{round_name}-{scenario}-SKIPPED")
+    document = {
+        "status": "SKIPPED",
+        "round": round_name,
+        "scenario": scenario,
+        "reason": reason,
+        "checks": checks or {},
+        "recorded_at": datetime.now().astimezone().isoformat(),
+        "policy": "No device mutation, capture, or verdict was produced.",
+    }
+    (folder / "round-skip.json").write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    )
+    print(f"[{round_name} {scenario}] SKIPPED: {reason}")
+    return folder
+
+
+def ipv6_preflight(config):
+    """Check Android IPv6 prerequisites without relying on ICMP reachability."""
+    addresses = adb(
+        config.udid, "shell", "ip", "-6", "addr", "show", "scope", "global",
+        check=False,
+    )
+    routes = adb(
+        config.udid, "shell", "ip", "-6", "route", "show", "default",
+        check=False,
+    )
+    global_addresses = re.findall(r"\binet6\s+([^\s/]+)/\d+", addresses)
+    usable = [
+        address for address in global_addresses
+        if address != "::" and not address.lower().startswith("fe80:")
+    ]
+    checks = {
+        "global_ipv6_addresses": usable,
+        "default_ipv6_route": routes.strip() or None,
+    }
+    if not usable:
+        return False, "Android has no usable global IPv6 address on the current network", checks
+    if not routes.strip():
+        return False, "Android has no default IPv6 route on the current network", checks
+    return True, "IPv6 address and route are available", checks
+
+
+def privacy_scenario_preflight(config):
+    """Privacy-denied identity validation is an AIBID-only Scenario."""
+    campaign_type = config.test_type.strip().lower()
+    if campaign_type in {"reen-static", "reen-dynamic"}:
+        return False, (
+            "REEN cannot validate the tracking-denied identity flow because "
+            "the advertising identifier is unavailable"
+        ), {
+            "test_type": campaign_type,
+            "required_identity": "advertising identifier",
+        }
+    return True, "AIBID Privacy Scenario is required", {"test_type": campaign_type}
+
+
+def location_permission_preflight(config):
+    package = adb(config.udid, "shell", "dumpsys", "package", config.app_package, check=False)
+    permissions = [
+        permission for permission in (
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION",
+        ) if permission in package
+    ]
+    available = bool(permissions)
+    return available, (
+        "Sample App declares a location permission"
+        if available else "Sample App declares no location permission to revoke"
+    ), {"declared_permissions": permissions}
+
+
+def resolve_execution_plan(args):
+    """Resolve Round, Scenarios, and TestCases without touching a device."""
+    mode = args.test_mode.strip().lower()
+    test_type = args.test_type.strip().lower()
+    if mode not in MODE_TABS:
+        raise CaptureError(f"Unsupported TEST_MODE={mode!r}")
+    if test_type not in {"aibid", "reen-static", "reen-dynamic"}:
+        raise CaptureError(f"Unsupported TEST_TYPE={test_type!r}")
+    if args.command == "capture":
+        return ExecutionPlan(
+            round_name="MANUAL",
+            test_mode=mode,
+            test_type=test_type,
+            scenarios=(ScenarioPlan(args.capture_name, ()),),
+        )
+
+    name = args.name.strip().upper()
+    if name in ROUND_DEFINITIONS and name != "R5":
+        definition = ROUND_DEFINITIONS[name]
+        scenarios = (ScenarioPlan(definition.capture_name, tuple(definition.testcase_keys)),)
+    elif name == "R4":
+        scenarios = (ScenarioPlan("IPV6-REFRESH", tuple(IPV6_TESTCASES)),)
+    elif name == "R5":
+        scenarios = (
+            ScenarioPlan("PRIVACY-DENIED", R5_PRIVACY_KEYS),
+            ScenarioPlan("ALTERNATE-DEVICE-STATE", R5_ALTERNATE_KEYS),
+            ScenarioPlan("DISPLAY-AUDIO-HIGH", R5_DISPLAY_AUDIO_HIGH_KEYS),
+            ScenarioPlan("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS),
+            ScenarioPlan("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS),
+        )
+    elif name == "E2E-STANDALONE":
+        if mode != "standalone":
+            raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
+        scenarios = (ScenarioPlan(name, tuple(BASELINE_E2E_TESTCASES)),)
+    elif name == "E2E-ADMOB":
+        if mode != "admob-mediation":
+            raise CaptureError("E2E-ADMOB requires TEST_MODE=admob-mediation")
+        scenarios = (ScenarioPlan(name, tuple(BASELINE_E2E_TESTCASES) + tuple(ADMOB_E2E_EXTENSIONS)),)
+    else:
+        available = sorted(set(ROUND_DEFINITIONS) | {"R4", "E2E-STANDALONE", "E2E-ADMOB"})
+        raise CaptureError(f"Round {name!r} is not defined; available rounds: {', '.join(available)}")
+    known_testcases = set(TC_DEFINITIONS) | set(IPV6_TESTCASES) | set(BASELINE_E2E_TESTCASES) | set(ADMOB_E2E_EXTENSIONS)
+    unknown = sorted({key for scenario in scenarios for key in scenario.testcase_keys if key not in known_testcases})
+    if unknown:
+        raise CaptureError(
+            f"Execution Plan {name} references unknown TestCases: {', '.join(unknown)}"
+        )
+    return ExecutionPlan(name, mode, test_type, tuple(scenarios))
+
+
+def preflight_execution_plan(plan, config):
+    """Finalize RUN/SKIP decisions using read-only device probes."""
+    resolved = []
+    for scenario in plan.scenarios:
+        probe = None
+        if plan.round_name == "R4" and scenario.label == "IPV6-REFRESH":
+            probe = ipv6_preflight
+        elif plan.round_name == "R5" and scenario.label == "PRIVACY-DENIED":
+            probe = privacy_scenario_preflight
+        elif plan.round_name == "R5" and scenario.label == "LOCATION-PERMISSION-DENIED":
+            probe = location_permission_preflight
+        if probe is None:
+            resolved.append(scenario)
+            continue
+        ready, reason, checks = probe(config)
+        resolved.append(replace(
+            scenario,
+            decision="RUN" if ready else "SKIP",
+            reason=reason,
+            checks=checks,
+        ))
+    return replace(plan, scenarios=tuple(resolved))
+
+
+def print_execution_plan(plan, config):
+    print("\n[execution plan]")
+    print(f"  platform: AOS")
+    print(f"  mode:     {plan.test_mode}")
+    print(f"  type:     {plan.test_type}")
+    print(f"  CID:      {config.test_cid or '(any request)'}")
+    print(f"  Round:    {plan.round_name}")
+    for scenario in plan.scenarios:
+        print(f"  [{scenario.decision}] {scenario.label}")
+        if scenario.reason:
+            print(f"         reason: {scenario.reason}")
+        print(f"         TC ({len(scenario.testcase_keys)}): {', '.join(scenario.testcase_keys) or '(raw capture)'}")
 
 
 def device_evidence(config):
@@ -688,7 +929,128 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                 print(f"[warn] Appium session cleanup failed: {exc}", file=sys.stderr)
 
 
-def run_round(config, name):
+def _r4_checkpoint(label, instruction):
+    print(f"\n[R4 checkpoint: {label}]\n{instruction}")
+    if not sys.stdin.isatty():
+        print("[R4] non-interactive terminal; remaining operator-controlled steps are BLOCKED")
+        return False
+    answer = input("完成後按 Enter；輸入 skip 停止本輪：").strip().lower()
+    return answer not in {"skip", "s", "stop", "q", "quit"}
+
+
+def _r4_capture_in_session(driver, config, name, wait_seconds):
+    folder = create_capture_folder(config, name)
+    started_at = datetime.now().astimezone().isoformat()
+    clear_detector_state()
+    request = status = identity = source = None
+    try:
+        driver.activate_app(config.app_package)
+        if find_visible_text(driver, config.trigger_text) is None:
+            select_tab(driver, config.tab_text, config.trigger_text)
+        print(f"[R4] wait {wait_seconds}s for the Appier IPv6 probe before {name}")
+        time.sleep(wait_seconds)
+        if not tap_placement(driver, config):
+            raise CaptureError(f"cannot tap {config.trigger_text!r}")
+        request, status, identity, source = wait_for_bid(config, proxy_only=True)
+        if not eligible(config, request, status, identity):
+            raise CaptureError("no eligible ad request after the network transition")
+        save_evidence(driver, config, folder, started_at, request, status, identity, source)
+        _return_to_placement(driver, config)
+        return folder
+    except Exception as exc:
+        finalize_bundle(
+            folder,
+            driver=driver,
+            platform="aos",
+            config=config,
+            device=device_evidence(config),
+            started_at=started_at,
+            request=request,
+            status=status,
+            identity=identity,
+            source=source,
+            result="INTERRUPTED",
+            failed_step=name,
+            error=str(exc),
+            capture_log=LOGCAT_FILE,
+        )
+        return folder
+
+
+def run_ipv6_refresh_round(config):
+    """Run AOS R4 in one Appium session while the operator changes networks."""
+    folders = []
+    context = {
+        "platform": "aos",
+        "same_appium_session": True,
+        "slow_network_confirmed": False,
+    }
+    driver = None
+    try:
+        with LogcatRecorder(config.udid):
+            adb(config.udid, "shell", "am", "force-stop", config.app_package)
+            driver = create_driver(config)
+            driver.activate_app(config.app_package)
+            folders.append(_r4_capture_in_session(driver, config, "AOS-NET-01", 10))
+
+            preflight = validate_ipv6_sequence(folders, context)
+            if preflight and preflight[0].get("status") == "BLOCKED":
+                print("[R4] IPv6 preflight passed, but the executed Appier probe was unavailable; stop remaining transitions")
+            elif _r4_checkpoint(
+                "AOS-NET-02",
+                "App 保持開啟。請從 network A 切到 network B（另一個 Wi-Fi／hotspot），確認已連線。",
+            ):
+                folders.append(_r4_capture_in_session(driver, config, "AOS-NET-02", 10))
+                if _r4_checkpoint(
+                    "AOS-NET-03",
+                    "App 保持開啟。關閉 Wi-Fi，等待 10 秒，再開啟並重新連線；確認可上網。",
+                ):
+                    folders.append(_r4_capture_in_session(driver, config, "AOS-NET-03", 10))
+                    if _r4_checkpoint(
+                        "AOS-NET-04",
+                        "快速切換 network A → B → A → B；最後停在 network B。",
+                    ):
+                        folders.append(_r4_capture_in_session(driver, config, "AOS-NET-04", 10))
+                        if _r4_checkpoint(
+                            "AOS-NET-05",
+                            "啟用 1～2 秒延遲的 Charles throttle，保持 App 開啟並切換 Wi-Fi。",
+                        ):
+                            context["slow_network_confirmed"] = True
+                            folders.append(_r4_capture_in_session(driver, config, "AOS-NET-05", 15))
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception as exc:
+                print(f"[warn] Appium session cleanup failed: {exc}", file=sys.stderr)
+
+    if not folders:
+        raise CaptureError("R4 did not create any Evidence folder")
+    result_folder = folders[-1]
+    sequence = {
+        "round": "R4",
+        "platform": "aos",
+        "same_appium_session": True,
+        "slow_network_confirmed": context["slow_network_confirmed"],
+        "captures": [str(folder) for folder in folders],
+    }
+    (result_folder / "r4-network-sequence.json").write_text(
+        json.dumps(sequence, ensure_ascii=False, indent=2) + "\n"
+    )
+    rows = validate_ipv6_sequence(folders, context)
+    (result_folder / "verdicts.json").write_text(
+        json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+    )
+    return [result_folder]
+
+
+def run_round(config, plan):
+    name = plan.round_name
+    if name == "R4":
+        scenario = plan.scenarios[0]
+        if scenario.decision == "SKIP":
+            return [record_skip(config, name, scenario.label, scenario.reason, scenario.checks)]
+        return run_ipv6_refresh_round(config)
     if name == "E2E-STANDALONE":
         if config.test_mode != "standalone":
             raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
@@ -715,6 +1077,163 @@ def run_round(config, name):
             json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
         )
         return [folder]
+    if name == "R5":
+        folders = []
+
+        scenario_plans = {scenario.label: scenario for scenario in plan.scenarios}
+
+        def run_scenario(label, keys, mutate, restore):
+            testcases = [TC_DEFINITIONS[key] for key in keys]
+            required = tuple(evidence for testcase in testcases for evidence in testcase.evidence)
+            scenario = scenario_plans[label]
+            if scenario.decision == "SKIP":
+                folders.append(record_skip(config, "R5", label, scenario.reason, scenario.checks))
+                return
+            phase = "state mutation"
+            scenario_error = None
+            try:
+                mutate()
+                phase = "Evidence capture"
+                folder = collect_evidence(
+                    config, required,
+                    lambda setup: capture(config, capture_name=label, setup=setup),
+                )
+                phase = "TestCase validation"
+                rows = []
+                for testcase in testcases:
+                    try:
+                        rows.append(testcase.validate(folder))
+                    except Exception as exc:
+                        row = blocked(testcase.key, str(exc)).to_dict()
+                        row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+                        rows.append(row)
+                (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+                folders.append(folder)
+            except Exception as exc:
+                scenario_error = exc
+                evidence_folder = getattr(exc, "evidence_folder", None)
+                if evidence_folder is not None:
+                    rows = []
+                    for testcase in testcases:
+                        row = blocked(testcase.key, f"R5 {label} failed at {phase}: {exc}").to_dict()
+                        row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+                        rows.append(row)
+                    (Path(evidence_folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+                    folders.append(Path(evidence_folder))
+            finally:
+                try:
+                    restore()
+                except Exception as restore_exc:
+                    print(f"[R5 {label}] restore failed: {restore_exc}", file=sys.stderr)
+                    if folders:
+                        (folders[-1] / "restore-error.txt").write_text(str(restore_exc) + "\n")
+            if scenario_error is not None:
+                print(f"[R5 {label}] failed: {scenario_error}", file=sys.stderr)
+
+        def privacy_mutate():
+            print("[R5 Privacy] Opt out will be enabled by direct Ads Settings evidence capture")
+
+        def privacy_restore():
+            print("[R5 Privacy] restoring tracking-allowed baseline")
+            capture_ads_settings(config)
+
+        original = {}
+        def alternate_mutate():
+            original.update({
+                "dark": adb(config.udid, "shell", "cmd", "uimode", "night").strip(),
+                "font": adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip(),
+                "brightness": adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip(),
+                "low_power": adb(config.udid, "shell", "settings", "get", "global", "low_power").strip(),
+            })
+            volume = adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
+            match = re.search(r"volume is (\d+)", volume)
+            if not match:
+                raise CaptureError(f"cannot read original media volume: {volume!r}")
+            original["volume"] = match.group(1)
+            adb(config.udid, "shell", "cmd", "uimode", "night", "yes")
+            adb(config.udid, "shell", "settings", "put", "system", "font_scale", "1.5")
+            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "0")
+            adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", "0")
+            adb(config.udid, "shell", "dumpsys", "battery", "unplug")
+            original["battery_simulated"] = True
+            adb(config.udid, "shell", "settings", "put", "global", "low_power", "1")
+
+        def alternate_restore():
+            if not original:
+                return
+            if "dark" in original:
+                dark = "yes" if original["dark"].lower().endswith("yes") else "no"
+                adb(config.udid, "shell", "cmd", "uimode", "night", dark, check=False)
+            if "font" in original:
+                adb(config.udid, "shell", "settings", "put", "system", "font_scale", original["font"], check=False)
+            if "brightness" in original:
+                adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", original["brightness"], check=False)
+            if "volume" in original:
+                adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", original["volume"], check=False)
+            if original.get("battery_simulated"):
+                adb(config.udid, "shell", "dumpsys", "battery", "reset", check=False)
+            if "low_power" in original:
+                adb(config.udid, "shell", "settings", "put", "global", "low_power", original["low_power"], check=False)
+            print("[R5 Alternate] restored original display/audio/power state")
+
+        high_original = {}
+        def display_audio_high_mutate():
+            high_original["brightness"] = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
+            volume = adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
+            current = re.search(r"volume is (\d+)", volume)
+            audio = adb(config.udid, "shell", "dumpsys", "audio")
+            maximum = re.search(r"- STREAM_MUSIC:.*?Max:\s*(\d+)", audio, re.DOTALL)
+            if not current or not maximum:
+                raise CaptureError("cannot read Android media volume current/max")
+            high_original["volume"] = current.group(1)
+            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "255")
+            adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", maximum.group(1))
+
+        def display_audio_high_restore():
+            if "brightness" in high_original:
+                adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", high_original["brightness"], check=False)
+            if "volume" in high_original:
+                adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", high_original["volume"], check=False)
+            print("[R5 Display/Audio High] restored original brightness and volume")
+
+        timezone_original = {}
+        def timezone_mutate():
+            timezone_original["timezone"] = adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip() or "Asia/Taipei"
+            adb(config.udid, "shell", "cmd", "alarm", "set-timezone", "America/New_York")
+
+        def timezone_restore():
+            if timezone_original.get("timezone"):
+                adb(config.udid, "shell", "cmd", "alarm", "set-timezone", timezone_original["timezone"], check=False)
+            print("[R5 Timezone] restored original timezone")
+
+        location_original = {}
+        def location_denied_mutate():
+            permission = adb(
+                config.udid, "shell", "cmd", "package", "check-permission",
+                "android.permission.ACCESS_FINE_LOCATION", config.app_package, "0", check=False,
+            ).strip().lower()
+            location_original["fine_granted"] = "granted" in permission
+            coarse = adb(
+                config.udid, "shell", "cmd", "package", "check-permission",
+                "android.permission.ACCESS_COARSE_LOCATION", config.app_package, "0", check=False,
+            ).strip().lower()
+            location_original["coarse_granted"] = "granted" in coarse
+            adb(config.udid, "shell", "pm", "revoke", config.app_package, "android.permission.ACCESS_FINE_LOCATION", check=False)
+            adb(config.udid, "shell", "pm", "revoke", config.app_package, "android.permission.ACCESS_COARSE_LOCATION", check=False)
+
+        def location_denied_restore():
+            if location_original.get("coarse_granted"):
+                adb(config.udid, "shell", "pm", "grant", config.app_package, "android.permission.ACCESS_COARSE_LOCATION", check=False)
+            if location_original.get("fine_granted"):
+                adb(config.udid, "shell", "pm", "grant", config.app_package, "android.permission.ACCESS_FINE_LOCATION", check=False)
+            print("[R5 Location] restored original location permissions")
+
+        run_scenario("PRIVACY-DENIED", R5_PRIVACY_KEYS, privacy_mutate, privacy_restore)
+        run_scenario("ALTERNATE-DEVICE-STATE", R5_ALTERNATE_KEYS, alternate_mutate, alternate_restore)
+        run_scenario("DISPLAY-AUDIO-HIGH", R5_DISPLAY_AUDIO_HIGH_KEYS, display_audio_high_mutate, display_audio_high_restore)
+        run_scenario("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS, timezone_mutate, timezone_restore)
+        run_scenario("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS, location_denied_mutate, location_denied_restore)
+        return folders
     round_definition = ROUND_DEFINITIONS.get(name)
     if not round_definition:
         available = ", ".join(sorted(ROUND_DEFINITIONS)) or "none"
@@ -785,11 +1304,18 @@ def publish_completed_round(evidence_dir, folders):
     if not folders:
         print("[publish] skipped; this Round produced no Evidence folder", file=sys.stderr)
         return None
-    missing = [folder for folder in folders if not (folder / "verdicts.json").is_file()]
+    completed = [folder for folder in folders if (folder / "verdicts.json").is_file()]
+    skipped = [folder for folder in folders if (folder / "round-skip.json").is_file()]
+    missing = [folder for folder in folders if folder not in completed and folder not in skipped]
     if missing:
         joined = ", ".join(str(folder) for folder in missing)
         print(f"[publish] skipped; verdicts.json is not finalized: {joined}", file=sys.stderr)
         return None
+    if not completed:
+        print("[publish] skipped; all applicable Scenarios were skipped before execution")
+        return None
+    if skipped:
+        print(f"[publish] {len(skipped)} Scenario(s) skipped; publishing {len(completed)} completed result set(s)")
     if _env("AUTO_PUBLISH", "1") == "0":
         print("[publish] AUTO_PUBLISH=0; skipped")
         return None
@@ -829,7 +1355,6 @@ def build_parser():
         target.add_argument("--test-mode", default=_env("TEST_MODE"))
         target.add_argument("--test-type", default=_env("TEST_TYPE"))
         target.add_argument("--test-cid", default=_env("TEST_CID"))
-        target.add_argument("--test-round", default=_env("TEST_ROUND", "MANUAL"))
         target.add_argument("--trigger-text", default=_env("TRIGGER_TEXT", DEFAULT_TRIGGER_TEXT))
         target.add_argument("--tab-text", default=_env("TAB_TEXT"))
         target.add_argument("--udid", default=_env("UDID"))
@@ -843,7 +1368,7 @@ def build_parser():
     return parser
 
 
-def config_from_args(args):
+def config_from_args(args, plan):
     missing = [
         name
         for name, value in (
@@ -873,7 +1398,7 @@ def config_from_args(args):
         test_mode=mode,
         test_type=args.test_type.strip().lower(),
         test_cid=args.test_cid.strip(),
-        test_round=_safe_label(args.test_round, "MANUAL", 24),
+        test_round=_safe_label(plan.round_name, "MANUAL", 24),
         trigger_text=args.trigger_text.strip(),
         tab_text=tab_text,
         udid=udid,
@@ -896,32 +1421,44 @@ def main(argv=None):
         for name, definition in sorted(ROUND_DEFINITIONS.items()):
             tc_ids = ", ".join(definition.testcase_keys)
             print(f"{name}: {definition.capture_name} [{tc_ids}]")
+        print("R4: IPv6 network refresh [" + ", ".join(IPV6_TESTCASES) + "]")
         print("E2E-STANDALONE: S baseline [" + ", ".join(BASELINE_E2E_TESTCASES) + "]")
         print("E2E-ADMOB: S baseline + M extensions [" + ", ".join(ADMOB_E2E_EXTENSIONS) + "]")
         return 0
 
-    config = config_from_args(args)
+    plan = resolve_execution_plan(args)
+    config = config_from_args(args, plan)
+    plan = preflight_execution_plan(plan, config)
     print(f"[device] {config.udid}")
     print(f"[app]    {config.app_package}/{config.app_activity}")
     print(f"[mode]   {config.test_mode} ({config.tab_text})")
     print(f"[type]   {config.test_type}")
     print(f"[cid]    {config.test_cid or '(any request)'}")
-    print(f"[round]  {config.test_round}")
+    print_execution_plan(plan, config)
 
-    if args.command == "capture":
-        capture(config, capture_name=args.capture_name)
-    else:
-        try:
-            folders = run_round(config, args.name)
-        except Exception as exc:
-            evidence_folder = getattr(exc, "evidence_folder", None)
-            publish_completed_round(
-                config.evidence_dir,
-                [evidence_folder] if evidence_folder is not None else [],
-            )
-            raise
+    if args.command == "round" and all(scenario.decision == "SKIP" for scenario in plan.scenarios):
+        folders = run_round(config, plan)
+        publish_completed_round(config.evidence_dir, folders)
+        return 0
+
+    orientation_state = lock_portrait(config)
+    try:
+        if args.command == "capture":
+            capture(config, capture_name=args.capture_name)
         else:
-            publish_completed_round(config.evidence_dir, folders)
+            try:
+                folders = run_round(config, plan)
+            except Exception as exc:
+                evidence_folder = getattr(exc, "evidence_folder", None)
+                publish_completed_round(
+                    config.evidence_dir,
+                    [evidence_folder] if evidence_folder is not None else [],
+                )
+                raise
+            else:
+                publish_completed_round(config.evidence_dir, folders)
+    finally:
+        restore_orientation(config, orientation_state)
     return 0
 
 

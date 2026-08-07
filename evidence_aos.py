@@ -20,6 +20,7 @@ from pathlib import Path
 
 
 ADS_SETTINGS = "ads-settings"
+ADS_TRACKING_DENIED = "ads-tracking-denied"
 APP_SET_ID = "app-set-id"
 BID = "bid"
 BOOT_TIMESTAMPS = "boot-timestamps"
@@ -29,11 +30,17 @@ DEVICE_CONTEXT = "device-context"
 IN_APP_PURCHASE_HISTORY = "in-app-purchase-history"
 INSTALLED_APP_LIST = "installed-app-list"
 RESOURCE_STATUS = "resource-status"
+VOLUME_STATUS = "volume-status"
+TIMEZONE_STATUS = "timezone-status"
+LOCATION_PERMISSION_STATUS = "location-permission-status"
 SDK_BUILD_INFO = "sdk-build-info"
 ADS_SETTINGS_ACTION = "com.google.android.gms.settings.ADS_PRIVACY"
+SETTINGS_COMPONENT = "com.android.settings/.Settings"
 INSTALLED_APPS_SETTINGS_ACTION = "android.settings.MANAGE_APPLICATIONS_SETTINGS"
 SETUP_SCREENSHOT = Path("/tmp/laf2_ads_settings.png")
 SETUP_TRACKING_SCREENSHOT = Path("/tmp/laf2_tracking_allowed.png")
+SETUP_TRACKING_DENIED_SCREENSHOT = Path("/tmp/laf2_tracking_denied.png")
+SETUP_TRACKING_DENIED_STATE = Path("/tmp/laf2_tracking_denied_state.json")
 SETUP_STATE = Path("/tmp/laf2_ads_settings_state.json")
 SETUP_INSTALLED_APPS_SCREENSHOT = Path("/tmp/laf2_installed_apps_settings.png")
 SETUP_BOOT_TIME_REFERENCE = Path("/tmp/laf2_boot_time_reference.json")
@@ -50,6 +57,10 @@ SETUP_BATTERY_STATUS = Path("/tmp/laf2_battery_status.json")
 SETUP_DISPLAY_STATUS = Path("/tmp/laf2_display_status.json")
 SETUP_DEVICE_CONTEXT = Path("/tmp/laf2_device_context.json")
 SETUP_SOUND_SCREENSHOT = Path("/tmp/laf2_sound_settings.png")
+SETUP_VOLUME_STATUS = Path("/tmp/laf2_volume_status.json")
+SETUP_TIMEZONE_STATUS = Path("/tmp/laf2_timezone_status.json")
+SETUP_LOCATION_PERMISSION_STATUS = Path("/tmp/laf2_location_permission_status.json")
+SETUP_LOCATION_PERMISSION_SCREENSHOT = Path("/tmp/laf2_location_permission.png")
 SETUP_ABOUT_SCREENSHOT = Path("/tmp/laf2_about_settings.png")
 SETUP_DATETIME_SCREENSHOT = Path("/tmp/laf2_datetime_settings.png")
 SETUP_LANGUAGE_SCREENSHOT = Path("/tmp/laf2_language_settings.png")
@@ -117,6 +128,84 @@ def _visible_ads_state(udid):
     return gaid, opt_out, switch_center
 
 
+def _open_ads_settings_via_search(udid):
+    """Navigate via Settings search: Ads → Privacy controls → Ads."""
+    _adb(udid, "shell", "am", "force-stop", "com.android.settings")
+    _adb(udid, "shell", "am", "start", "-n", SETTINGS_COMPONENT)
+    time.sleep(1.5)
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_home.xml")
+    home = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_home.xml", binary=True))
+    search = next((node for node in home.iter("node") if node.attrib.get("text") == "Search Settings"), None)
+    if search is None:
+        raise EvidenceCaptureError("Settings home does not expose Search Settings")
+    x, y = _bounds_center(search.attrib.get("bounds"))
+    _adb(udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(0.5)
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_search.xml")
+    search_page = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_search.xml", binary=True))
+    edit = next((node for node in search_page.iter("node") if node.attrib.get("class") == "android.widget.EditText"), None)
+    if edit is None:
+        raise EvidenceCaptureError("Settings search input is unavailable")
+    x, y = _bounds_center(edit.attrib.get("bounds"))
+    _adb(udid, "shell", "input", "tap", str(x), str(y))
+    _adb(udid, "shell", "input", "text", "Ads")
+    breadcrumb = None
+    results = None
+    for _ in range(6):
+        time.sleep(0.5)
+        _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_search_results.xml")
+        results = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_search_results.xml", binary=True))
+        breadcrumb = next(
+            (node for node in results.iter("node") if "Privacy controls" in node.attrib.get("text", "")),
+            None,
+        )
+        if breadcrumb is not None:
+            break
+    if breadcrumb is None:
+        raise EvidenceCaptureError("Settings search for Ads did not return the Privacy controls result")
+    parents = {child: parent for parent in results.iter("node") for child in parent}
+    result_row = breadcrumb
+    while result_row is not None and result_row.attrib.get("clickable") != "true":
+        result_row = parents.get(result_row)
+    if result_row is None:
+        raise EvidenceCaptureError("Privacy controls search result is not clickable")
+    x, y = _bounds_center(result_row.attrib.get("bounds"))
+    _adb(udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(1.5)
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_privacy_controls.xml")
+    controls = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_privacy_controls.xml", binary=True))
+    ads = next((node for node in controls.iter("node") if node.attrib.get("text") == "Ads"), None)
+    if ads is None:
+        raise EvidenceCaptureError("Privacy controls does not expose the visible Ads preference")
+    x, y = _bounds_center(ads.attrib.get("bounds"))
+    _adb(udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(1.5)
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_settings.xml")
+    opened = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_settings.xml", binary=True))
+    if not any(node.attrib.get("text") == "Delete advertising ID" for node in opened.iter("node")):
+        raise EvidenceCaptureError("Privacy controls → Ads did not open the Advertising ID page")
+
+
+def _position_visible_opt_out(udid):
+    """Return the Ads page to the Opt-out row and reject clipped screenshots."""
+    for _ in range(7):
+        _adb(udid, "shell", "input", "swipe", "540", "650", "540", "1900", "300")
+        time.sleep(0.2)
+    gaid, opt_out, switch_center = _visible_ads_state(udid)
+    document = _adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_settings.xml", binary=True)
+    root = ET.fromstring(document)
+    title = next(
+        (node for node in root.iter("node") if node.attrib.get("text") == "Opt out of Ads Personalization"),
+        None,
+    )
+    if title is None or switch_center is None:
+        return gaid, None, None
+    bounds = [int(part) for part in re.findall(r"\d+", title.attrib.get("bounds", ""))]
+    if len(bounds) != 4 or bounds[1] < 250 or bounds[3] > 2250:
+        return gaid, None, None
+    return gaid, opt_out, switch_center
+
+
 def capture_ads_settings(config):
     """Open the human-readable Ads page, enforce tracking allowed, and photograph it."""
     for path in (SETUP_SCREENSHOT, SETUP_TRACKING_SCREENSHOT, SETUP_STATE):
@@ -124,26 +213,22 @@ def capture_ads_settings(config):
             path.unlink()
         except FileNotFoundError:
             pass
-    _adb(config.udid, "shell", "am", "start", "-a", ADS_SETTINGS_ACTION)
+    _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
+    _adb(config.udid, "shell", "input", "keyevent", "4", check=False)
+    _open_ads_settings_via_search(config.udid)
     time.sleep(2)
-    # The switch and GAID are on different parts of this page.  Capture them
-    # separately so each TC has direct, human-readable evidence.
-    for _ in range(5):
-        _adb(config.udid, "shell", "input", "swipe", "540", "550", "540", "1900", "350")
-        time.sleep(0.25)
-    gaid, opt_out, switch_center = _visible_ads_state(config.udid)
+    gaid, opt_out, switch_center = _position_visible_opt_out(config.udid)
     if opt_out is None or switch_center is None:
         raise EvidenceCaptureError("Cannot read the visible 'Opt out of Ads Personalization' switch")
     if opt_out:
-        _adb(config.udid, "shell", "input", "tap", str(switch_center[0]), str(switch_center[1]))
+        _adb(config.udid, "shell", "input", "tap", "540", str(switch_center[1] + 100))
         time.sleep(1)
-        _, opt_out, switch_center = _visible_ads_state(config.udid)
+        _, opt_out, switch_center = _position_visible_opt_out(config.udid)
         if opt_out:
             raise EvidenceCaptureError("Opt out of Ads Personalization remained enabled after tap")
     SETUP_TRACKING_SCREENSHOT.write_bytes(
         _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
     )
-
     gaid = ""
     opt_out = None
     switch_center = None
@@ -170,6 +255,49 @@ def materialize_ads_settings(folder):
         shutil.copy2(SETUP_STATE, state)
     if not screenshot.exists() or not tracking_screenshot.exists() or not state.exists():
         raise EvidenceCaptureError("visible Ads setting evidence is missing")
+
+
+def capture_tracking_denied(config):
+    """Enable visible Opt out and preserve direct privacy-state evidence."""
+    for path in (SETUP_TRACKING_DENIED_SCREENSHOT, SETUP_TRACKING_DENIED_STATE):
+        path.unlink(missing_ok=True)
+    _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
+    _adb(config.udid, "shell", "input", "keyevent", "4", check=False)
+    _open_ads_settings_via_search(config.udid)
+    time.sleep(2)
+    gaid, opt_out, switch_center = _position_visible_opt_out(config.udid)
+    if opt_out is None or switch_center is None:
+        raise EvidenceCaptureError("Cannot read the visible Opt out switch for denied tracking")
+    if not opt_out:
+        _adb(config.udid, "shell", "input", "tap", "540", str(switch_center[1] + 100))
+        time.sleep(0.5)
+        _adb(config.udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_confirm.xml")
+        confirm = ET.fromstring(_adb(config.udid, "exec-out", "cat", "/sdcard/laf2_ads_confirm.xml", binary=True))
+        ok = next((node for node in confirm.iter("node") if node.attrib.get("text") == "OK"), None)
+        if ok is not None:
+            x, y = _bounds_center(ok.attrib.get("bounds"))
+            _adb(config.udid, "shell", "input", "tap", str(x), str(y))
+        time.sleep(1)
+        gaid, opt_out, _ = _position_visible_opt_out(config.udid)
+    if opt_out is not True:
+        raise EvidenceCaptureError("Opt out of Ads Personalization did not become enabled")
+    SETUP_TRACKING_DENIED_SCREENSHOT.write_bytes(
+        _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
+    )
+    SETUP_TRACKING_DENIED_STATE.write_text(
+        json.dumps({
+            "gaid": gaid,
+            "opt_out": True,
+            "visual_contract": "opt-out-row-visible-v2",
+        }, indent=2) + "\n"
+    )
+
+
+def materialize_tracking_denied(folder):
+    folder = Path(folder)
+    shutil.copy2(SETUP_TRACKING_DENIED_SCREENSHOT, folder / "tracking-denied.png")
+    shutil.copy2(SETUP_TRACKING_DENIED_SCREENSHOT, folder / "advertising-id-opt-out.png")
+    shutil.copy2(SETUP_TRACKING_DENIED_STATE, folder / "tracking-denied-state.json")
 
 
 def _request_sdk_version(decoded):
@@ -451,10 +579,13 @@ def _parse_data_filesystem(raw):
         raise EvidenceCaptureError(f"Invalid df -k /data values: {raw!r}") from exc
 
 
-def _open_settings_screenshot(udid, component, target, expected_text):
+def _open_settings_screenshot(udid, component, target, expected_text, *, action=False):
     target.unlink(missing_ok=True)
-    escaped_component = component.replace("$", r"\$")
-    result = _adb(udid, "shell", "am", "start", "-W", "-n", escaped_component, check=False)
+    if action:
+        result = _adb(udid, "shell", "am", "start", "-W", "-a", component, check=False)
+    else:
+        escaped_component = component.replace("$", r"\$")
+        result = _adb(udid, "shell", "am", "start", "-W", "-n", escaped_component, check=False)
     if "Error" in result or "Exception" in result:
         return ""
     time.sleep(1.5)
@@ -652,8 +783,14 @@ def _key_value_lines(raw):
 
 
 def capture_battery_status(config):
-    battery_text = _open_settings_screenshot(config.udid, "com.android.settings/.Settings$PowerUsageSummaryActivity", SETUP_BATTERY_SCREENSHOT, "Battery")
-    saver_text = _open_settings_screenshot(config.udid, "com.android.settings/.Settings$BatterySaverSettingsActivity", SETUP_BATTERY_SAVER_SCREENSHOT, "Battery Saver")
+    battery_text = _open_settings_screenshot(
+        config.udid, "android.intent.action.POWER_USAGE_SUMMARY",
+        SETUP_BATTERY_SCREENSHOT, "Battery Saver", action=True,
+    )
+    saver_text = _open_settings_screenshot(
+        config.udid, "android.settings.BATTERY_SAVER_SETTINGS",
+        SETUP_BATTERY_SAVER_SCREENSHOT, "Battery Saver", action=True,
+    )
     if not battery_text or not saver_text:
         raise EvidenceCaptureError("native Battery or Battery Saver page is unavailable")
     raw = _adb(config.udid, "shell", "dumpsys", "battery")
@@ -887,6 +1024,113 @@ def _music_volume(raw):
     return current, maximum
 
 
+def capture_volume_status(config):
+    if not _open_settings_screenshot(
+        config.udid, "com.android.settings/.Settings$SoundSettingsActivity", SETUP_SOUND_SCREENSHOT, "Media volume"
+    ):
+        raise EvidenceCaptureError("native Sound & vibration page is unavailable")
+    current, maximum = _music_volume(_adb(config.udid, "shell", "dumpsys", "audio"))
+    SETUP_VOLUME_STATUS.write_text(json.dumps({"current": current, "max": maximum, "normalized": current / maximum}, indent=2) + "\n")
+
+
+def materialize_volume_status(folder):
+    folder = Path(folder)
+    info = json.loads(SETUP_VOLUME_STATUS.read_text())
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+    ext = decoded.get("ext", {}).get("plaintext", {})
+    device = ext.get("device", {}) if isinstance(ext, dict) else {}
+    device_ext = device.get("ext", {}) if isinstance(device, dict) else {}
+    info["actual"] = device_ext.get("volume") if isinstance(device_ext, dict) else None
+    (folder / "volume-status.json").write_text(json.dumps(info, indent=2) + "\n")
+    shutil.copy2(SETUP_SOUND_SCREENSHOT, folder / "volume-evidence.png")
+
+
+def capture_timezone_status(config):
+    if not _open_settings_screenshot(
+        config.udid,
+        "com.android.settings/.Settings$DateTimeSettingsActivity",
+        SETUP_DATETIME_SCREENSHOT,
+        "Time zone",
+    ):
+        raise EvidenceCaptureError("native Date & time page is unavailable")
+    SETUP_TIMEZONE_STATUS.write_text(json.dumps({
+        "timezone": _adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip(),
+        "utcoffset": _utc_offset_minutes(_adb(config.udid, "shell", "date", "+%z")),
+    }, indent=2) + "\n")
+
+
+def materialize_timezone_status(folder):
+    folder = Path(folder)
+    info = json.loads(SETUP_TIMEZONE_STATUS.read_text())
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+    info["actual"] = {
+        "req_utcoffset": decoded.get("req", {}).get("plaintext", {}).get("device", {}).get("utcoffset"),
+        "ext_utcoffset": decoded.get("ext", {}).get("plaintext", {}).get("device", {}).get("utcoffset"),
+    }
+    (folder / "timezone-status.json").write_text(json.dumps(info, indent=2) + "\n")
+    shutil.copy2(SETUP_DATETIME_SCREENSHOT, folder / "timezone-changed.png")
+
+
+def _tap_visible_text(udid, text):
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_tap.xml")
+    document = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_tap.xml", binary=True))
+    node = next((item for item in document.iter("node") if item.attrib.get("text") == text), None)
+    if node is None:
+        return False
+    x, y = _bounds_center(node.attrib.get("bounds"))
+    _adb(udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(1)
+    return True
+
+
+def capture_location_permission_status(config):
+    SETUP_LOCATION_PERMISSION_SCREENSHOT.unlink(missing_ok=True)
+    _adb(
+        config.udid, "shell", "am", "start", "-W", "-a",
+        "android.settings.APPLICATION_DETAILS_SETTINGS", "-d", f"package:{config.app_package}",
+    )
+    time.sleep(1)
+    if not _tap_visible_text(config.udid, "Permissions"):
+        raise EvidenceCaptureError("App info does not expose a visible Permissions row")
+    _adb(config.udid, "shell", "uiautomator", "dump", "/sdcard/laf2_location_permission.xml")
+    hierarchy = _adb(config.udid, "exec-out", "cat", "/sdcard/laf2_location_permission.xml", binary=True)
+    visible = hierarchy.decode(errors="replace")
+    if "Location" not in visible or "Not allowed" not in visible:
+        raise EvidenceCaptureError("Location permission is not visibly listed under Not allowed")
+    permission = _adb(
+        config.udid, "shell", "cmd", "package", "check-permission",
+        "android.permission.ACCESS_FINE_LOCATION", config.app_package, "0", check=False,
+    ).strip().lower()
+    denied = "granted" not in permission
+    if not denied:
+        raise EvidenceCaptureError("ACCESS_FINE_LOCATION is still granted")
+    SETUP_LOCATION_PERMISSION_SCREENSHOT.write_bytes(
+        _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
+    )
+    SETUP_LOCATION_PERMISSION_STATUS.write_text(json.dumps({
+        "permission": "android.permission.ACCESS_FINE_LOCATION",
+        "denied": True,
+        "command_result": permission,
+    }, indent=2) + "\n")
+
+
+def materialize_location_permission_status(folder):
+    folder = Path(folder)
+    info = json.loads(SETUP_LOCATION_PERMISSION_STATUS.read_text())
+    decoded = json.loads((folder / "bid_decoded.json").read_text())
+    info["actual"] = {}
+    for section in ("req", "ext"):
+        device = decoded.get(section, {}).get("plaintext", {}).get("device", {})
+        info["actual"][section] = {
+            "geo_lat_present": "geo_lat" in device,
+            "geo_lon_present": "geo_lon" in device,
+            "geo_lat": device.get("geo_lat"),
+            "geo_lon": device.get("geo_lon"),
+        }
+    (folder / "location-permission-status.json").write_text(json.dumps(info, indent=2) + "\n")
+    shutil.copy2(SETUP_LOCATION_PERMISSION_SCREENSHOT, folder / "location-permission-denied.png")
+
+
 def capture_device_context(config):
     pages = (
         ("com.android.settings/.Settings$SoundSettingsActivity", SETUP_SOUND_SCREENSHOT, "Media volume"),
@@ -1053,6 +1297,7 @@ def materialize_device_context(folder):
 
 EVIDENCE_CAPTURES = {
     ADS_SETTINGS: EvidenceProvider(capture_ads_settings, materialize_ads_settings),
+    ADS_TRACKING_DENIED: EvidenceProvider(capture_tracking_denied, materialize_tracking_denied),
     APP_SET_ID: EvidenceProvider(after_bid=capture_app_set_id_info),
     BID: EvidenceProvider(),
     BOOT_TIMESTAMPS: EvidenceProvider(
@@ -1071,6 +1316,9 @@ EVIDENCE_CAPTURES = {
         before_bid=capture_resource_status_reference,
         after_bid=materialize_resource_status,
     ),
+    VOLUME_STATUS: EvidenceProvider(capture_volume_status, materialize_volume_status),
+    TIMEZONE_STATUS: EvidenceProvider(capture_timezone_status, materialize_timezone_status),
+    LOCATION_PERMISSION_STATUS: EvidenceProvider(capture_location_permission_status, materialize_location_permission_status),
     SDK_BUILD_INFO: EvidenceProvider(after_bid=capture_sdk_build_info),
 }
 

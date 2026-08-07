@@ -33,9 +33,9 @@ from typing import Callable, Optional
 from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
 from evidence_bundle import finalize_bundle
-from testcases.ios_ipv6_refresh_testcases import ROUND_DEFINITIONS as IPV6_ROUNDS
-from testcases.ios_ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
-from testcases.ios_ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
+from testcases.ipv6_refresh_testcases import ROUND_DEFINITIONS as IPV6_ROUNDS
+from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
+from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
 
 
 # Add definitions only after the corresponding testcase and Round setup have
@@ -482,7 +482,7 @@ def _r4_capture_in_session(driver, config, name, wait_seconds):
 def run_ipv6_refresh_round(config):
     """Run R4 in one live App session; humans control network transitions."""
     folders = []
-    context = {"same_appium_session": True, "slow_network_confirmed": False}
+    context = {"platform": "ios", "same_appium_session": True, "slow_network_confirmed": False}
     driver = None
     try:
         clear_syslog_state()

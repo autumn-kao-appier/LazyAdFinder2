@@ -13,6 +13,7 @@ PROXY_ARTIFACTS = {
     Path("/tmp/appier_bid_response.json"): "bid_response.json",
     Path("/tmp/appier_impression.json"): "impression.json",
     Path("/tmp/appier_proxy_events.jsonl"): "proxy-events.jsonl",
+    Path("/tmp/appier_net_probe_response.json"): "ipv6-net-probe-response.json",
     Path("/tmp/admob_pubsetting_request.bin"): "admob-pubsetting-request.bin",
     Path("/tmp/admob_pubsetting_response.bin"): "admob-pubsetting-response.bin",
     Path("/tmp/admob_gma_request.bin"): "admob-gma-request.bin",

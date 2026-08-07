@@ -1,4 +1,4 @@
-"""iOS R4 IPv6 refresh contracts and ordered-round validation."""
+"""Cross-platform R4 IPv6 refresh contracts and ordered-round validation."""
 
 import ipaddress
 import json
@@ -17,11 +17,11 @@ class IPv6TestCase:
 
 TESTCASES = {
     row.key: row for row in (
-        IPv6TestCase("ios-ipv6-launch", "IPv6 on App Launch", "P1"),
-        IPv6TestCase("ios-ipv6-wifi-switch", "IPv6 after Wi-Fi Switch", "P1"),
-        IPv6TestCase("ios-ipv6-recovery", "IPv6 after Network Recovery", "P1"),
-        IPv6TestCase("ios-ipv6-debounce", "IPv6 after Rapid Wi-Fi Switching", "P2"),
-        IPv6TestCase("ios-ipv6-slow-network", "IPv6 Refresh on Slow Network", "P1"),
+        IPv6TestCase("ipv6-refresh-launch", "IPv6 on App Launch", "P1"),
+        IPv6TestCase("ipv6-refresh-wifi-switch", "IPv6 after Wi-Fi Switch", "P1"),
+        IPv6TestCase("ipv6-refresh-recovery", "IPv6 after Network Recovery", "P1"),
+        IPv6TestCase("ipv6-refresh-debounce", "IPv6 after Rapid Wi-Fi Switching", "P2"),
+        IPv6TestCase("ipv6-refresh-slow-network", "IPv6 Refresh on Slow Network", "P1"),
     )
 }
 
@@ -68,6 +68,19 @@ def _wifi(value):
     return str(value).strip().lower() in {"2", "wifi", "wi-fi"}
 
 
+def _probe_ipv6(folder):
+    document = _read_json(Path(folder) / "ipv6-net-probe-response.json", {}) or {}
+    return document.get("ipv6") if isinstance(document, dict) else None
+
+
+def _valid_step(value, require_probe):
+    return (
+        _wifi(value["conntype"])
+        and _valid_ipv6(value["ipv6"])
+        and (not require_probe or value["probe_ipv6"] == value["ipv6"])
+    )
+
+
 def _row(key, expected, actual, passed, evidence, reason):
     testcase = TESTCASES[key]
     row = evaluate(
@@ -101,18 +114,20 @@ def validate_sequence(folders, context=None):
             "folder": folder.name,
             "ipv6": _field(folder, "ipv6"),
             "conntype": _field(folder, "conntype"),
+            "probe_ipv6": _probe_ipv6(folder),
         }
         for folder in folders
     ]
     first = values[0]
-    if not _valid_ipv6(first["ipv6"]):
-        reason = "Environment prerequisite unavailable: the current Wi-Fi did not provide a valid IPv6; R4 was not executable"
+    require_probe = str(context.get("platform", "ios")).lower() == "aos"
+    if not _valid_ipv6(first["ipv6"]) or (require_probe and first["probe_ipv6"] != first["ipv6"]):
+        reason = "Environment prerequisite unavailable: the current network did not produce a matching Appier IPv6 probe and payload; R4 was not executable"
         return [_blocked(key, reason) for key in TESTCASES]
 
     rows = []
-    first_ok = _wifi(first["conntype"]) and _valid_ipv6(first["ipv6"])
+    first_ok = _valid_step(first, require_probe)
     rows.append(_row(
-        "ios-ipv6-launch",
+        "ipv6-refresh-launch",
         {"conntype": "wifi", "valid_ipv6_after_10s": True},
         first,
         first_ok,
@@ -127,9 +142,9 @@ def validate_sequence(folders, context=None):
         return rows
 
     second = values[1]
-    switch_ok = _wifi(second["conntype"]) and _valid_ipv6(second["ipv6"]) and second["ipv6"] != first["ipv6"]
+    switch_ok = _valid_step(second, require_probe) and second["ipv6"] != first["ipv6"]
     rows.append(_row(
-        "ios-ipv6-wifi-switch",
+        "ipv6-refresh-wifi-switch",
         {"wifi": True, "valid_ipv6": True, "different_from_network_a": True},
         second,
         switch_ok,
@@ -138,9 +153,9 @@ def validate_sequence(folders, context=None):
     ))
 
     third = values[2]
-    recovery_ok = _wifi(third["conntype"]) and _valid_ipv6(third["ipv6"])
+    recovery_ok = _valid_step(third, require_probe) and third["ipv6"] == second["ipv6"]
     rows.append(_row(
-        "ios-ipv6-recovery",
+        "ipv6-refresh-recovery",
         {"app_session_survived": True, "wifi": True, "valid_ipv6_after_recovery": True},
         third,
         recovery_ok,
@@ -149,9 +164,9 @@ def validate_sequence(folders, context=None):
     ))
 
     fourth = values[3]
-    debounce_ok = _wifi(fourth["conntype"]) and _valid_ipv6(fourth["ipv6"]) and fourth["ipv6"] == second["ipv6"]
+    debounce_ok = _valid_step(fourth, require_probe) and fourth["ipv6"] == second["ipv6"]
     rows.append(_row(
-        "ios-ipv6-debounce",
+        "ipv6-refresh-debounce",
         {"app_session_survived": True, "final_ipv6_equals_network_b": True},
         fourth,
         debounce_ok,
@@ -161,9 +176,9 @@ def validate_sequence(folders, context=None):
 
     fifth = values[4]
     slow_confirmed = bool(context.get("slow_network_confirmed"))
-    slow_ok = slow_confirmed and _wifi(fifth["conntype"]) and _valid_ipv6(fifth["ipv6"])
+    slow_ok = slow_confirmed and _valid_step(fifth, require_probe) and fifth["ipv6"] != fourth["ipv6"]
     rows.append(_row(
-        "ios-ipv6-slow-network",
+        "ipv6-refresh-slow-network",
         {"slow_network_confirmed": True, "request_not_blocked": True, "valid_ipv6_after_15s": True},
         {**fifth, "slow_network_confirmed": slow_confirmed},
         slow_ok,

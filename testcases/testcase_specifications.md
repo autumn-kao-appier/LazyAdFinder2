@@ -1,9 +1,24 @@
 # TestCase Specifications
 
+## R5 — Alternate and Negative States
+
+R5 保留 R1 Happy Path，追加兩個 Scenario。Privacy 不與其他裝置狀態混用：
+
+- `PRIVACY-DENIED`：Opt out ON；驗證 `device.ia` 不可為可用 GAID，且 req/ext
+  `device.lat` 必須為 integer `1`。
+- `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、font scale 1.5、brightness raw 0、
+  Media volume 0、Battery Saver ON，各自以 Android 原生頁／OS 狀態對照 payload。
+- `DISPLAY-AUDIO-HIGH`：brightness raw 255 與 Media volume current=max，共用一包驗證正規化上界 1。
+- `TIMEZONE-CHANGED`：切換 `America/New_York`，依抓包當日 DST 動態計算 offset，完成後還原。
+- `LOCATION-PERMISSION-DENIED`：同時收回 precise/approximate location；Android Permissions 頁須顯示
+  Location 為 Not allowed，req/ext 均不得包含 `geo_lat` 或 `geo_lon`，即使值是 0/null 也 FAILED。
+
+Runner 必須在每個 Scenario 後還原原狀態；中途失敗仍保存 Evidence、寫明失敗階段並發布報告。
+
 ## Evidence contract
 
 所有 TC 的 Evidence 都必須依序呈現 `Expected`、`Captured Device State`、
-`Actual SDK Payload` 與 `Comparison`。Captured Device State 必須獨立於 payload：優先採用
+`Decoded Bid Request` 與 `Comparison`。Captured Device State 必須獨立於 payload：優先採用
 人眼可見的實機設定頁；沒有可靠頁面時才使用同時間的 OS 原始讀值，並明確標示來源。
 
 這是人工可讀的 TC 規格；Catalog metadata 在 `testcase_catalog.json`，AOS 執行與比較邏輯在
@@ -203,11 +218,15 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 - `connection-type`：Android active default transport 必須和 req/ext `device.conntype` 一致。
 - `carrier`、`mcc-mnc`：本 QA device 無 active SIM 時必須為空字串；若日後插入 SIM，需由
   cellular round 定義 populated value，不能沿用空字串規則。
-- `ipv6-address`：BLOCKED。雖然其他網路 round 曾觀察到 IPv6，本輪尚未確認 payload path。
-  IPv4 已依需求排除，不建立 TC。
-- iOS `R4` 是五步、同一 App session 的 IPv6 refresh sequence：冷啟動、Wi-Fi A→B、斷線恢復、
-  快速 A→B→A→B、slow-network A→B。程式負責每步等待、送廣告 request、保存 payload 與比較；
-  操作者只負責 Wi-Fi／hotspot／throttle checkpoint。
+- `ipv6-address`：AOS 會呼叫 Appier 自有的 IPv6 endpoint
+  `https://adx6.apx.appier.net/v2/sdk/net` 取得公網 IPv6，不依賴 SIM，也不是讀取手機 local IP。
+  同一輪必須保存 endpoint request／HTTP 200 response，並驗證 response `ipv6` 是合法 IPv6、且與
+  decoded `ext.device.ipv6` 完全相同。若目前網路無法連到 IPv6-only endpoint，屬環境前提不足而
+  BLOCKED；endpoint 已成功回覆但 payload 缺值、格式錯誤或不一致則 FAILED。IPv4 依需求排除。
+- AOS／iOS `R4` 共用五步、同一 App session 的 IPv6 refresh 契約：冷啟動、Wi-Fi A→B、
+  斷線恢復、快速 A→B→A→B、slow-network A→B。兩個平台各自以原生 runner 實作；程式負責
+  每步等待、送廣告 request、保存 payload 與比較，操作者只負責 Wi-Fi／hotspot／throttle
+  checkpoint。AOS 每一步另須保存 Appier adx6 net probe response，並與 ext.device.ipv6 相等。
 - `R4` 第一個 capture 若確認測試網路沒有合法 IPv6，五條全部 BLOCKED（環境前提不足）。一旦
   IPv6 環境成立，已執行步驟缺值、格式錯、保留舊 IP、request 被阻擋或 App crash 都是 FAILED。
 - `precise-gps-latitude`、`precise-gps-longitude`：BLOCKED / Not In Scope。正確觀察路徑是

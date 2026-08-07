@@ -108,6 +108,24 @@ def _row(key, expected, actual, passed, evidence, success, failure):
         reason=reason,
     ).to_dict()
     row.update({"layer": "E2E", "title": testcase.title, "description": reason})
+    if key == "admob-pubsetting":
+        body = actual.get("body", {}) if isinstance(actual, dict) else {}
+        responses = actual.get("responses", []) if isinstance(actual, dict) else []
+        status = responses[-1].get("status") if responses and isinstance(responses[-1], dict) else None
+        class_names = body.get("class_names") or []
+        zone_ids = body.get("zone_ids") or []
+        row["comparison_view"] = {
+            "kind": "rule",
+            "criterion": "HTTP 200, config status 1, Appier adapter, mediation=true, and a zone ID are required.",
+            "actual": {
+                "label": "Pubsetting summary",
+                "value": (
+                    f"HTTP {status or '—'} · Appier {'yes' if body.get('contains_appier') else 'no'} · "
+                    f"mediation {'yes' if True in (body.get('is_mediation') or []) else 'no'} · "
+                    f"zone {', '.join(map(str, zone_ids)) or '—'}"
+                ),
+            },
+        }
     return row
 
 

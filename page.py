@@ -25,6 +25,7 @@ LEGACY_METADATA_FILE = "metadata.json"
 DEFAULT_CATALOG = ROOT / "testcases" / "testcase_catalog.json"
 VALID_STATUSES = {status.value for status in Status}
 STATUS_ORDER = (Status.FAILED.value, Status.BLOCKED.value, Status.PASS.value)
+UNEXECUTED = "UNEXECUTED"
 PLATFORMS = (("aos", "AOS", "Android"), ("ios", "iOS", "Apple"))
 MODES = (("standalone", "Standalone"), ("mediation", "Mediation"))
 TYPES = (
@@ -32,6 +33,13 @@ TYPES = (
     ("reen-static", "REEN Static", "再行銷 · 靜態素材"),
     ("reen-dynamic", "REEN Dynamic", "再行銷 · 動態素材"),
 )
+TC_ALIASES = {
+    "ios-ipv6-launch": "ipv6-refresh-launch",
+    "ios-ipv6-wifi-switch": "ipv6-refresh-wifi-switch",
+    "ios-ipv6-recovery": "ipv6-refresh-recovery",
+    "ios-ipv6-debounce": "ipv6-refresh-debounce",
+    "ios-ipv6-slow-network": "ipv6-refresh-slow-network",
+}
 
 
 class ReportError(RuntimeError):
@@ -164,8 +172,9 @@ def _verdict_rows(document, path):
         elif not isinstance(evidence, str) or not evidence.strip():
             raise ReportError(f"{path}: evaluated verdict {tc} requires evidence")
         test_mode = str(config.get("test_mode", "")).strip().lower()
+        canonical_tc = TC_ALIASES.get(tc.strip(), tc.strip())
         normalized.append({
-            "tc": tc.strip(), "title": str(row.get("title", tc)).strip() or tc.strip(),
+            "tc": canonical_tc, "title": str(row.get("title", tc)).strip() or canonical_tc,
             "description": str(row.get("description", "")).strip(), "status": status,
             "reason": reason, "expected": row.get("expected"), "actual": row.get("actual"),
             "comparison_view": row.get("comparison_view") if isinstance(row.get("comparison_view"), dict) else None,
@@ -249,11 +258,11 @@ TC_TITLES_ZH = {
     "default-language-iso": "預設語言（ISO-639-1）", "default-language-bcp47": "預設語言（BCP 47）",
     "keyboard-languages": "已安裝的鍵盤語言", "root-status": "Root 狀態",
     "emulator-detection": "模擬器偵測", "ipv6-address": "IPv6 位址", "connection-type": "連線類型",
-    "ios-ipv6-launch": "App 啟動時取得 IPv6",
-    "ios-ipv6-wifi-switch": "Wi-Fi 切換後更新 IPv6",
-    "ios-ipv6-recovery": "網路恢復後更新 IPv6",
-    "ios-ipv6-debounce": "快速切換 Wi-Fi 後的 IPv6",
-    "ios-ipv6-slow-network": "慢速網路下更新 IPv6",
+    "ipv6-refresh-launch": "App 啟動時取得 IPv6",
+    "ipv6-refresh-wifi-switch": "Wi-Fi 切換後更新 IPv6",
+    "ipv6-refresh-recovery": "網路恢復後更新 IPv6",
+    "ipv6-refresh-debounce": "快速切換 Wi-Fi 後的 IPv6",
+    "ipv6-refresh-slow-network": "慢速網路下更新 IPv6",
     "carrier": "電信業者", "mcc-mnc": "MCC/MNC", "precise-gps-latitude": "精確 GPS 緯度",
     "precise-gps-longitude": "精確 GPS 經度",
     "session-duration-continuous": "Session 時長 — App 持續開啟",
@@ -292,7 +301,8 @@ def _bi(en, zh):
 
 
 DYNAMIC_ZH = {
-    "Actual SDK Payload": "SDK 實際內容",
+    "Actual SDK Payload": "解碼後的 Bid Request",
+    "Decoded Bid Request": "解碼後的 Bid Request",
     "Active Android network": "Android 目前使用的網路",
     "Android Media volume": "Android 媒體音量",
     "Android SIM state": "Android SIM 狀態",
@@ -344,6 +354,8 @@ DYNAMIC_ZH = {
     "Hardware limitation: QA device has no active SIM; MCC/MNC cannot be captured or verified": "硬體限制：QA 裝置沒有 active SIM，因此無法取得或驗證 MCC/MNC。",
     "Round limitation: first-ad proxy timing evidence is missing": "本輪限制：缺少第一個廣告的 proxy timing 證據。",
     "Environment limitation: company network has no IPv6; waiting for IT support": "環境限制：公司網路目前沒有 IPv6，等待 IT 支援。",
+    "Environment prerequisite unavailable: no successful Appier adx6 IPv6 probe was captured": "環境前提不足：本輪沒有成功擷取 Appier adx6 IPv6 probe。",
+    "AOS obtains public IPv6 from the Appier adx6 net endpoint.": "AOS 從 Appier adx6 net endpoint 取得公網 IPv6。",
     "Hardware limitation: QA device has no active SIM; 4G/5G transport cannot be established": "硬體限制：QA 裝置沒有 active SIM，無法建立 4G／5G 連線。",
     "Round limitation: the SDK latency probe endpoint timing is not captured independently yet": "本輪限制：尚未獨立擷取 SDK latency probe endpoint 的計時證據。",
     "Sample App limitation: setForceGDPRApplies(true) is not exposed or invoked": "Sample App 限制：目前沒有提供或呼叫 setForceGDPRApplies(true)。",
@@ -391,6 +403,8 @@ DYNAMIC_ZH = {
 
 def _dynamic_bi(text, zh=None):
     text = str(text)
+    if text == "Actual SDK Payload":
+        text = "Decoded Bid Request"
     return _bi(text, zh or DYNAMIC_ZH.get(text, text))
 
 
@@ -418,9 +432,9 @@ def _fact_list(value):
     return f'<dl class="facts">{"".join(items)}</dl>'
 
 
-def _evidence_content(row, guidance=""):
+def _evidence_content(row, guidance="", guidance_en=""):
     guidance_html = (
-        f'<div class="evidence-guidance"><b>{_bi("Evidence guidance", "Evidence 說明")}</b><p>{html.escape(guidance)}</p></div>'
+        f'<div class="evidence-guidance"><b>{_bi("Evidence guidance", "Evidence 說明")}</b><p>{_bi(guidance_en or guidance, guidance)}</p></div>'
         if guidance else ""
     )
     reference = row.get("evidence")
@@ -431,8 +445,39 @@ def _evidence_content(row, guidance=""):
         target = row["source"].parent / target
     if not target.exists():
         return guidance_html + f'<div class="evidence-missing">{_bi("Evidence file not found", "找不到 Evidence 檔案")} · {html.escape(reference)}</div>'
+    if row.get("tc") == "admob-pubsetting" and target.suffix.lower() == ".json":
+        document = _load_json(target)
+        pubsetting = document.get("pubsetting", {}) if isinstance(document, dict) else {}
+        body = pubsetting.get("body", {}) if isinstance(pubsetting, dict) else {}
+        responses = pubsetting.get("responses", []) if isinstance(pubsetting, dict) else []
+        status = responses[-1].get("status") if responses and isinstance(responses[-1], dict) else None
+        mediation_values = body.get("is_mediation") or []
+        mediation_enabled = True in mediation_values if isinstance(mediation_values, list) else bool(mediation_values)
+        zone_ids = body.get("zone_ids") or []
+        class_names = body.get("class_names") or []
+        compact_facts = (
+            ("HTTP", status or "—"),
+            ("Config", body.get("status") if body.get("status") is not None else "—"),
+            ("Appier", "PASS" if body.get("contains_appier") else "FAIL"),
+            ("Mediation", "PASS" if mediation_enabled else "FAIL"),
+            ("Zone", ", ".join(map(str, zone_ids)) or "—"),
+        )
+        facts_html = "".join(
+            f'<div class="mediation-fact"><small>{html.escape(label)}</small><b>{html.escape(str(value))}</b></div>'
+            for label, value in compact_facts
+        )
+        details = html.escape(json.dumps({"adapter_class_names": class_names, "zone_ids": zone_ids}, ensure_ascii=False, indent=2))
+        raw = html.escape(json.dumps(pubsetting, ensure_ascii=False, indent=2))
+        return guidance_html + f'''<div class="evidence-data compact-evidence"><b>{html.escape(reference)}</b>
+<label>{_bi("Key mediation facts", "Mediation 關鍵證據")}</label><div class="mediation-facts">{facts_html}</div>
+<details class="mediation-details"><summary>{_bi("Adapter and zone details", "Adapter 與 Zone 詳情")}</summary><pre>{details}</pre></details>
+<details class="raw-capture"><summary>{_bi("Open full request / response capture", "展開完整 Request／Response Capture")}</summary><pre>{raw}</pre></details></div>'''
     mime, _encoding = mimetypes.guess_type(target.name)
     if mime and mime.startswith("image/"):
+        if row.get("tc") in {"advertising-id-opt-out", "tracking-denied"}:
+            state = _load_json(target.parent / "tracking-denied-state.json") if (target.parent / "tracking-denied-state.json").exists() else {}
+            if state.get("visual_contract") != "opt-out-row-visible-v2":
+                return guidance_html + f'<div class="evidence-missing">{_bi("Stale Evidence hidden: recapture the complete Opt out row with the switch visibly ON.", "已隱藏舊 Evidence：請重新擷取完整的 Opt out 開關列，並讓 ON 狀態清楚可見。")}</div>'
         encoded = base64.b64encode(target.read_bytes()).decode("ascii")
         return guidance_html + f'''<figure class="evidence-image"><button class="evidence-zoom" type="button" aria-label="放大 {html.escape(reference)}"><img src="data:{mime};base64,{encoded}" alt="{html.escape(reference)}"></button>
 <figcaption>{html.escape(reference)} · {_bi("Click to view full image", "點擊查看全圖")}</figcaption></figure>'''
@@ -484,7 +529,7 @@ def _comparison_summary(row, fallback_criterion):
     if row["status"] == Status.BLOCKED.value:
         return f'<section class="comparison-hero blocked-comparison"><b>{_bi("Not executed", "未執行")}</b><span>{_bi("No comparison is claimed.", "未宣稱任何比較結果。")}</span></section>'
     if not isinstance(view, dict):
-        return f'''<section class="comparison-hero rule-comparison">{_comparison_cell({"label": "Actual SDK Payload", "value": row.get("actual")}, "actual-value")}
+        return f'''<section class="comparison-hero rule-comparison">{_comparison_cell({"label": "Decoded Bid Request", "value": row.get("actual")}, "actual-value")}
 <p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion)}</p></section>'''
     kind = view.get("kind")
     if row["tc"] == "installed-app-list" and kind == "rule":
@@ -530,6 +575,7 @@ def _result_card(row, catalog_by_key):
         row["platform"], row["mode_group"], row["test_type"], row["captured_at"], row["tc"]
     ))
     comparison_html = _comparison_summary(row, expected_text)
+    evidence_comparison_html = "" if row["tc"] == "admob-pubsetting" else comparison_html
     version_review = ""
     if row["tc"] in {"sdk-version", "argus-sdk-version"}:
         actual_key = "req_app_sdk_version" if row["tc"] == "sdk-version" else "argus_ver"
@@ -543,14 +589,43 @@ def _result_card(row, catalog_by_key):
 <span class="tc-id">{html.escape(_tc_label(row["tc"], catalog_by_key))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
 <div class="card-tabs"><button class="on" data-card-tab="summary">{_bi("Result", "結果")}</button><button data-card-tab="evidence">Evidence</button></div>
 <div class="card-page" data-card-page="summary">{comparison_html}{result_note}</div>
-<div class="card-page" data-card-page="evidence" hidden><section class="evidence-contract captured-block"><label>{_bi("Captured source", "擷取來源")}</label>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""))}</section>
-{comparison_html}
+<div class="card-page" data-card-page="evidence" hidden><section class="evidence-contract captured-block"><label>{_bi("Captured source", "擷取來源")}</label>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""), str(platform_spec.get("evidence_note_en") or ""))}</section>
+{evidence_comparison_html}
 {version_review}
 <details class="manual-review"><summary><span>{_bi("Manual override", "人工覆寫")}</span><span class="manual-indicator" hidden>MANUAL</span></summary><div class="manual-form"><small>{_bi("Automation status", "自動化狀態")}：{row["status"]}</small>
 <label>{_bi("Status", "狀態")}<select data-manual-status><option value="">Use automation result／使用自動化結果</option><option value="PASS">PASS</option><option value="FAILED">FAILED</option><option value="BLOCKED">BLOCKED</option></select></label>
 <label>{_bi("Reason", "理由")}<textarea data-manual-reason rows="2" placeholder="Manual override reason／人工修改理由"></textarea></label>
 <div class="manual-actions"><button data-manual-save>{_bi("Save override", "儲存覆寫")}</button><button data-manual-reset>{_bi("Clear override", "清除覆寫")}</button></div>
 <div class="manual-saved" hidden></div></div></details></div></article>'''
+
+
+def _unexecuted_card(spec, platform):
+    key = str(spec["key"])
+    platform_spec = spec.get(platform, {})
+    title = str(spec.get("title") or key)
+    title_html = _bi(title, TC_TITLES_ZH.get(key, title))
+    priority = html.escape(str(spec.get("priority") or "—"))
+    setup = _catalog_text(platform_spec, "setup")
+    expected = _catalog_text(platform_spec, "expected")
+    return f'''<article class="result-card unexecuted-card" data-tc="{html.escape(key, quote=True)}" data-result-status="unexecuted" data-automation-status="unexecuted" data-layer="{html.escape(str(spec.get("layer", "Signal")).lower())}">
+<div class="result-head"><div><strong>{title_html}</strong><span class="tc-id">{html.escape(_tc_label(key, {key: spec}))}</span></div><div class="result-badges"><span class="priority-tag">{priority}</span><span class="status unexecuted">{_bi("NOT RUN", "未執行")}</span></div></div>
+<div class="unexecuted-body"><b>{_bi("No verdict was generated for this TestCase in the selected run.", "所選執行中沒有產生這條 TestCase 的 Verdict。")}</b>
+<label>{_bi("Planned setup", "預定設定")}</label><p>{setup}</p><label>{_bi("Expected", "預期")}</label><p>{expected}</p></div></article>'''
+
+
+def _catalog_applicable(spec, platform, mode):
+    if not spec.get(platform, {}).get("applicable", False):
+        return False
+    modes = spec.get("integration_modes") or []
+    if not modes:
+        return True
+    catalog_mode = "standalone" if mode == "standalone" else "admob-mediation"
+    return catalog_mode in modes
+
+
+def _round_sort_value(round_name):
+    match = re.fullmatch(r"R(\d+)", str(round_name or ""), re.I)
+    return (int(match.group(1)), str(round_name)) if match else (10_000, str(round_name or "Unassigned"))
 
 
 def _run_information(rows):
@@ -589,6 +664,10 @@ def _status_filters(rows):
             f'<button class="status-filter {value.lower()}" data-status-filter="{value.lower()}"{disabled}>'
             f'<span>{value}</span><b>{count}</b></button>'
         )
+    buttons.append(
+        f'<button class="status-filter unexecuted" data-status-filter="unexecuted">'
+        f'<span>{_bi("NOT RUN", "未執行")}</span><b data-unexecuted-count>0</b></button>'
+    )
     return f'''<section class="status-filters"><div><span>{_bi("Result filter", "結果篩選")}</span><small>{_bi("Click again to show all", "再次點擊可顯示全部")}</small></div><div class="status-filter-buttons">{"".join(buttons)}</div></section>'''
 
 
@@ -606,21 +685,33 @@ def _slot_card(platform, mode, kind, label, description, rows):
 
 
 def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
+    planned = []
+    if kind == "aibid":
+        planned = [spec for spec in catalog_by_key.values() if _catalog_applicable(spec, platform, mode)]
+    actual_by_key = {row["tc"]: row for row in rows}
+
     def cards_for(layer):
+        selected_specs = [spec for spec in planned if str(spec.get("layer", "Signal")).lower() == layer]
+        if selected_specs:
+            return "".join(
+                _result_card(actual_by_key[str(spec["key"])], catalog_by_key)
+                if str(spec["key"]) in actual_by_key else _unexecuted_card(spec, platform)
+                for spec in sorted(selected_specs, key=lambda spec: (spec.get("order", float("inf")), spec["key"]))
+            )
         selected = [row for row in rows if (row["layer"] == "e2e") == (layer == "e2e")]
-        if layer == "e2e":
-            # E2E is one causal journey.  Its cards must remain in the reviewed
-            # Catalog sequence (Init -> Request -> Render -> Tracking ->
-            # Attribution), regardless of PASS/FAILED/BLOCKED status.
-            def sort_key(row):
-                spec = catalog_by_key.get(row["tc"], {})
-                return (spec.get("order", float("inf")), row["tc"])
-        else:
-            def sort_key(row):
-                return (STATUS_ORDER.index(row["status"]), row["captured_at"])
-        return "".join(_result_card(row, catalog_by_key) for row in sorted(
-            selected, key=sort_key
-        ))
+        return "".join(_result_card(row, catalog_by_key) for row in sorted(selected, key=lambda row: (catalog_by_key.get(row["tc"], {}).get("order", float("inf")), row["tc"])))
+
+    def signal_rounds():
+        signal_specs = [spec for spec in planned if str(spec.get("layer", "Signal")).lower() == "signal"]
+        if not signal_specs:
+            return f'<div class="result-grid">{cards_for("signal")}</div>'
+        groups = []
+        round_names = sorted({str(spec.get("round") or "Unassigned") for spec in signal_specs}, key=_round_sort_value)
+        for round_name in round_names:
+            specs = sorted((spec for spec in signal_specs if str(spec.get("round") or "Unassigned") == round_name), key=lambda spec: (spec.get("order", float("inf")), spec["key"]))
+            cards = "".join(_result_card(actual_by_key[str(spec["key"])], catalog_by_key) if str(spec["key"]) in actual_by_key else _unexecuted_card(spec, platform) for spec in specs)
+            groups.append(f'''<section class="result-round"><div class="result-round-head"><b>{html.escape(round_name)}</b><span>{len(specs)} TC</span></div><div class="result-grid">{cards}</div></section>''')
+        return "".join(groups)
     signal_cards = cards_for("signal") or '<div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div>'
     e2e_cards = cards_for("e2e") or '<div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div>'
     platform_label = next(item[1] for item in PLATFORMS if item[0] == platform)
@@ -630,15 +721,21 @@ def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
 {_status_filters(rows)}
 {_run_information(rows)}
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Config / Route → Appier Ad → Creative / Render → Impression / Fill → Click → Landing / Privacy → Attribution</p></div></div><div class="result-grid">{e2e_cards}</div></div>
-<div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>{_bi("SDK fields, identifiers, and event signals", "SDK 欄位、識別碼與事件訊號")}</p></div></div><div class="result-grid">{signal_cards}</div></div></section>'''
+<div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>{_bi("Ordered by execution Round; gray cards were not run.", "依執行 Round 排列；灰色卡片代表未執行。")}</p></div></div>{signal_rounds()}</div></section>'''
+
+
+def _catalog_text(spec, key, default="—"):
+    zh = str(spec.get(key, default))
+    en = str(spec.get(f"{key}_en", zh))
+    return _bi(en, zh)
 
 
 def _catalog_cell(spec):
     if not spec.get("applicable", False):
-        return f'<div class="na"><b>N/A</b><p>{html.escape(str(spec.get("expected", "")))}</p></div>'
-    return f'''<div class="platform-spec"><b>{_bi("Setup", "設定")}</b><p>{html.escape(str(spec.get("setup", "—")))}</p>
-<b>{_bi("Expected", "預期")}</b><p>{html.escape(str(spec.get("expected", "—")))}</p>
-<b>Evidence</b><p>{html.escape(str(spec.get("evidence", "—")))}</p></div>'''
+        return f'<div class="na"><b>N/A</b><p>{_catalog_text(spec, "expected", "")}</p></div>'
+    return f'''<div class="platform-spec"><b>{_bi("Setup", "設定")}</b><p>{_catalog_text(spec, "setup")}</p>
+<b>{_bi("Expected", "預期")}</b><p>{_catalog_text(spec, "expected")}</p>
+<b>Evidence</b><p>{_catalog_text(spec, "evidence")}</p></div>'''
 
 
 def _catalog_mode_cell(tc, mode, layer):
@@ -696,7 +793,7 @@ def _catalog_section(catalog, catalog_by_key, layer, number, title, description)
 {journey}</section>'''
     preferred = (
         ("E2E-BASELINE", "E2E-ADMOB", "E2E-BASELINE-ATTRIBUTION")
-        if layer == "e2e" else ("R1", "R2", "R3", "R4")
+        if layer == "e2e" else ("R1", "R2", "R3", "R4", "R5")
     )
     discovered = []
     for tc in selected:
@@ -712,7 +809,8 @@ def _catalog_section(catalog, catalog_by_key, layer, number, title, description)
         "R1": (_bi("Device and payload baseline", "裝置與 Payload 基礎訊號"), _bi("Core identifiers, device state, format, network, privacy, and lifecycle fields from the baseline capture.", "基礎 Capture 中的識別碼、裝置狀態、格式、網路、隱私與 lifecycle 欄位。")),
         "R2": (_bi("Second-impression signals", "第二次曝光訊號"), _bi("Signals that cannot be validated from the first ad impression.", "第一個廣告無法判定、必須到第二次曝光才驗證的訊號。")),
         "R3": (_bi("In-session lifecycle sequence", "App Session 生命週期序列"), _bi("Continuous use, background/resume, termination/reset, initialization, and accumulated duration.", "連續使用、背景恢復、終止重設、初始化與累積時長。")),
-        "R4": (_bi("iOS IPv6 network refresh", "iOS IPv6 網路更新序列"), _bi("Cold launch, Wi-Fi switch, recovery, debounce, and slow-network behavior in one App session.", "同一 App session 內的冷啟動、Wi-Fi 切換、恢復、debounce 與慢速網路。")),
+        "R4": (_bi("AOS / iOS IPv6 network refresh", "AOS／iOS IPv6 網路更新序列"), _bi("Cold launch, Wi-Fi switch, recovery, debounce, and slow-network behavior in one App session.", "同一 App session 內的冷啟動、Wi-Fi 切換、恢復、debounce 與慢速網路。")),
+        "R5": (_bi("Alternate and negative states", "替代與反向狀態"), _bi("Privacy, low/high display-audio boundaries, power, timezone, and denied location permission are isolated into restorable scenarios.", "隱私、顯示／音量上下界、省電、時區與定位拒絕均拆成可還原的獨立 scenario。")),
     }
     groups = []
     for round_name in rounds:
@@ -739,25 +837,28 @@ CSS = r"""
 .report-section{margin:22px 0 32px}.section-title{display:flex;align-items:center;gap:11px;margin-bottom:12px}.section-title>span{font:800 11px var(--mono);color:var(--accent);background:var(--accent2);padding:6px;border-radius:7px}.section-title h3,.section-title p{margin:0}.section-title p{color:var(--faint);font-size:11px}
 .result-badges{align-items:flex-end;gap:5px}.priority-tag{font:800 11px var(--mono);padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent)}.card-tabs{display:flex;gap:4px;margin:14px 0 11px;border-bottom:1px solid var(--line)}.card-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--faint);padding:6px 9px;cursor:pointer}.card-tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:750}.card-page{min-height:250px}.comparison-hero{background:var(--panel2);border-radius:12px;padding:14px;margin-bottom:10px}.comparison-pair,.comparison-triplet{display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);align-items:center;gap:7px}.comparison-triplet{grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr) 22px minmax(0,1fr)}.comparison-value{min-width:0;text-align:center;padding:13px 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.comparison-value label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.05em;text-transform:uppercase}.comparison-value b{display:block;margin-top:7px;font:800 16px var(--mono);overflow-wrap:anywhere}.captured-value{border-top:3px solid var(--accent)}.actual-value{border-top:3px solid var(--pass)}.required-value{border-top:3px solid var(--block)}.comparison-operator{text-align:center;font:900 19px var(--mono);color:var(--soft)}.comparison-hero>p{margin:11px 1px 0;line-height:1.45;color:var(--soft)}.comparison-hero>p span{display:block;color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.comparison-hero>small{display:block;margin-top:7px;color:var(--faint)}.comparison-rule-value .comparison-value{text-align:left}.blocked-comparison{display:flex;justify-content:space-between;color:var(--block)}.expected-block,.actual-block{background:var(--panel2);border-radius:9px;padding:11px 12px;margin-bottom:10px}.expected-block label,.actual-block label,.captured-block>label,.run-info label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.expected-block p{margin:5px 0 0;color:var(--ink);line-height:1.6}.captured-block{border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:10px}.captured-block>label{margin-bottom:9px}.facts{margin:5px 0 0}.facts>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.facts>div:first-child{border-top:0}.facts dt{color:var(--soft)}.facts dd{margin:0;text-align:right;font:650 11px var(--mono);overflow-wrap:anywhere}.result-note{border-left:3px solid var(--block);padding:7px 10px}.result-note p{margin:3px 0}.evidence-guidance{border-left:3px solid var(--accent);background:var(--accent2);border-radius:0 9px 9px 0;padding:10px 12px;margin-bottom:10px}.evidence-guidance p{margin:4px 0 0;line-height:1.55}.evidence-image{margin:0;display:flex;flex-direction:column;align-items:center}.evidence-image img{display:block;max-width:100%;height:390px;object-fit:contain;border-radius:9px;background:#000}.evidence-image figcaption{color:var(--faint);font:10px var(--mono);margin-top:6px}.evidence-data,.evidence-text{background:var(--panel2);border-radius:9px;padding:12px;overflow:auto}.evidence-data>b{display:block;margin-bottom:8px}.evidence-missing{padding:45px 10px;text-align:center;color:var(--fail)}.run-info{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:24px}.run-info-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.run-info-title span{font:750 10px var(--mono);color:var(--accent)}.run-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}.run-info-grid>div{background:var(--panel2);padding:10px}.run-info-grid b{display:block;margin-top:3px;font-size:12px;overflow-wrap:anywhere}
 .status-filters{display:flex;justify-content:space-between;align-items:center;gap:15px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 15px;box-shadow:var(--shadow);margin-bottom:12px}.status-filters>div:first-child{display:flex;flex-direction:column}.status-filters>div:first-child>span{font-weight:800}.status-filters small{color:var(--faint)}.status-filter-buttons{display:flex;gap:7px;flex-wrap:wrap}.status-filter{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;background:var(--panel2);color:var(--soft);padding:6px 10px;cursor:pointer}.status-filter span{font:750 10px var(--mono)}.status-filter b{min-width:20px;text-align:center;border-radius:999px;background:var(--panel);padding:1px 5px}.status-filter.pass{color:var(--pass)}.status-filter.failed{color:var(--fail)}.status-filter.blocked{color:var(--block)}.status-filter.on{color:#fff;border-color:transparent}.status-filter.pass.on{background:var(--pass)}.status-filter.failed.on{background:var(--fail)}.status-filter.blocked.on{background:var(--block)}.status-filter.on b{color:var(--ink)}.status-filter:disabled{opacity:.4;cursor:not-allowed}@media(max-width:650px){.status-filters{align-items:flex-start;flex-direction:column}.status-filter-buttons{width:100%}.status-filter{flex:1;justify-content:center}}
+.status-filter.unexecuted{color:var(--faint)}.status-filter.unexecuted.on{background:#737982}.result-card.unexecuted-card{background:color-mix(in srgb,var(--panel2) 82%,#888 18%);border-color:color-mix(in srgb,var(--line) 70%,#888 30%);box-shadow:none;color:var(--soft)}.status.unexecuted{color:var(--faint);background:#7772}.unexecuted-body{margin-top:14px;padding:12px;border-radius:9px;background:color-mix(in srgb,var(--panel) 55%,transparent)}.unexecuted-body>b{display:block;margin-bottom:12px}.unexecuted-body label{display:block;margin-top:9px;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.unexecuted-body p{margin:3px 0;color:var(--soft);line-height:1.5}.result-round{margin:0 0 24px}.result-round-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 9px;padding:8px 11px;border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 8px 8px 0}.result-round-head b{font:850 12px var(--mono);color:var(--accent)}.result-round-head span{color:var(--faint);font:700 10px var(--mono)}
 .manual-review{margin-top:10px}.manual-review summary{display:flex;align-items:center;gap:6px;width:max-content;margin-left:auto;color:var(--faint);font:700 9px var(--mono);cursor:pointer;list-style:none}.manual-review summary::-webkit-details-marker{display:none}.manual-review summary:before{content:"＋"}.manual-review[open] summary:before{content:"−"}.manual-form{margin-top:7px;padding:9px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}.manual-form>small{color:var(--faint);font-size:9px}.manual-indicator{font:800 8px var(--mono);color:#fff;background:var(--block);padding:2px 5px;border-radius:999px}.manual-review label{display:block;color:var(--faint);font-size:9px;font-weight:750;margin-top:6px}.manual-review select,.manual-review textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);padding:5px 6px}.manual-review textarea{resize:vertical;font:11px var(--sans)}.manual-actions{display:flex;gap:6px;margin-top:7px}.manual-actions button,.export-overrides{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;padding:5px 8px;cursor:pointer}.manual-actions button:first-child{background:var(--accent);border-color:var(--accent);color:#fff}.manual-saved{margin-top:7px;padding:6px 8px;border-left:3px solid var(--block);background:var(--panel);font-size:10px;white-space:pre-wrap}.export-overrides{margin-left:auto}.theme{margin-left:0}
 .version-review{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.version-review label{grid-row:span 2;color:var(--faint);font-size:9px;font-weight:750}.version-review input{display:block;width:100%;margin-top:4px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:700 12px var(--mono)}.version-review small{color:var(--faint)}.version-review button{border:0;border-radius:7px;padding:7px 9px;background:var(--accent);color:#fff;cursor:pointer}
 .comparison-pair{grid-template-columns:minmax(0,1fr) 26px minmax(0,1fr)}.comparison-triplet{grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) 18px minmax(0,1fr)}.comparison-value{padding-left:7px;padding-right:7px}.comparison-value label{font-size:8px;line-height:1.35;letter-spacing:.035em;overflow-wrap:anywhere}.comparison-value b{font-size:clamp(11px,1.05vw,15px);line-height:1.35;word-break:break-word}.comparison-operator{font-size:15px}
 .evidence-zoom{display:block;max-width:100%;border:0;padding:0;background:transparent;cursor:zoom-in}.evidence-zoom img{pointer-events:none}.image-lightbox{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:30px;background:#071014eb;cursor:zoom-out}.image-lightbox[hidden]{display:none}.image-lightbox img{display:block;max-width:96vw;max-height:90vh;object-fit:contain;filter:drop-shadow(0 16px 50px #000)}.image-lightbox p{position:absolute;left:24px;bottom:12px;margin:0;color:#dce7eb;font:11px var(--mono)}.image-lightbox-close{position:absolute;right:20px;top:16px;z-index:1;border:1px solid #ffffff55;border-radius:999px;background:#111c;color:#fff;width:38px;height:38px;font-size:24px;line-height:1;cursor:pointer}
 .comparison-list{max-height:190px;margin:9px 0 0;padding:0;overflow:auto;list-style:none;text-align:left;border-top:1px solid var(--line)}.comparison-list li{padding:6px 3px;border-bottom:1px solid var(--line);font:650 11px/1.35 var(--mono);overflow-wrap:anywhere}.comparison-list li:last-child{border-bottom:0}
 .catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
+.compact-evidence{overflow:visible}.compact-evidence>label{display:block;margin-top:10px;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.raw-capture{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.raw-capture summary{width:max-content;max-width:100%;color:var(--accent);font:750 10px var(--mono);cursor:pointer}.raw-capture pre{max-height:320px;margin:10px 0 0;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.45 var(--mono)}
+.result-card[data-tc="admob-pubsetting"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}
 """
 
 
 SCRIPT = r"""
 (function(){
- var root=document.documentElement,platform="aos",mode="standalone",activePage="reports";
+ var root=document.documentElement,latestSlot=(root.dataset.latestSlot||"aos:standalone:aibid").split(":"),platform=latestSlot[0]||"aos",mode=latestSlot[1]||"standalone",activePage="reports";
  var overrideStorageKey="laf2-manual-overrides-v1",overrides={};
  try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
  try{root.dataset.lang=localStorage.getItem("laf2-language")||"zh"}catch(e){root.dataset.lang="zh"}
  try{overrides=JSON.parse(localStorage.getItem(overrideStorageKey)||"{}")||{}}catch(e){overrides={}}
  document.getElementById("theme").onclick=function(){var dark=root.dataset.theme==="dark";root.dataset.theme=dark?"light":"dark";try{localStorage.setItem("laf2-theme",root.dataset.theme)}catch(e){}};
- function applyLanguage(){var zh=root.dataset.lang==="zh",button=document.getElementById("language");button.textContent=zh?"EN":"中文";button.title=zh?"Switch to English":"切換為中文";document.documentElement.lang=zh?"zh-Hant":"en";document.querySelectorAll(".type-card").forEach(function(card){var count=card.querySelectorAll(".result-card").length||Number((card.querySelector(".total")||{}).dataset&&card.querySelector(".total").dataset.resultCount)||0,total=card.querySelector(".total");if(total)total.textContent=count+(zh?" 筆結果":" results")})}
- document.getElementById("language").onclick=function(){root.dataset.lang=root.dataset.lang==="zh"?"en":"zh";try{localStorage.setItem("laf2-language",root.dataset.lang)}catch(e){}applyLanguage()};
+ function applyLanguage(){var zh=root.dataset.lang==="zh",button=document.getElementById("language");button.textContent=zh?"EN":"中文";button.title=zh?"Switch to English":"切換為中文";document.documentElement.lang=zh?"zh-Hant":"en";document.querySelectorAll(".type-card").forEach(function(card){var count=card.querySelectorAll(".result-card").length||Number((card.querySelector(".total")||{}).dataset&&card.querySelector(".total").dataset.resultCount)||0,total=card.querySelector(".total");if(total)total.textContent=count+(zh?" 個 TC":" TestCases")})}
+ document.getElementById("language").onclick=function(){root.dataset.lang=root.dataset.lang==="zh"?"en":"zh";try{localStorage.setItem("laf2-language",root.dataset.lang)}catch(e){}applyLanguage();refreshCounts()};
  function persistOverrides(){try{localStorage.setItem(overrideStorageKey,JSON.stringify(overrides));return true}catch(e){alert("無法儲存 manual override："+e);return false}}
  function applyManualOverride(card){
   var item=overrides[card.dataset.overrideKey],automation=card.dataset.automationStatus,status=item&&item.status?item.status.toLowerCase():automation;
@@ -775,7 +876,7 @@ SCRIPT = r"""
    detail.querySelectorAll("[data-status-filter]").forEach(function(button){var count=counts[button.dataset.statusFilter]||0;button.querySelector("b").textContent=count;button.disabled=count===0});
    applyStatusFilter(detail,detail.dataset.statusFilter||"");
    var typeCard=Array.from(document.querySelectorAll(".type-card")).find(function(card){return card.dataset.slot===detail.dataset.slot});
-   if(typeCard){var total=typeCard.querySelector(".total");total.dataset.resultCount=cards.length;total.textContent=cards.length+(root.dataset.lang==="zh"?" 筆結果":" results");["e2e","signal"].forEach(function(layer){var rows=cards.filter(function(card){return card.dataset.layer===layer}),row=typeCard.querySelector('[data-layer-row="'+layer+'"]'),layerCounts={pass:0,failed:0,blocked:0};rows.forEach(function(card){layerCounts[card.dataset.resultStatus]++});row.querySelector(".pass-text").textContent=layerCounts.pass+"✓";row.querySelector(".failed-text").textContent=layerCounts.failed+"✗";row.querySelector(".blocked-text").textContent=layerCounts.blocked+"▲";row.querySelector("small").textContent=rows.length+" TC"})}
+   if(typeCard){var total=typeCard.querySelector(".total");total.dataset.resultCount=cards.length;total.textContent=cards.length+(root.dataset.lang==="zh"?" 個 TC":" TestCases");["e2e","signal"].forEach(function(layer){var rows=cards.filter(function(card){return card.dataset.layer===layer}),row=typeCard.querySelector('[data-layer-row="'+layer+'"]'),layerCounts={pass:0,failed:0,blocked:0,unexecuted:0};rows.forEach(function(card){layerCounts[card.dataset.resultStatus]=(layerCounts[card.dataset.resultStatus]||0)+1});row.querySelector(".pass-text").textContent=layerCounts.pass+"✓";row.querySelector(".failed-text").textContent=layerCounts.failed+"✗";row.querySelector(".blocked-text").textContent=layerCounts.blocked+"▲";row.querySelector("small").textContent=rows.length+" TC · "+layerCounts.unexecuted+(root.dataset.lang==="zh"?" 未執行":" not run")})}
   })
  }
  document.querySelectorAll(".main-nav button").forEach(function(b){b.onclick=function(){activePage=b.dataset.page;document.querySelectorAll(".main-nav button").forEach(function(x){x.classList.toggle("on",x===b)});document.querySelectorAll(".app-page").forEach(function(p){p.hidden=p.id!==activePage+"-page"});if(activePage==="reports")showOverview()}});
@@ -785,7 +886,7 @@ SCRIPT = r"""
  document.querySelectorAll(".seg.mode button").forEach(function(b){b.onclick=function(){mode=b.dataset.value;showOverview();update()}});
  var overview=document.getElementById("slot-overview"),details=document.querySelectorAll(".slot-detail");
  function showOverview(){details.forEach(function(d){d.hidden=true});overview.hidden=false}
- function applyStatusFilter(detail,status){detail.dataset.statusFilter=status;detail.querySelectorAll("[data-status-filter]").forEach(function(button){button.classList.toggle("on",button.dataset.statusFilter===status)});detail.querySelectorAll(".report-section").forEach(function(section){var cards=Array.from(section.querySelectorAll(".result-card")),matches=cards.filter(function(card){return !status||card.dataset.resultStatus===status});cards.forEach(function(card){card.hidden=!!status&&card.dataset.resultStatus!==status});section.hidden=!!status&&matches.length===0})}
+ function applyStatusFilter(detail,status){detail.dataset.statusFilter=status;detail.querySelectorAll("[data-status-filter]").forEach(function(button){button.classList.toggle("on",button.dataset.statusFilter===status)});detail.querySelectorAll(".report-section").forEach(function(section){var cards=Array.from(section.querySelectorAll(".result-card")),matches=cards.filter(function(card){return !status||card.dataset.resultStatus===status});cards.forEach(function(card){card.hidden=!!status&&card.dataset.resultStatus!==status});section.querySelectorAll(".result-round").forEach(function(group){group.hidden=!!status&&!Array.from(group.querySelectorAll(".result-card")).some(function(card){return card.dataset.resultStatus===status})});section.hidden=!!status&&matches.length===0})}
  document.querySelectorAll("[data-status-filter]").forEach(function(button){button.onclick=function(){var detail=button.closest(".slot-detail"),next=detail.dataset.statusFilter===button.dataset.statusFilter?"":button.dataset.statusFilter;applyStatusFilter(detail,next)}});
  document.querySelectorAll(".type-card").forEach(function(c){c.onclick=function(){overview.hidden=true;details.forEach(function(d){var active=d.dataset.slot===c.dataset.slot;d.hidden=!active;if(active)applyStatusFilter(d,"")});scrollTo(0,0)}});
  document.querySelectorAll(".back").forEach(function(b){b.onclick=function(){showOverview();scrollTo(0,0)}});
@@ -794,12 +895,14 @@ SCRIPT = r"""
  document.querySelectorAll("[data-manual-save]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),status=card.querySelector("[data-manual-status]").value,reason=card.querySelector("[data-manual-reason]").value.trim();if(!status){delete overrides[card.dataset.overrideKey];persistOverrides();applyManualOverride(card);refreshCounts();return}if(!reason){alert("Manual override 必須填寫理由");card.querySelector("[data-manual-reason]").focus();return}overrides[card.dataset.overrideKey]={status:status,reason:reason,updated_at:new Date().toISOString(),automation_status:card.dataset.automationStatus.toUpperCase()};if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
  document.querySelectorAll("[data-manual-reset]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card");delete overrides[card.dataset.overrideKey];if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
  document.getElementById("export-overrides").onclick=function(){var payload={schema_version:1,exported_at:new Date().toISOString(),page:location.href,overrides:overrides},blob=new Blob([JSON.stringify(payload,null,2)+"\n"],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="lazyadfinder2-manual-overrides.json";a.click();setTimeout(function(){URL.revokeObjectURL(url)},1000)};
- document.querySelectorAll(".result-card").forEach(applyManualOverride);refreshCounts();
+ document.querySelectorAll(".result-card:not(.unexecuted-card)").forEach(applyManualOverride);refreshCounts();
  var lightbox=document.getElementById("image-lightbox"),lightboxImage=lightbox.querySelector("img"),lightboxCaption=lightbox.querySelector("p");
  function closeLightbox(){lightbox.hidden=true;lightboxImage.removeAttribute("src");document.body.style.overflow=""}
  document.querySelectorAll(".evidence-zoom").forEach(function(button){button.onclick=function(){var source=button.querySelector("img");lightboxImage.src=source.src;lightboxImage.alt=source.alt;lightboxCaption.textContent=source.alt;lightbox.hidden=false;document.body.style.overflow="hidden"}});
  lightbox.onclick=function(e){if(e.target===lightbox||e.target===lightboxImage)closeLightbox()};lightbox.querySelector("button").onclick=closeLightbox;
  addEventListener("keydown",function(e){if(e.key==="Escape"){if(!lightbox.hidden)closeLightbox();else showOverview()}});applyLanguage();update();
+ var requestedSlot=new URLSearchParams(location.search).get("slot");
+ if(requestedSlot){var target=Array.from(document.querySelectorAll(".type-card")).find(function(card){return card.dataset.slot===requestedSlot});if(target){var parts=requestedSlot.split(":");platform=parts[0];mode=parts[1];update();target.click()}}
 })();
 """
 
@@ -807,6 +910,8 @@ SCRIPT = r"""
 def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
     cards, details = [], []
     catalog_by_key = {str(row["key"]): row for row in catalog}
+    latest = max(verdicts, key=lambda row: row["captured_at"], default=None)
+    latest_slot = ":".join((latest["platform"], latest["mode_group"], latest["test_type"])) if latest else "aos:standalone:aibid"
     for platform, _plabel, _device in PLATFORMS:
         for mode, _mlabel in MODES:
             for kind, label, description in TYPES:
@@ -816,7 +921,7 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
     counts = Counter(row["status"] for row in verdicts)
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
     roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
-    return f'''<!doctype html><html lang="zh-Hant" data-lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
+    return f'''<!doctype html><html lang="zh-Hant" data-lang="zh" data-latest-slot="{html.escape(latest_slot, quote=True)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
 <header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">{_bi("Round Reports", "輪次報告")}</button><button data-page="catalog">{_bi("TestCase Catalog", "TestCase 目錄")}</button></nav><button class="export-overrides" id="export-overrides">{_bi("Export overrides", "匯出人工覆寫")}</button><button class="language" id="language">EN</button><button class="theme" id="theme">◐</button></header>
 <main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>{_bi("Round Reports", "輪次報告")}</h1><p>{_bi("Each Round contains Signal and E2E results. Select a platform and integration mode, then open AIBID, REEN Static, or REEN Dynamic.", "一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。")}</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
@@ -874,7 +979,10 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
             ["git", "rev-parse", "--short=12", "HEAD"], cwd=checkout, text=True
         ).strip()
     url = _pages_url(remote)
-    public_url = f"{url}?build={published_revision}" if url else remote
+    latest = max(verdicts, key=lambda row: row["captured_at"], default=None)
+    latest_slot = ":".join((latest["platform"], latest["mode_group"], latest["test_type"])) if latest else ""
+    slot_query = latest_slot.replace(":", "%3A")
+    public_url = f"{url}?build={published_revision}" + (f"&slot={slot_query}" if slot_query else "") if url else remote
     print(f"[publish] {'updated' if changed else 'unchanged'} · {public_url}")
     if url and open_page and os.environ.get("OPEN_PAGES", "1") != "0":
         subprocess.run(["open", public_url], check=False)

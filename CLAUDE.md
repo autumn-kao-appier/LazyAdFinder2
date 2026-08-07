@@ -51,7 +51,7 @@ page.py            讀取 Verdict.to_dict() 並產生靜態 HTML report
 - setup 後如何讀回確認狀態真的成立。
 
 每條 TC 的 Evidence 必須固定回答四件事：`Expected`（正確標準）、`Captured Device State`
-（同時間由肉眼畫面或獨立 OS 原始來源取得的實機答案）、`Actual SDK Payload`（SDK 真正送出的值）、
+（同時間由肉眼畫面或獨立 OS 原始來源取得的實機答案）、`Decoded Bid Request`（本次抓包解碼後，SDK 真正送出的 Request 值）、
 以及兩者的 `Comparison`。不得拿 payload 自己當成自己的 Evidence；能取得人眼可見的直接截圖時，
 優先使用截圖，無可靠設定頁時才使用清楚標示來源的 OS 原始讀值。
 - 使用哪一份 evidence、哪個欄位。
@@ -141,5 +141,19 @@ baseline 或任何預設狀態。
   只印出 URL。為避免舊快取，開啟的 URL 應附帶本次 publish commit／timestamp cache-buster。
   即使 Round 中途失敗，也要依序保存失敗 Evidence、產生 Report、publish，最後打開公開頁面；
   只有 publish 本身失敗時不得假裝已開啟最新 Report，必須明確報出發布錯誤。
+  Runner 必須在任何裝置狀態變更前執行 Scenario preflight。必要條件不存在時直接 `SKIPPED`：
+  保存 `round-skip.json` 說明條件與原因，但不得抓包、不得產生 `verdicts.json`；Page 以灰底
+  「未執行」呈現。只有前置條件成立並開始執行後，才允許產生 PASS／FAILED／BLOCKED。
+  R5 Privacy 是 AIBID 必跑 Scenario；不可因設定頁或 Evidence 入口異常而預先跳過。REEN Static／
+  Dynamic 因 tracking denied 時沒有可驗證的 advertising identifier，R5 Privacy 必須直接 SKIPPED，
+  但 R5 其他裝置狀態 Scenario 仍照常執行。
+  所有 AOS capture、R1–R5 與 E2E automation 開始前必須保存旋轉設定、關閉 Auto-rotate、鎖定並
+  讀回確認 `ROTATION_0` 直向；無法確認時不得啟動 Appium 或操作手機。成功、失敗或 SKIPPED
+  結束後都必須還原原本的 Auto-rotate 與 rotation。
+  AOS runner 必須先建立唯一的 `ExecutionPlan`，在接觸手機前驗證 Round／Mode／Type 並展開全部
+  Scenario 與 TestCase；接著只用唯讀 preflight 將每個 Scenario 定案為 RUN／SKIP，完整印出計畫
+  後才可鎖定方向或啟動 Automation。CLI positional `round <name>` 是唯一 Round 來源，不得另設
+  `--test-round` 或 `TEST_ROUND` 造成執行內容與 Evidence metadata 不一致。全輪 SKIP 時不得改變
+  手機狀態或啟動 Appium。
   可用 `AUTO_PUBLISH=0` 停用自動發布與自動開頁。手動發布仍使用 `page.py --publish`，發布成功
   後同樣必須打開公開頁面。

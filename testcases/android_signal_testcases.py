@@ -1,12 +1,14 @@
 """Reviewed Android Signal TestCases, validators, and Round registry."""
 
 import json
+import ipaddress
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from evidence_aos import (
     ADS_SETTINGS,
+    ADS_TRACKING_DENIED,
     APP_SET_ID,
     BID,
     BOOT_TIMESTAMPS,
@@ -17,6 +19,9 @@ from evidence_aos import (
     INSTALLED_APP_LIST,
     RESOURCE_STATUS,
     SDK_BUILD_INFO,
+    VOLUME_STATUS,
+    TIMEZONE_STATUS,
+    LOCATION_PERMISSION_STATUS,
 )
 from verdict import blocked, evaluate
 
@@ -180,11 +185,11 @@ def _comparison_view(key, expected, actual):
     rule = {
         "app-set-id": "SDK value must be a non-empty lowercase UUID; no independent Sample App display exists yet.",
         "installed-app-list": "Unavailable, empty, or a valid unique package list is allowed; no exact fixed list is required.",
-    }.get(key, "Actual SDK payload must satisfy the reviewed TestCase rule.")
+    }.get(key, "The decoded Bid Request must satisfy the reviewed TestCase rule.")
     return {
         "kind": "rule",
         "criterion": rule,
-        "actual": {"label": "Actual SDK Payload", "value": rule_actual},
+        "actual": {"label": "Decoded Bid Request", "value": rule_actual},
     }
 
 
@@ -261,6 +266,53 @@ def validate_tracking_allowed(folder):
         actual,
         "tracking-allowed.png",
         failures,
+    )
+
+
+def validate_advertising_id_opt_out(folder):
+    key = "advertising-id-opt-out"
+    decoded = _decoded(folder)
+    state = json.loads((Path(folder) / "tracking-denied-state.json").read_text())
+    req = _decoded_device_value(decoded, "req", "ia")
+    ext = _decoded_device_value(decoded, "ext", "ia")
+    protected = lambda value: value is None or value == "" or value == ZERO_GAID
+    failures = []
+    if state.get("opt_out") is not True:
+        failures.append("Opt out is not visibly enabled")
+    if state.get("visual_contract") != "opt-out-row-visible-v2":
+        failures.append("privacy screenshot does not prove the complete visible Opt out row and ON switch")
+    if not protected(req) or not protected(ext):
+        failures.append("req/ext device.ia must be absent, empty, or the zero advertising ID when tracking is denied")
+    return _verdict(
+        key, "Advertising ID — Tracking Denied",
+        "Opt out ON must prevent the SDK from sending a usable advertising ID.",
+        {"visible_opt_out": True, "req_ext_device_ia": "ABSENT, empty, or zero UUID"},
+        {"visible_opt_out": state.get("opt_out"), "req_device_ia": req if req is not None else ABSENT, "ext_device_ia": ext if ext is not None else ABSENT},
+        "advertising-id-opt-out.png", failures,
+    )
+
+
+def validate_tracking_denied(folder):
+    key = "tracking-denied"
+    state = json.loads((Path(folder) / "tracking-denied-state.json").read_text())
+    decoded = _decoded(folder)
+    req_present, req = _lat_value(decoded, "req")
+    ext_present, ext = _lat_value(decoded, "ext")
+    failures = []
+    if state.get("opt_out") is not True:
+        failures.append("Opt out is not visibly enabled")
+    if state.get("visual_contract") != "opt-out-row-visible-v2":
+        failures.append("privacy screenshot does not prove the complete visible Opt out row and ON switch")
+    if not req_present or type(req) is not int or req != 1:
+        failures.append(f"req.device.lat must be integer 1, got {req!r}")
+    if not ext_present or type(ext) is not int or ext != 1:
+        failures.append(f"ext.device.lat must be integer 1, got {ext!r}")
+    return _verdict(
+        key, "Advertising Tracking Denied",
+        "Opt out ON means tracking is denied and the inverse LAT flag is enabled.",
+        {"visible_opt_out": True, "req_device_lat": 1, "ext_device_lat": 1},
+        {"visible_opt_out": state.get("opt_out"), "req_device_lat": req if req_present else ABSENT, "ext_device_lat": ext if ext_present else ABSENT},
+        "tracking-denied.png", failures,
     )
 
 
@@ -601,6 +653,40 @@ def validate_font_scale(folder): return _validate_display_value(folder, "font-sc
 def validate_dark_mode(folder): return _validate_display_value(folder, "dark-mode", "Dark Mode", "dark_mode", "darkmode")
 
 
+def validate_dark_mode_enabled(folder):
+    row = _validate_display_value(folder, "dark-mode-enabled", "Dark Mode — Enabled", "dark_mode", "darkmode")
+    if row["actual"].get("darkmode") is not True:
+        row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce darkmode=true"
+    row["evidence"] = "dark-mode-evidence.png"
+    return row
+
+
+def validate_font_scale_maximum(folder):
+    row = _validate_display_value(folder, "font-scale-maximum", "Font Scale — Maximum", "font_scale", "fontscale", 1e-6)
+    if abs((row["actual"].get("fontscale") or 0) - 1.5) > 1e-6:
+        row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce fontscale=1.5"
+    row["evidence"] = "font-scale-evidence.png"
+    return row
+
+
+def validate_screen_brightness_minimum(folder):
+    row = _validate_display_value(folder, "screen-brightness-minimum", "Screen Brightness — Minimum", "screen_brightness", "screen_bright", 1 / 255 + 1e-8)
+    info = _status_info(folder, "display-status.json")
+    if info.get("brightness_raw") != 0:
+        row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce Android brightness raw 0"
+    row["evidence"] = "screen-brightness-evidence.png"
+    return row
+
+
+def validate_screen_brightness_maximum(folder):
+    row = _validate_display_value(folder, "screen-brightness-maximum", "Screen Brightness — Maximum", "screen_brightness", "screen_bright", 1 / 255 + 1e-8)
+    info = _status_info(folder, "display-status.json")
+    if info.get("brightness_raw") != 255:
+        row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce Android brightness raw 255"
+    row["evidence"] = "screen-brightness-evidence.png"
+    return row
+
+
 def _context_info(folder):
     return _status_info(folder, "device-context.json")
 
@@ -609,6 +695,55 @@ def validate_output_volume(folder):
     info = _context_info(folder); expected = info["volume_normalized"]; actual = info["actual"]; value = actual.get("volume")
     failures = [] if type(value) in (int, float) and abs(value - expected) <= 1 / info["volume_max"] + 1e-8 else ["volume does not match normalized Android Media volume"]
     return _verdict("output-volume", "Output Volume", "Output volume matches Android Media volume.", {"volume_normalized": expected, "current": info["volume_current"], "max": info["volume_max"]}, actual, "volume-evidence.png", failures)
+
+
+def validate_output_volume_muted(folder):
+    info = _status_info(folder, "volume-status.json"); value = info.get("actual")
+    failures = []
+    if info.get("current") != 0:
+        failures.append("R5 mutation did not mute Android media volume")
+    if type(value) not in (int, float) or value != 0:
+        failures.append(f"device.ext.volume must be 0 while muted, got {value!r}")
+    return _verdict("output-volume-muted", "Output Volume — Muted", "Muted Android media volume must produce zero.", {"volume": 0}, {"volume": value}, "volume-evidence.png", failures)
+
+
+def validate_output_volume_maximum(folder):
+    info = _status_info(folder, "volume-status.json"); value = info.get("actual")
+    failures = []
+    if info.get("current") != info.get("max"):
+        failures.append("R5 mutation did not set Android media volume to its maximum")
+    if type(value) not in (int, float) or abs(value - 1) > 1e-8:
+        failures.append(f"device.ext.volume must be 1 at maximum volume, got {value!r}")
+    return _verdict("output-volume-maximum", "Output Volume — Maximum", "Maximum Android media volume must normalize to one.", {"volume": 1, "current_equals_max": True}, {"volume": value, "current": info.get("current"), "max": info.get("max")}, "volume-evidence.png", failures)
+
+
+def validate_timezone_changed(folder):
+    info = _status_info(folder, "timezone-status.json"); actual = info.get("actual", {})
+    failures = []
+    if info.get("timezone") != "America/New_York":
+        failures.append("R5 mutation did not set timezone to America/New_York")
+    for name in ("req_utcoffset", "ext_utcoffset"):
+        if actual.get(name) != info.get("utcoffset"):
+            failures.append(f"{name} does not match the current Android UTC offset")
+    return _verdict("timezone-changed", "Timezone — Changed", "A changed Android timezone must update both request offsets.", {"timezone": "America/New_York", "utcoffset": info.get("utcoffset")}, actual, "timezone-changed.png", failures)
+
+
+def validate_location_permission_denied(folder):
+    info = _status_info(folder, "location-permission-status.json"); actual = info.get("actual", {})
+    failures = []
+    if info.get("denied") is not True:
+        failures.append("Android location permission is not denied")
+    for section in ("req", "ext"):
+        values = actual.get(section, {})
+        if values.get("geo_lat_present") or values.get("geo_lon_present"):
+            failures.append(f"{section}.device must not contain geo_lat or geo_lon when location permission is denied")
+    return _verdict("location-permission-denied", "Location Permission — Denied", "Denied location permission must suppress precise coordinates.", {"permission_denied": True, "geo_fields_absent": True}, actual, "location-permission-denied.png", failures)
+
+
+def validate_battery_saver_enabled(folder):
+    info = _status_info(folder, "battery-status.json"); actual = info.get("actual", {}).get("battery_saver")
+    failures = [] if info.get("battery_saver") is True and actual is True else ["Battery Saver ON must produce device.ext.battery_saver=true"]
+    return _verdict("battery-saver-enabled", "Battery Saver — Enabled", "Visible Battery Saver ON matches the payload boolean.", {"battery_saver": True}, {"battery_saver": actual}, "battery-saver-settings.png", failures)
 
 
 def validate_device_make(folder):
@@ -682,7 +817,49 @@ def _round_blocked(key, title, reason):
     row = blocked(key, reason).to_dict(); row.update({"layer": "Signal", "title": title, "description": reason}); return row
 
 
-def validate_ipv6(_folder): return _round_blocked("ipv6-address", "IPv6 Address", "Environment limitation: company network has no IPv6; waiting for IT support")
+def validate_ipv6(folder):
+    folder = Path(folder)
+    decoded = _decoded(folder)
+    value = _decoded_device_value(decoded, "ext", "ipv6")
+    response_path = folder / "ipv6-net-probe-response.json"
+    events_path = folder / "proxy-events.jsonl"
+    response = json.loads(response_path.read_text()) if response_path.exists() else {}
+    probe_ipv6 = response.get("ipv6") if isinstance(response, dict) else None
+    events = []
+    if events_path.exists():
+        for line in events_path.read_text().splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("kind") == "ipv6-net-probe":
+                events.append(event)
+    successful_probe = any(event.get("phase") == "response" and event.get("status") == 200 for event in events)
+    if not successful_probe or not response_path.exists():
+        return _round_blocked(
+            "ipv6-address", "IPv6 Address",
+            "Environment prerequisite unavailable: no successful Appier adx6 IPv6 probe was captured",
+        )
+    failures = []
+    try:
+        if not probe_ipv6 or ipaddress.ip_address(probe_ipv6).version != 6:
+            failures.append("Appier net probe response must contain a valid IPv6 address")
+    except ValueError:
+        failures.append("Appier net probe response contains an invalid IPv6 address")
+    try:
+        if not value or ipaddress.ip_address(value).version != 6:
+            failures.append("ext device.ipv6 must contain a valid IPv6 address")
+    except ValueError:
+        failures.append("ext device.ipv6 contains an invalid IPv6 address")
+    if probe_ipv6 != value:
+        failures.append("ext device.ipv6 does not equal the Appier net probe response")
+    return _verdict(
+        "ipv6-address", "IPv6 Address",
+        "AOS obtains public IPv6 from the Appier adx6 net endpoint.",
+        {"endpoint": "https://adx6.apx.appier.net/v2/sdk/net", "http_status": 200, "ipv6": probe_ipv6},
+        {"probe_events": len(events), "ext_device_ipv6": value},
+        "ipv6-net-probe-response.json", failures,
+    )
 def validate_precise_latitude(_folder): return _round_blocked("precise-gps-latitude", "Precise GPS Latitude", "Not In Scope: location ground-truth capture is not defined; device.lat is the tracking flag, not latitude")
 def validate_precise_longitude(_folder): return _round_blocked("precise-gps-longitude", "Precise GPS Longitude", "Not In Scope: location ground-truth capture is not defined; the observed payload path is device.geo_lon")
 def _session_sequence(folder):
@@ -920,6 +1097,17 @@ TC_DEFINITIONS = {
         (ADS_SETTINGS, BID),
         validate_tracking_allowed,
     ),
+    "advertising-id-opt-out": TestCase("advertising-id-opt-out", "Advertising ID — Tracking Denied", "Opt out prevents a usable advertising ID.", (ADS_TRACKING_DENIED, BID), validate_advertising_id_opt_out),
+    "tracking-denied": TestCase("tracking-denied", "Advertising Tracking Denied", "Opt out ON produces LAT=1.", (ADS_TRACKING_DENIED, BID), validate_tracking_denied),
+    "dark-mode-enabled": TestCase("dark-mode-enabled", "Dark Mode — Enabled", "Alternate dark-mode state follows Android.", (DISPLAY_STATUS, BID), validate_dark_mode_enabled),
+    "font-scale-maximum": TestCase("font-scale-maximum", "Font Scale — Maximum", "Alternate font scale follows Android.", (DISPLAY_STATUS, BID), validate_font_scale_maximum),
+    "screen-brightness-minimum": TestCase("screen-brightness-minimum", "Screen Brightness — Minimum", "Minimum brightness follows Android.", (DISPLAY_STATUS, BID), validate_screen_brightness_minimum),
+    "output-volume-muted": TestCase("output-volume-muted", "Output Volume — Muted", "Muted media volume produces zero.", (VOLUME_STATUS, BID), validate_output_volume_muted),
+    "screen-brightness-maximum": TestCase("screen-brightness-maximum", "Screen Brightness — Maximum", "Maximum brightness follows Android.", (DISPLAY_STATUS, BID), validate_screen_brightness_maximum),
+    "output-volume-maximum": TestCase("output-volume-maximum", "Output Volume — Maximum", "Maximum media volume normalizes to one.", (VOLUME_STATUS, BID), validate_output_volume_maximum),
+    "timezone-changed": TestCase("timezone-changed", "Timezone — Changed", "Alternate timezone updates UTC offset.", (TIMEZONE_STATUS, BID), validate_timezone_changed),
+    "location-permission-denied": TestCase("location-permission-denied", "Location Permission — Denied", "Denied location permission suppresses coordinates.", (LOCATION_PERMISSION_STATUS, BID), validate_location_permission_denied),
+    "battery-saver-enabled": TestCase("battery-saver-enabled", "Battery Saver — Enabled", "Battery Saver ON follows Android.", (BATTERY_STATUS, BID), validate_battery_saver_enabled),
     "app-set-id": TestCase(
         "app-set-id",
         "Vendor ID (App Set ID)",
@@ -1064,4 +1252,15 @@ ROUND_DEFINITIONS = {
         ("session-duration-continuous", "session-duration-background", "session-duration-termination", "app-initialization-time", "app-duration-today"),
         strategy="session-duration",
     ),
+    "R5": Round(
+        "ALTERNATE-STATE",
+        ("advertising-id-opt-out", "tracking-denied", "dark-mode-enabled", "font-scale-maximum", "screen-brightness-minimum", "output-volume-muted", "battery-saver-enabled", "screen-brightness-maximum", "output-volume-maximum", "timezone-changed", "location-permission-denied"),
+        strategy="r5-scenarios",
+    ),
 }
+
+R5_PRIVACY_KEYS = ("advertising-id-opt-out", "tracking-denied")
+R5_ALTERNATE_KEYS = ("dark-mode-enabled", "font-scale-maximum", "screen-brightness-minimum", "output-volume-muted", "battery-saver-enabled")
+R5_DISPLAY_AUDIO_HIGH_KEYS = ("screen-brightness-maximum", "output-volume-maximum")
+R5_TIMEZONE_KEYS = ("timezone-changed",)
+R5_LOCATION_DENIED_KEYS = ("location-permission-denied",)

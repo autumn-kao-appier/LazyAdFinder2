@@ -27,6 +27,7 @@ BID_STATUS_FILE = "/tmp/appier_bid_status"
 BID_RESPONSE_FILE = "/tmp/appier_bid_response.json"
 IMPRESSION_FILE = "/tmp/appier_impression.json"
 EVENTS_FILE = "/tmp/appier_proxy_events.jsonl"
+NET_PROBE_RESPONSE_FILE = "/tmp/appier_net_probe_response.json"
 ADMOB_RAW_FILES = {
     ("admob-pubsetting", "request"): "/tmp/admob_pubsetting_request.bin",
     ("admob-pubsetting", "response"): "/tmp/admob_pubsetting_response.bin",
@@ -51,6 +52,8 @@ def _event_kind(flow):
     path = flow.request.path.lower()
     if _is_bid(flow):
         return "bid"
+    if host == "adx6.apx.appier.net" and path.startswith("/v2/sdk/net"):
+        return "ipv6-net-probe"
     if path.startswith(IMPRESSION_PATH) and (
         host.endswith(".c.appier.net") or host == "c.appier.net"
     ):
@@ -197,6 +200,9 @@ class AppierDetector:
 
     def response(self, flow: http.HTTPFlow) -> None:
         _append_event(flow, "response")
+        if _event_kind(flow) == "ipv6-net-probe" and flow.response is not None and flow.response.content:
+            if _save_json(NET_PROBE_RESPONSE_FILE, flow.response.content):
+                print(f">>> APPIER IPv6 NET PROBE → {NET_PROBE_RESPONSE_FILE}")
         if not _is_bid(flow) or flow.response is None:
             return
         status = flow.response.status_code
