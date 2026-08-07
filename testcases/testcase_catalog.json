@@ -25,7 +25,7 @@
       "status": "IMPLEMENTED",
       "aos": {
         "applicable": true,
-        "setup": "開啟 Google Ads 頁，確認 Opt out of Ads Personalization 關閉，截取人眼可見的 GAID，再啟動 App capture。",
+        "setup": "開啟 Android Ad privacy 頁；新版介面確認 Delete advertising ID 與 GAID 可見，舊版介面才確認 Opt out 關閉，再啟動 App capture。",
         "expected": "設定頁、Request、Extended 的 GAID 必須完全相同；格式為小寫 UUID，且不可為空或全零。",
         "evidence": "設定頁截圖、bid_decoded.json、summary.json"
       },
@@ -265,7 +265,7 @@
       "status": "IMPLEMENTED",
       "aos": {
         "applicable": true,
-        "setup": "Ads 頁面的 Opt out of Ads Personalization 關閉，代表使用者允許廣告追蹤；與 Advertising ID 沿用同一次 capture。",
+        "setup": "Android Ad privacy 頁顯示有效 GAID 與 Delete advertising ID，代表 Advertising ID 可用；舊版介面才使用 Opt out OFF。與 Advertising ID 沿用同一次 capture。",
         "expected": "設定頁顯示允許追蹤；device.lat 是『限制追蹤』的反向旗標，因此 Request／Extended 必須為 0（未限制）或不傳送。",
         "evidence": "tracking-allowed.png、ads-settings-state.json、bid_decoded.json、verdicts.json"
       },

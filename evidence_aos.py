@@ -75,7 +75,9 @@ OFFICIAL_DISPLAY_SPECS = {
     },
 }
 VISIBLE_GAID_RE = re.compile(
-    r"Your advertising ID:\s*([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
+    r"(?:Your|This device(?:'|’)?s) advertising ID:\s*"
+    r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})",
+    re.IGNORECASE,
 )
 
 
@@ -125,7 +127,29 @@ def _visible_ads_state(udid):
         selected = min(switches, key=lambda node: abs(_bounds_center(node.attrib.get("bounds"))[1] - title_y))
         opt_out = selected.attrib.get("checked") == "true"
         switch_center = _bounds_center(selected.attrib.get("bounds"))
-    return gaid, opt_out, switch_center
+    delete_visible = any(node.attrib.get("text") == "Delete advertising ID" for node in nodes)
+    renew_visible = any(node.attrib.get("text") == "Renew advertising ID" for node in nodes)
+    if delete_visible:
+        ui_model = "delete-renew"
+        tracking_allowed = True
+    elif renew_visible:
+        ui_model = "delete-renew"
+        tracking_allowed = False
+    elif opt_out is not None:
+        ui_model = "legacy-opt-out"
+        tracking_allowed = not opt_out
+    else:
+        ui_model = "unknown"
+        tracking_allowed = None
+    return {
+        "gaid": gaid,
+        "opt_out": opt_out,
+        "switch_center": switch_center,
+        "delete_visible": delete_visible,
+        "renew_visible": renew_visible,
+        "ui_model": ui_model,
+        "tracking_allowed": tracking_allowed,
+    }
 
 
 def _open_ads_settings_via_search(udid):
@@ -182,7 +206,8 @@ def _open_ads_settings_via_search(udid):
     time.sleep(1.5)
     _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_settings.xml")
     opened = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_settings.xml", binary=True))
-    if not any(node.attrib.get("text") == "Delete advertising ID" for node in opened.iter("node")):
+    actions = {node.attrib.get("text") for node in opened.iter("node")}
+    if not ({"Delete advertising ID", "Renew advertising ID"} & actions):
         raise EvidenceCaptureError("Privacy controls → Ads did not open the Advertising ID page")
 
 
@@ -191,7 +216,7 @@ def _position_visible_opt_out(udid):
     for _ in range(7):
         _adb(udid, "shell", "input", "swipe", "540", "650", "540", "1900", "300")
         time.sleep(0.2)
-    gaid, opt_out, switch_center = _visible_ads_state(udid)
+    state = _visible_ads_state(udid)
     document = _adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_settings.xml", binary=True)
     root = ET.fromstring(document)
     title = next(
@@ -199,15 +224,50 @@ def _position_visible_opt_out(udid):
         None,
     )
     if title is None or switch_center is None:
-        return gaid, None, None
+        return state
     bounds = [int(part) for part in re.findall(r"\d+", title.attrib.get("bounds", ""))]
     if len(bounds) != 4 or bounds[1] < 250 or bounds[3] > 2250:
-        return gaid, None, None
-    return gaid, opt_out, switch_center
+        return state
+    return state
+
+
+def _tap_ads_action(udid, label):
+    """Tap a visible Ads action and its confirmation, then wait for the inverse action."""
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_action.xml")
+    root = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_action.xml", binary=True))
+    matches = [node for node in root.iter("node") if node.attrib.get("text") == label]
+    if not matches:
+        raise EvidenceCaptureError(f"Advertising ID page does not expose {label!r}")
+    x, y = _bounds_center(matches[0].attrib.get("bounds"))
+    _adb(udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(0.7)
+
+    # Pixel shows a confirmation dialog with the same action label. Prefer a
+    # Button so the underlying preference row is not tapped a second time.
+    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_confirm.xml")
+    confirm = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_confirm.xml", binary=True))
+    buttons = [
+        node for node in confirm.iter("node")
+        if node.attrib.get("text") == label and node.attrib.get("class") == "android.widget.Button"
+    ]
+    if buttons:
+        x, y = _bounds_center(buttons[-1].attrib.get("bounds"))
+        _adb(udid, "shell", "input", "tap", str(x), str(y))
+    time.sleep(1.2)
+
+    expected = "Renew advertising ID" if label == "Delete advertising ID" else "Delete advertising ID"
+    for _ in range(5):
+        state = _visible_ads_state(udid)
+        if (expected == "Renew advertising ID" and state["renew_visible"]) or (
+            expected == "Delete advertising ID" and state["delete_visible"]
+        ):
+            return state
+        time.sleep(0.5)
+    raise EvidenceCaptureError(f"{label} did not change the page to {expected}")
 
 
 def capture_ads_settings(config):
-    """Open the human-readable Ads page, enforce tracking allowed, and photograph it."""
+    """Open Ads, support both legacy Opt-out and modern Delete/Renew UIs."""
     for path in (SETUP_SCREENSHOT, SETUP_TRACKING_SCREENSHOT, SETUP_STATE):
         try:
             path.unlink()
@@ -217,31 +277,39 @@ def capture_ads_settings(config):
     _adb(config.udid, "shell", "input", "keyevent", "4", check=False)
     _open_ads_settings_via_search(config.udid)
     time.sleep(2)
-    gaid, opt_out, switch_center = _position_visible_opt_out(config.udid)
-    if opt_out is None or switch_center is None:
-        raise EvidenceCaptureError("Cannot read the visible 'Opt out of Ads Personalization' switch")
-    if opt_out:
-        _adb(config.udid, "shell", "input", "tap", "540", str(switch_center[1] + 100))
+    state = _position_visible_opt_out(config.udid)
+    if state["ui_model"] == "delete-renew" and state["renew_visible"]:
+        state = _tap_ads_action(config.udid, "Renew advertising ID")
+    elif state["ui_model"] == "legacy-opt-out" and state["opt_out"]:
+        x, y = state["switch_center"]
+        _adb(config.udid, "shell", "input", "tap", str(x), str(y))
         time.sleep(1)
-        _, opt_out, switch_center = _position_visible_opt_out(config.udid)
-        if opt_out:
+        state = _position_visible_opt_out(config.udid)
+        if not state["tracking_allowed"]:
             raise EvidenceCaptureError("Opt out of Ads Personalization remained enabled after tap")
+    elif state["ui_model"] == "unknown":
+        raise EvidenceCaptureError("Advertising ID page exposes neither Delete/Renew nor legacy Opt out controls")
     SETUP_TRACKING_SCREENSHOT.write_bytes(
         _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
     )
     gaid = ""
-    opt_out = None
-    switch_center = None
     for _ in range(5):
-        gaid, opt_out, switch_center = _visible_ads_state(config.udid)
-        if gaid and opt_out is not None:
+        state = _visible_ads_state(config.udid)
+        gaid = state["gaid"]
+        if gaid and state["tracking_allowed"] is True:
             break
         _adb(config.udid, "shell", "input", "swipe", "540", "1900", "540", "500", "450")
         time.sleep(0.5)
     if not gaid:
-        raise EvidenceCaptureError("Ads page did not visibly show 'Your advertising ID'")
+        raise EvidenceCaptureError("Ads page did not visibly show the device advertising ID")
     SETUP_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
-    SETUP_STATE.write_text(json.dumps({"gaid": gaid, "opt_out": opt_out}, indent=2) + "\n")
+    SETUP_STATE.write_text(json.dumps({
+        "gaid": gaid,
+        "opt_out": state["opt_out"],
+        "tracking_allowed": state["tracking_allowed"],
+        "ui_model": state["ui_model"],
+        "visible_action": "Delete advertising ID" if state["delete_visible"] else None,
+    }, indent=2) + "\n")
 
 
 def materialize_ads_settings(folder):
@@ -258,18 +326,19 @@ def materialize_ads_settings(folder):
 
 
 def capture_tracking_denied(config):
-    """Enable visible Opt out and preserve direct privacy-state evidence."""
+    """Deny tracking through Delete ID (modern UI) or Opt out (legacy UI)."""
     for path in (SETUP_TRACKING_DENIED_SCREENSHOT, SETUP_TRACKING_DENIED_STATE):
         path.unlink(missing_ok=True)
     _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
     _adb(config.udid, "shell", "input", "keyevent", "4", check=False)
     _open_ads_settings_via_search(config.udid)
     time.sleep(2)
-    gaid, opt_out, switch_center = _position_visible_opt_out(config.udid)
-    if opt_out is None or switch_center is None:
-        raise EvidenceCaptureError("Cannot read the visible Opt out switch for denied tracking")
-    if not opt_out:
-        _adb(config.udid, "shell", "input", "tap", "540", str(switch_center[1] + 100))
+    state = _position_visible_opt_out(config.udid)
+    if state["ui_model"] == "delete-renew" and state["delete_visible"]:
+        state = _tap_ads_action(config.udid, "Delete advertising ID")
+    elif state["ui_model"] == "legacy-opt-out" and not state["opt_out"]:
+        x, y = state["switch_center"]
+        _adb(config.udid, "shell", "input", "tap", str(x), str(y))
         time.sleep(0.5)
         _adb(config.udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_confirm.xml")
         confirm = ET.fromstring(_adb(config.udid, "exec-out", "cat", "/sdcard/laf2_ads_confirm.xml", binary=True))
@@ -278,17 +347,20 @@ def capture_tracking_denied(config):
             x, y = _bounds_center(ok.attrib.get("bounds"))
             _adb(config.udid, "shell", "input", "tap", str(x), str(y))
         time.sleep(1)
-        gaid, opt_out, _ = _position_visible_opt_out(config.udid)
-    if opt_out is not True:
-        raise EvidenceCaptureError("Opt out of Ads Personalization did not become enabled")
+        state = _position_visible_opt_out(config.udid)
+    if state["tracking_allowed"] is not False:
+        raise EvidenceCaptureError("Advertising tracking could not be visibly disabled")
     SETUP_TRACKING_DENIED_SCREENSHOT.write_bytes(
         _adb(config.udid, "exec-out", "screencap", "-p", binary=True)
     )
     SETUP_TRACKING_DENIED_STATE.write_text(
         json.dumps({
-            "gaid": gaid,
-            "opt_out": True,
-            "visual_contract": "opt-out-row-visible-v2",
+            "gaid": state["gaid"],
+            "opt_out": state["opt_out"],
+            "tracking_allowed": False,
+            "ui_model": state["ui_model"],
+            "visible_action": "Renew advertising ID" if state["renew_visible"] else None,
+            "visual_contract": "advertising-id-disabled-visible-v3",
         }, indent=2) + "\n"
     )
 

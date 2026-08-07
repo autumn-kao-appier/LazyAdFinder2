@@ -35,7 +35,7 @@ Runner 必須在每個 Scenario 後還原原狀態；中途失敗仍保存 Evide
 Evidence：`ads-settings.png`、`ads-settings-state.json`、`bid_raw.json`、
 `bid_decoded.json`、`verdicts.json`。
 
-PASS：Opt out 關閉；設定頁、req、ext 三份 GAID 都存在、完全相同、是全小寫 UUID，且不是
+PASS：新版 Ad privacy 頁顯示有效 GAID 與 `Delete advertising ID`（舊版才檢查 Opt out 關閉）；設定頁、req、ext 三份 GAID 都存在、完全相同、是全小寫 UUID，且不是
 全零。已執行但任一條件不符為 FAILED；設定頁或流量無法取得才是 BLOCKED。
 
 ## Vendor ID (App Set ID)
@@ -246,7 +246,7 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 Evidence：`tracking-allowed.png`、`ads-settings-state.json`、`bid_raw.json`、
 `bid_decoded.json`、`verdicts.json`。
 
-PASS：人眼可見的 Opt out 為 OFF，代表「允許追蹤」。`device.lat` 的名稱是 Limit Ad
+PASS：人眼可見的 Advertising ID 為可用狀態（新版顯示有效 GAID 與 `Delete advertising ID`；舊版 Opt out 為 OFF），代表「允許追蹤」。`device.lat` 的名稱是 Limit Ad
 Tracking，語意相反，所以 req/ext 各自必須是 JSON 整數 `0`（未限制）或欄位真正不存在。
 `null`、字串、布林或其他數字均為 FAILED；設定頁或 payload 無法取得才是 BLOCKED。
 

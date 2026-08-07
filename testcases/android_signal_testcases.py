@@ -153,7 +153,7 @@ def _comparison_view(key, expected, actual):
         "root-status": "Payload jailbreak boolean must match an independent Android root probe.",
         "emulator-detection": "Payload emulator boolean must match Android hardware properties.",
         "connection-type": "Request and extended connection types must match the active Android network transport.",
-        "tracking-allowed": "Tracking is allowed when Opt out is OFF; because LAT means Limit Ad Tracking, its inverse flag must be 0 or absent.",
+        "tracking-allowed": "Android Ads settings visibly show an active advertising ID; because LAT means Limit Ad Tracking, its inverse flag must be 0 or absent.",
         "app-initialization-time": "Initialization time stays fixed within one process and is renewed after process restart.",
         "app-duration-today": "Today's foreground usage is monotonic and persists across process restart.",
     }
@@ -207,8 +207,8 @@ def validate_advertising_id(folder):
     }
     values = (actual["settings_gaid"], actual["req_device_ia"], actual["ext_device_ia"])
     failures = []
-    if actual["opt_out"] is not False:
-        failures.append("Opt out of Ads Personalization is not visibly off")
+    if state.get("tracking_allowed") is not True:
+        failures.append("Advertising ID settings do not visibly show tracking as allowed")
     if not all(isinstance(value, str) and UUID_RE.fullmatch(value) for value in values):
         failures.append("settings/req/ext GAID is missing or not a lowercase UUID")
     if any(value == ZERO_GAID for value in values):
@@ -219,7 +219,7 @@ def validate_advertising_id(folder):
         key,
         title,
         description,
-        {"opt_out": False, "format": "lowercase UUID 8-4-4-4-12", "non_zero": True, "settings_equals_req_equals_ext": True},
+        {"tracking_allowed": True, "format": "lowercase UUID 8-4-4-4-12", "non_zero": True, "settings_equals_req_equals_ext": True},
         actual,
         "ads-settings.png",
         failures,
@@ -247,7 +247,7 @@ def validate_tracking_allowed(folder):
     req_present, req_value = _lat_value(decoded, "req")
     ext_present, ext_value = _lat_value(decoded, "ext")
     actual = {
-        "visible_tracking_allowed": state.get("opt_out") is False,
+        "visible_tracking_allowed": state.get("tracking_allowed") is True,
         "req_limit_ad_tracking": req_value if req_present else ABSENT,
         "ext_limit_ad_tracking": ext_value if ext_present else ABSENT,
     }
@@ -277,17 +277,17 @@ def validate_advertising_id_opt_out(folder):
     ext = _decoded_device_value(decoded, "ext", "ia")
     protected = lambda value: value is None or value == "" or value == ZERO_GAID
     failures = []
-    if state.get("opt_out") is not True:
-        failures.append("Opt out is not visibly enabled")
-    if state.get("visual_contract") != "opt-out-row-visible-v2":
-        failures.append("privacy screenshot does not prove the complete visible Opt out row and ON switch")
+    if state.get("tracking_allowed") is not False:
+        failures.append("Advertising ID settings do not visibly show tracking as denied")
+    if state.get("visual_contract") != "advertising-id-disabled-visible-v3":
+        failures.append("privacy screenshot does not prove a disabled Advertising ID state")
     if not protected(req) or not protected(ext):
         failures.append("req/ext device.ia must be absent, empty, or the zero advertising ID when tracking is denied")
     return _verdict(
         key, "Advertising ID — Tracking Denied",
         "Opt out ON must prevent the SDK from sending a usable advertising ID.",
-        {"visible_opt_out": True, "req_ext_device_ia": "ABSENT, empty, or zero UUID"},
-        {"visible_opt_out": state.get("opt_out"), "req_device_ia": req if req is not None else ABSENT, "ext_device_ia": ext if ext is not None else ABSENT},
+        {"visible_tracking_denied": True, "req_ext_device_ia": "ABSENT, empty, or zero UUID"},
+        {"visible_tracking_denied": state.get("tracking_allowed") is False, "req_device_ia": req if req is not None else ABSENT, "ext_device_ia": ext if ext is not None else ABSENT},
         "advertising-id-opt-out.png", failures,
     )
 
@@ -299,10 +299,10 @@ def validate_tracking_denied(folder):
     req_present, req = _lat_value(decoded, "req")
     ext_present, ext = _lat_value(decoded, "ext")
     failures = []
-    if state.get("opt_out") is not True:
-        failures.append("Opt out is not visibly enabled")
-    if state.get("visual_contract") != "opt-out-row-visible-v2":
-        failures.append("privacy screenshot does not prove the complete visible Opt out row and ON switch")
+    if state.get("tracking_allowed") is not False:
+        failures.append("Advertising ID settings do not visibly show tracking as denied")
+    if state.get("visual_contract") != "advertising-id-disabled-visible-v3":
+        failures.append("privacy screenshot does not prove a disabled Advertising ID state")
     if not req_present or type(req) is not int or req != 1:
         failures.append(f"req.device.lat must be integer 1, got {req!r}")
     if not ext_present or type(ext) is not int or ext != 1:
@@ -1093,7 +1093,7 @@ TC_DEFINITIONS = {
     "tracking-allowed": TestCase(
         "tracking-allowed",
         "Advertising Tracking Allowed",
-        "Opt out OFF means tracking is allowed; device.lat is the inverse limit-tracking flag.",
+        "An active Advertising ID means tracking is allowed; device.lat is the inverse limit-tracking flag.",
         (ADS_SETTINGS, BID),
         validate_tracking_allowed,
     ),
