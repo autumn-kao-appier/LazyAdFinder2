@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from campaign_profiles import campaign_profile
+from campaign_testcases import supports as campaign_supports
 from verdict import blocked, evaluate
 
 from .e2e_shared_contracts import E2ETestCase, definitions
@@ -16,10 +18,10 @@ TESTCASES = definitions(
     E2ETestCase("standalone-native-render", "Native Ad Rendering", "Serving", "P0"),
     E2ETestCase("standalone-impression", "Appier Impression Tracking", "Tracking", "P0"),
     E2ETestCase("standalone-click", "Appier Click Tracking", "Tracking", "P0"),
-    E2ETestCase("standalone-landing", "Landing Behavior", "Tracking", "P1"),
+    E2ETestCase("standalone-landing", "Campaign Destination", "Tracking", "P1"),
     E2ETestCase("standalone-privacy", "Privacy Information", "Tracking", "P2"),
-    E2ETestCase("standalone-install-attribution", "AIBID Install Attribution", "Attribution", "P2", ("aibid",)),
-    E2ETestCase("standalone-attribution-reconciliation", "Backend Attribution Reconciliation", "Attribution", "P2", ("aibid",)),
+    E2ETestCase("standalone-install-attribution", "MMP Click Action", "Attribution", "P2"),
+    E2ETestCase("standalone-attribution-reconciliation", "Attribution Recognition", "Attribution", "P2"),
 )
 
 
@@ -129,6 +131,7 @@ def validate_bundle(folder):
     """Validate network facts and preserve manual gates for visual/external facts."""
     folder = Path(folder)
     summary = json.loads((folder / "summary.json").read_text())
+    profile = campaign_profile(summary.get("test_type"))
     events = _read_events(folder)
     decoded = _read_json(folder / "bid_decoded.json", {}) or {}
     response = _read_json(folder / "bid_response.json")
@@ -335,7 +338,7 @@ def validate_bundle(folder):
         impressions[-1] if impressions else None,
     )
     attribution_lookup = {
-        "purpose": "Lookup key for E2E-S15 install attribution and E2E-S16 backend reconciliation",
+        "purpose": "Lookup key for E2E-S15 MMP click action and E2E-S16 attribution recognition",
         "bidobjid": selected_ids.get("bidobjid"),
         "cid": selected_ids.get("cid") or cid,
         "crid": selected_ids.get("crid"),
@@ -351,19 +354,34 @@ def validate_bundle(folder):
     )
 
     destination = click_state.get("destination", {}) if isinstance(click_state, dict) else {}
-    landing_ok = bool(click_ok and click_state.get("opened") and click_screenshot and destination)
+    destination_package = str(destination.get("package") or "") if isinstance(destination, dict) else ""
+    target_app_package = str(summary.get("target_app_package") or "")
+    if profile.landing_contract == "target-app-deeplink":
+        destination_matches = bool(target_app_package and destination_package == target_app_package)
+    else:
+        destination_matches = bool(destination_package and destination_package != summary.get("app_package"))
+    landing_ok = bool(
+        click_ok and click_state.get("opened") and click_screenshot and destination
+        and destination_matches
+    )
     landing_row = _evaluated(
         "standalone-landing",
-        {"click_tracking_passed": True, "external_destination_opened": True, "landing_screenshot": True},
+        {
+            "click_tracking_passed": True,
+            "landing_contract": profile.landing_contract,
+            "target_app_package": target_app_package or "external install destination",
+            "landing_screenshot": True,
+        },
         {
             "click_tracking_passed": click_ok,
             "opened": bool(click_state.get("opened")),
             "destination": destination,
+            "destination_matches_campaign_contract": destination_matches,
             "landing_screenshot_saved": click_screenshot,
         },
         landing_ok,
         "click-landing.png" if click_screenshot else "e2e-interactions.json",
-        "The click redirect completed and the final external destination was preserved as visible evidence." if landing_ok else "FAILED: the E2E round does not preserve a proven final landing destination after the tracked click.",
+        "The tracked ad click opened the campaign's required destination and preserved it as visible evidence." if landing_ok else "FAILED: the tracked click did not prove the campaign's required destination; REEN must open the configured target App.",
     )
 
     privacy_state = interactions.get("privacy", {}) if isinstance(interactions, dict) else {}
@@ -434,15 +452,18 @@ def validate_bundle(folder):
         "standalone-privacy": privacy_row,
         "standalone-install-attribution": _blocked(
             "standalone-install-attribution",
-            "The traffic lookup key was captured automatically. Install and first-open verification still require a coordinated attribution window.",
+            f"The traffic lookup key was captured automatically. MMP {profile.mmp_click_action} verification still requires the MMP action query.",
             actual=attribution_lookup,
             evidence="attribution-query.json",
         ),
         "standalone-attribution-reconciliation": _blocked(
             "standalone-attribution-reconciliation",
-            "The traffic lookup key was captured automatically. Spark/MMP reconciliation still requires internal-system access and a completed attribution action.",
+            f"The traffic lookup key was captured automatically. {profile.attribution_action} attribution recognition still requires Spark/MMP reconciliation.",
             actual=attribution_lookup,
             evidence="attribution-query.json",
         ),
     }
-    return [rows[key] for key in TESTCASES]
+    return [
+        rows[key] for key, testcase in TESTCASES.items()
+        if campaign_supports(profile.key, key)
+    ]

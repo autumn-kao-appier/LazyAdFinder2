@@ -97,9 +97,11 @@ def finalize_bundle(
     summary = {
         "result": result,
         "platform": platform,
+        "app_package": getattr(config, "app_package", ""),
         "test_mode": config.test_mode,
         "test_type": config.test_type,
         "test_cid": config.test_cid,
+        "target_app_package": getattr(config, "target_app_package", ""),
         "test_round": config.test_round,
         "test_run_id": getattr(config, "test_run_id", ""),
         "test_run_started_at": getattr(config, "test_run_started_at", ""),

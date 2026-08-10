@@ -68,6 +68,15 @@ export TEST_TYPE=aibid
 export TEST_CID='<campaign-cid>'
 ```
 
+REEN Static／Dynamic 使用相同的 R1–R5 與 E2E runner。執行 REEN E2E 時另指定最終必須開啟的 App：
+
+```bash
+export TEST_TYPE=reen-static   # 或 reen-dynamic
+export TARGET_APP_PACKAGE='<promoted-app-package>'
+```
+
+REEN 的 R5 只跳過 Advertising ID opt-out 與 tracking-denied；其他裝置狀態 Scenario 仍會執行。
+
 擷取一次符合 CID 的廣告：
 
 ```bash

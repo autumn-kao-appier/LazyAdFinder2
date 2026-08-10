@@ -2,13 +2,13 @@
 
 ## R5 — Alternate and Negative States
 
-R5 保留 R1 Happy Path，追加兩個 Scenario。Privacy 不與其他裝置狀態混用：
+R5 保留 R1 Happy Path，追加五個可獨立還原的 Scenario。Privacy 不與其他裝置狀態混用：
 
 - `PRIVACY-DENIED`：沿用 R1 正向 GAID 的 Settings → Security and privacy → Privacy controls → Ads
   路徑；現代 UI 執行 Delete advertising ID，舊版 UI 開啟 Opt out。動作後重新走同一路徑確認
   Renew/Get new 或 Opt out ON 的停用狀態；驗證 `device.ia` 不可為可用 GAID，且 req/ext
   `device.lat` 必須為 integer `1`。
-- `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、font scale 1.5、最低有效 brightness raw 1
+- `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、Font size 原生 UI 最右端、最低有效 brightness raw 1
   （`1 ÷ 255 = 0.0039215686`）、
   Media volume 0、Battery Saver ON，各自以 Android 原生頁／OS 狀態對照 payload。
 - `DISPLAY-AUDIO-HIGH`：Android Display 亮度 100% 與 Media volume current=max。亮度須保存當下
@@ -19,6 +19,14 @@ R5 保留 R1 Happy Path，追加兩個 Scenario。Privacy 不與其他裝置狀�
   Location 為 Not allowed，req/ext 均不得包含 `geo_lat` 或 `geo_lon`，即使值是 0/null 也 FAILED。
 
 Runner 必須在每個 Scenario 後還原原狀態；中途失敗仍保存 Evidence、寫明失敗階段並發布報告。
+REEN Static／Dynamic 只將 `PRIVACY-DENIED` 標為 SKIPPED；其餘四個 Scenario 與 AIBID 共用並照常執行。
+
+## E2E campaign continuation
+
+- `E2E-S14`：完成 tracked click 後驗證 Campaign 指定目的地。AIBID 到合法商店／安裝目的地；
+  REEN 必須開啟 `TARGET_APP_PACKAGE` 指定的 App。
+- `E2E-S15`：以自動保存的 BidObjectId、CID、曝光與點擊時間查詢 MMP Click Action。
+- `E2E-S16`：沿用相同 correlation key 查詢歸因認列；AIBID 對 install，REEN 對 re-engagement。
 
 ## Evidence contract
 

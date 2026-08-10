@@ -9,8 +9,8 @@ TESTCASES = definitions(
     E2ETestCase("standalone-native-render", "Native Ad Rendering", "Serving", "P0"),
     E2ETestCase("standalone-impression", "Appier Impression Tracking", "Tracking", "P0"),
     E2ETestCase("standalone-click", "Appier Click Tracking", "Tracking", "P0"),
-    E2ETestCase("standalone-landing", "Landing Behavior", "Tracking", "P1"),
+    E2ETestCase("standalone-landing", "Campaign Destination", "Tracking", "P1"),
     E2ETestCase("standalone-privacy", "Privacy Information", "Tracking", "P2"),
-    E2ETestCase("standalone-install-attribution", "AIBID Install Attribution", "Attribution", "P2", ("aibid",)),
-    E2ETestCase("standalone-attribution-reconciliation", "Backend Attribution Reconciliation", "Attribution", "P2", ("aibid",)),
+    E2ETestCase("standalone-install-attribution", "MMP Click Action", "Attribution", "P2"),
+    E2ETestCase("standalone-attribution-reconciliation", "Attribution Recognition", "Attribution", "P2"),
 )

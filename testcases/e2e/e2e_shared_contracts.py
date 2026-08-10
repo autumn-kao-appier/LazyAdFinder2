@@ -9,7 +9,6 @@ class E2ETestCase:
     title: str
     phase: str
     priority: str
-    test_types: tuple = ("aibid", "reen-static", "reen-dynamic")
 
 
 def definitions(*rows):

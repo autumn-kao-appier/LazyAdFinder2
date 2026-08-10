@@ -39,6 +39,8 @@ from urllib.parse import parse_qs, urlsplit
 from appium import webdriver
 from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
+from campaign_profiles import CAMPAIGN_PROFILES, campaign_profile
+from campaign_testcases import supports as campaign_supports
 from evidence_aos import collect as collect_evidence, capture_ads_settings
 from evidence_bundle import decoded_bid, finalize_bundle
 from testcases.android_signal_testcases import (
@@ -98,6 +100,7 @@ class CaptureConfig:
     test_mode: str
     test_type: str
     test_cid: str
+    target_app_package: str
     test_round: str
     trigger_text: str
     tab_text: str
@@ -786,6 +789,7 @@ def record_skip(config, round_name, scenario, reason, checks=None, testcase_keys
         "test_mode": config.test_mode,
         "test_type": config.test_type,
         "test_cid": config.test_cid,
+        "target_app_package": config.target_app_package,
         "test_round": round_name,
         "test_run_id": config.test_run_id,
         "test_run_started_at": config.test_run_started_at,
@@ -827,17 +831,18 @@ def ipv6_preflight(config):
 
 
 def privacy_scenario_preflight(config):
-    """Privacy-denied identity validation is an AIBID-only Scenario."""
-    campaign_type = config.test_type.strip().lower()
-    if campaign_type in {"reen-static", "reen-dynamic"}:
+    """Run identity-denied only when the campaign retains a verifiable contract."""
+    profile = campaign_profile(config.test_type)
+    if not profile.privacy_denied_identity:
         return False, (
-            "REEN cannot validate the tracking-denied identity flow because "
-            "the advertising identifier is unavailable"
+            "This campaign cannot validate the tracking-denied identity flow after "
+            "the advertising identifier is deleted"
         ), {
-            "test_type": campaign_type,
+            "test_type": profile.key,
             "required_identity": "advertising identifier",
+            "privacy_denied_identity": False,
         }
-    return True, "AIBID Privacy Scenario is required", {"test_type": campaign_type}
+    return True, "Campaign Privacy Scenario is required", {"test_type": profile.key}
 
 
 def location_permission_preflight(config):
@@ -1014,7 +1019,7 @@ def resolve_execution_plan(args):
     test_type = args.test_type.strip().lower()
     if mode not in MODE_TABS:
         raise CaptureError(f"Unsupported TEST_MODE={mode!r}")
-    if test_type not in {"aibid", "reen-static", "reen-dynamic"}:
+    if test_type not in CAMPAIGN_PROFILES:
         raise CaptureError(f"Unsupported TEST_TYPE={test_type!r}")
     if args.command == "capture":
         return ExecutionPlan(
@@ -1041,11 +1046,20 @@ def resolve_execution_plan(args):
     elif name == "E2E-STANDALONE":
         if mode != "standalone":
             raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
-        scenarios = (ScenarioPlan(name, tuple(BASELINE_E2E_TESTCASES)),)
+        scenarios = (ScenarioPlan(name, tuple(
+            key for key, testcase in BASELINE_E2E_TESTCASES.items()
+            if campaign_supports(test_type, key)
+        )),)
     elif name == "E2E-ADMOB":
         if mode != "admob-mediation":
             raise CaptureError("E2E-ADMOB requires TEST_MODE=admob-mediation")
-        scenarios = (ScenarioPlan(name, tuple(BASELINE_E2E_TESTCASES) + tuple(ADMOB_E2E_EXTENSIONS)),)
+        scenarios = (ScenarioPlan(name, tuple(
+            key for key, testcase in BASELINE_E2E_TESTCASES.items()
+            if campaign_supports(test_type, key)
+        ) + tuple(
+            key for key, testcase in ADMOB_E2E_EXTENSIONS.items()
+            if campaign_supports(test_type, key)
+        )),)
     else:
         available = sorted(set(ROUND_DEFINITIONS) | {"R4", "E2E-STANDALONE", "E2E-ADMOB"})
         raise CaptureError(f"Round {name!r} is not defined; available rounds: {', '.join(available)}")
@@ -1112,14 +1126,25 @@ def set_font_scale_to_ui_maximum(config):
     """Use the native Font size control so the maximum follows this device's UI."""
     adb(config.udid, "shell", "am", "start", "-a", "android.settings.TEXT_READING_SETTINGS")
     time.sleep(1.5)
-    adb(config.udid, "shell", "input", "swipe", "540", "1900", "540", "800", "500")
+    size_text = adb(config.udid, "shell", "wm", "size", check=False)
+    match = re.search(r"Physical size:\s*(\d+)x(\d+)", size_text) or re.search(r"(\d+)x(\d+)", size_text)
+    width, height = (int(match.group(1)), int(match.group(2))) if match else (1080, 2400)
+    adb(
+        config.udid, "shell", "input", "swipe",
+        str(width // 2), str(int(height * 0.80)),
+        str(width // 2), str(int(height * 0.35)), "500",
+    )
     time.sleep(0.5)
     remote = "/sdcard/laf2_font_scale_max.xml"
     for _ in range(12):
         adb(config.udid, "shell", "uiautomator", "dump", remote)
         root = ET.fromstring(adb(config.udid, "exec-out", "cat", remote))
-        increase = next(
-            (node for node in root.iter("node") if node.attrib.get("content-desc") == "Increase font size"),
+        increase_nodes = [
+            node for node in root.iter("node")
+            if node.attrib.get("resource-id", "").endswith(":id/icon_end_frame")
+        ]
+        increase = increase_nodes[0] if increase_nodes else next(
+            (node for node in root.iter("node") if "font" in node.attrib.get("content-desc", "").lower()),
             None,
         )
         if increase is None:
@@ -1626,6 +1651,21 @@ def run_round(config, plan):
                 evidence_folder = getattr(exc, "evidence_folder", None)
                 if evidence_folder is not None:
                     scenario_folder = Path(evidence_folder)
+                elif scenario_folder is None:
+                    scenario_folder = create_capture_folder(config, f"{label}-SETUP-FAILED")
+                    now = datetime.now().astimezone().isoformat()
+                    finalize_bundle(
+                        scenario_folder,
+                        driver=None,
+                        platform="aos",
+                        config=config,
+                        device=device_evidence(config),
+                        started_at=now,
+                        result="INTERRUPTED",
+                        failed_step=f"R5 {label} {phase}",
+                        error=str(exc),
+                    )
+                if scenario_folder is not None:
                     rows = []
                     for testcase in testcases:
                         row = blocked(testcase.key, f"R5 {label} failed at {phase}: {exc}").to_dict()
@@ -1692,6 +1732,18 @@ def run_round(config, plan):
             adb(config.udid, "shell", "dumpsys", "battery", "unplug")
             original["battery_simulated"] = True
             adb(config.udid, "shell", "settings", "put", "global", "low_power", "1")
+            dark = adb(config.udid, "shell", "cmd", "uimode", "night").strip().lower()
+            brightness = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
+            low_power = adb(config.udid, "shell", "settings", "get", "global", "low_power").strip()
+            current_volume, _maximum_volume = media_volume_state(config)
+            if "yes" not in dark:
+                raise CaptureError(f"Dark Mode mutation was not applied: {dark!r}")
+            if brightness != "1":
+                raise CaptureError(f"Minimum brightness mutation was not applied: {brightness!r}")
+            if low_power != "1":
+                raise CaptureError(f"Battery Saver mutation was not applied: {low_power!r}")
+            if current_volume != 0:
+                raise CaptureError(f"Muted media volume mutation was not applied: {current_volume}")
 
         def alternate_restore():
             if not original:
@@ -1721,6 +1773,12 @@ def run_round(config, plan):
             high_original["volume"] = str(current)
             adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "255")
             set_media_volume(config, maximum)
+            brightness = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
+            current, confirmed_maximum = media_volume_state(config)
+            if brightness != "255":
+                raise CaptureError(f"Maximum brightness mutation was not applied: {brightness!r}")
+            if current != confirmed_maximum:
+                raise CaptureError(f"Maximum media volume mutation was not applied: {current}/{confirmed_maximum}")
 
         def display_audio_high_restore():
             if "brightness" in high_original:
@@ -1736,6 +1794,9 @@ def run_round(config, plan):
         def timezone_mutate():
             timezone_original["timezone"] = adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip() or "Asia/Taipei"
             adb(config.udid, "shell", "cmd", "alarm", "set-timezone", "America/New_York")
+            timezone = adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip()
+            if timezone != "America/New_York":
+                raise CaptureError(f"Timezone mutation was not applied: {timezone!r}")
 
         def timezone_restore():
             if timezone_original.get("timezone"):
@@ -1756,6 +1817,16 @@ def run_round(config, plan):
             location_original["coarse_granted"] = "granted" in coarse
             adb(config.udid, "shell", "pm", "revoke", config.app_package, "android.permission.ACCESS_FINE_LOCATION", check=False)
             adb(config.udid, "shell", "pm", "revoke", config.app_package, "android.permission.ACCESS_COARSE_LOCATION", check=False)
+            for permission in (
+                "android.permission.ACCESS_FINE_LOCATION",
+                "android.permission.ACCESS_COARSE_LOCATION",
+            ):
+                state = adb(
+                    config.udid, "shell", "cmd", "package", "check-permission",
+                    permission, config.app_package, "0", check=False,
+                ).strip().lower()
+                if "granted" in state:
+                    raise CaptureError(f"Location permission mutation was not applied: {permission}")
 
         def location_denied_restore():
             if location_original.get("coarse_granted"):
@@ -1924,6 +1995,7 @@ def build_parser():
         target.add_argument("--test-mode", default=_env("TEST_MODE"))
         target.add_argument("--test-type", default=_env("TEST_TYPE"))
         target.add_argument("--test-cid", default=_env("TEST_CID"))
+        target.add_argument("--target-app-package", default=_env("TARGET_APP_PACKAGE"))
         target.add_argument("--trigger-text", default=_env("TRIGGER_TEXT", DEFAULT_TRIGGER_TEXT))
         target.add_argument("--tab-text", default=_env("TAB_TEXT"))
         target.add_argument("--udid", default=_env("UDID"))
@@ -1951,6 +2023,13 @@ def config_from_args(args, plan):
     ]
     if not args.test_cid and not args.accept_request:
         missing.append("TEST_CID/--test-cid (or use --accept-request)")
+    profile = campaign_profile(args.test_type)
+    if (
+        plan.round_name.startswith("E2E-")
+        and profile.landing_contract == "target-app-deeplink"
+        and not args.target_app_package.strip()
+    ):
+        missing.append("TARGET_APP_PACKAGE/--target-app-package (required for REEN E2E landing validation)")
     if missing:
         raise CaptureError("Missing required configuration: " + ", ".join(missing))
     if args.max_attempts < 0 or args.bid_timeout <= 0 or args.phase_timeout < 0:
@@ -1967,6 +2046,7 @@ def config_from_args(args, plan):
         test_mode=mode,
         test_type=args.test_type.strip().lower(),
         test_cid=args.test_cid.strip(),
+        target_app_package=args.target_app_package.strip(),
         test_round=_safe_label(plan.round_name, "MANUAL", 24),
         trigger_text=args.trigger_text.strip(),
         tab_text=tab_text,
