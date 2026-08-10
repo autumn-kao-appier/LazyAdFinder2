@@ -182,6 +182,9 @@ def _verdict_rows(document, path):
             "test_mode": test_mode, "mode_group": _mode_group(test_mode),
             "test_type": str(config.get("test_type", "")).strip().lower(),
             "captured_at": str(metadata.get("captured_at") or metadata.get("finished_at", "")),
+            "started_at": str(metadata.get("started_at", "")),
+            "finished_at": str(metadata.get("finished_at") or metadata.get("captured_at", "")),
+            "run_root": str(path.parent.parent.resolve()),
             "capture_name": str(metadata.get("capture_name", "")),
             "test_round": str(config.get("test_round", "")),
             "test_cid": str(config.get("test_cid", "")),
@@ -637,6 +640,14 @@ def _run_information(rows):
     os_version = device.get("android_version") or device.get("os_version") or "—"
     sdk = device.get("sdk")
     os_text = f"Android {os_version}" + (f" · API {sdk}" if sdk else "")
+    run_rows = [item for item in rows if item.get("run_root") == row.get("run_root")]
+    try:
+        starts = [datetime.fromisoformat(item["started_at"]) for item in run_rows if item.get("started_at")]
+        finishes = [datetime.fromisoformat(item["finished_at"]) for item in run_rows if item.get("finished_at")]
+        elapsed = (max(finishes) - min(starts)).total_seconds()
+        duration = f"{elapsed:.1f} s" if elapsed >= 0 else "—"
+    except (TypeError, ValueError):
+        duration = "—"
     values = (
         (_bi("Device", "裝置"), device_name),
         (_bi("System", "系統"), os_text),
@@ -645,6 +656,7 @@ def _run_information(rows):
         (_bi("Type", "類型"), row["test_type"] or "—"),
         ("CID", row["test_cid"] or "—"),
         (_bi("Executed", "執行時間"), row["captured_at"] or "—"),
+        (_bi("Test duration", "本次測試耗時"), duration),
     )
     cells = "".join(
         f'<div><label>{label}</label><b>{html.escape(str(value))}</b></div>'
