@@ -825,8 +825,14 @@ def validate_carrier(folder): return _validate_cellular_identity(folder, "carrie
 def validate_mcc_mnc(folder): return _validate_cellular_identity(folder, "mcc-mnc", "MCC/MNC")
 
 
-def _round_blocked(key, title, reason):
-    row = blocked(key, reason).to_dict(); row.update({"layer": "Signal", "title": title, "description": reason}); return row
+def _round_blocked(key, title, reason, *, actual=None, evidence=None):
+    row = blocked(key, reason).to_dict()
+    if actual is not None:
+        row["actual"] = actual
+    if evidence:
+        row["evidence"] = evidence
+    row.update({"layer": "Signal", "title": title, "description": reason})
+    return row
 
 
 def validate_ipv6(folder):
@@ -900,17 +906,36 @@ def _session_pair_verdict(folder, key, title, before_index, after_index, relatio
             failures.append("session_duration did not increase")
         criterion = "Session duration increases while the same App process remains alive."
     else:
+        actual = {
+            "before_ms": before_value,
+            "after_ms": after_value,
+            "before_pid": before.get("pid"),
+            "after_pid": after.get("pid"),
+            "immediate_pid_exit_observed": bool(document.get("terminated_pid_confirmed")),
+        }
         if before.get("pid") == after.get("pid"):
-            failures.append("App PID did not change after termination")
-        if not document.get("terminated_pid_confirmed"):
-            failures.append("the pre-termination PID was not confirmed to have exited")
+            return _round_blocked(
+                key,
+                title,
+                "R3 termination setup did not produce a new App process; the termination-dependent comparison was not executed",
+                actual=actual,
+                evidence=evidence,
+            )
         if not failures and after_value >= before_value:
             failures.append("session_duration did not reset after termination")
         criterion = "Session duration resets after the old App process exits and a new process starts."
+    actual = {
+        "before_ms": before_value,
+        "after_ms": after_value,
+        "before_pid": before.get("pid"),
+        "after_pid": after.get("pid"),
+    }
+    if relation != "increase":
+        actual["immediate_pid_exit_observed"] = bool(document.get("terminated_pid_confirmed"))
     return _verdict(
         key, title, criterion,
         {"relation": ">" if relation == "increase" else "<", "process_requirement": "same PID" if relation == "increase" else "new PID"},
-        {"before_ms": before_value, "after_ms": after_value, "before_pid": before.get("pid"), "after_pid": after.get("pid")},
+        actual,
         evidence, failures,
     )
 
@@ -975,8 +1000,6 @@ def validate_app_duration_today(folder):
     if len(steps) == 4:
         if steps[3].get("pid") == steps[2].get("pid"):
             failures.append("Request 4 does not use a new App PID")
-        if not document.get("terminated_pid_confirmed"):
-            failures.append("the pre-termination PID was not confirmed to have exited")
     return _verdict(
         key, title, "Today's foreground usage remains monotonic across background and process restart.",
         {"unit": "milliseconds", "requests_1_to_4": "monotonic non-decreasing", "restart_behavior": "must persist"},

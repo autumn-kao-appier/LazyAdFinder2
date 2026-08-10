@@ -486,6 +486,7 @@ DYNAMIC_ZH = {
     "FAILED: the round ran, but no recorded visual comparison proves that the rendered ad matches the response and layout contract.": "FAILED：本輪已執行，但沒有保存可證明廣告畫面符合 response 內容與版面契約的視覺對照 Evidence。",
     "FAILED: the round ran, but the proxy evidence does not contain both show_cb and winshowimg responses.": "FAILED：本輪已執行，但 proxy Evidence 沒有同時包含 show_cb 與 winshowimg response。",
     "R3 termination: swiping the App from Recents did not stop its process": "R3 終止步驟：從最近使用的 App 畫面滑除 Sample App 後，App process 仍未停止。",
+    "R3 termination setup did not produce a new App process; the termination-dependent comparison was not executed": "R3 終止前置操作沒有建立新的 App process，因此未執行依賴終止狀態的比較。",
     "R5 PRIVACY-DENIED failed at Evidence capture: Delete advertising ID did not produce the expected Advertising ID state": "R5 PRIVACY-DENIED 在擷取 Evidence 時失敗：點擊 Delete advertising ID 後，實機沒有進入預期的 Advertising ID 已刪除狀態。",
     "R5 mutation did not produce Android minimum brightness raw 1": "R5 狀態切換沒有讓 Android 螢幕亮度達到最低有效原始值 1。",
     "The captured pubsetting response succeeded and contains Appier mediation configuration.": "已成功擷取 pubsetting response，且內容包含 Appier mediation 設定。",
