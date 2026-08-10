@@ -5,6 +5,7 @@ from pathlib import Path
 
 import page
 import qa_aos
+import run_reen_test_suite
 from campaign_profiles import CAMPAIGN_PROFILES
 from campaign_testcases import CAMPAIGN_TESTCASES
 
@@ -83,6 +84,23 @@ class CampaignContractTests(unittest.TestCase):
         catalog_keys = set(self.catalog_by_key)
         assigned_keys = set().union(*CAMPAIGN_TESTCASES.values())
         self.assertEqual(catalog_keys, assigned_keys)
+
+    def test_reen_static_and_dynamic_have_identical_testcases(self):
+        self.assertEqual(
+            CAMPAIGN_TESTCASES["reen-static"],
+            CAMPAIGN_TESTCASES["reen-dynamic"],
+        )
+
+    def test_reen_entry_maps_creative_to_separate_report_type(self):
+        parser = run_reen_test_suite.build_parser()
+        common = [
+            "--mode", "standalone", "--cid", "cid",
+            "--target-app-package", "target.app",
+        ]
+        static = run_reen_test_suite.build_runner_arguments(parser.parse_args(["static", *common]))
+        dynamic = run_reen_test_suite.build_runner_arguments(parser.parse_args(["dynamic", *common]))
+        self.assertIn("reen-static", static)
+        self.assertIn("reen-dynamic", dynamic)
 
     def test_report_has_latest_and_catalog_only_and_renders_reen_planned_cards(self):
         document = page.render([], [], [], [], self.catalog)

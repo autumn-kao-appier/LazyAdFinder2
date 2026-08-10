@@ -77,6 +77,18 @@ export TARGET_APP_PACKAGE='<promoted-app-package>'
 
 REEN 的 R5 只跳過 Advertising ID opt-out 與 tracking-denied；其他裝置狀態 Scenario 仍會執行。
 
+REEN 有獨立的一鍵入口；Static／Dynamic 共用完全相同的 TestCase 與 runner，但 Evidence 與 Report slot 依 creative type 分開：
+
+```bash
+python3 run_reen_test_suite.py static \
+  --mode standalone --cid '<cid>' --target-app-package '<package>' \
+  --include-e2e --publish
+
+python3 run_reen_test_suite.py dynamic \
+  --mode standalone --cid '<cid>' --target-app-package '<package>' \
+  --include-e2e --publish
+```
+
 擷取一次符合 CID 的廣告：
 
 ```bash

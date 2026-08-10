@@ -50,19 +50,24 @@ def main(argv=None):
     parser.add_argument("--test-type", choices=tuple(CAMPAIGN_PROFILES), default=os.environ.get("TEST_TYPE", ""))
     parser.add_argument("--test-cid", default=os.environ.get("TEST_CID", ""))
     parser.add_argument("--target-app-package", default=os.environ.get("TARGET_APP_PACKAGE", ""))
+    parser.add_argument("--app-package", default=os.environ.get("APP_PACKAGE", ""))
+    parser.add_argument("--app-activity", default=os.environ.get("APP_ACTIVITY", ""))
+    parser.add_argument("--udid", default=os.environ.get("UDID", ""))
+    parser.add_argument("--trigger-text", default=os.environ.get("TRIGGER_TEXT", qa_aos.DEFAULT_TRIGGER_TEXT))
+    parser.add_argument("--tab-text", default=os.environ.get("TAB_TEXT", ""))
     args = parser.parse_args(argv)
 
     environment = os.environ.copy()
     config = {
-        "app_package": _value("APP_PACKAGE", "", environment),
-        "app_activity": _value("APP_ACTIVITY", "", environment),
+        "app_package": _value("APP_PACKAGE", args.app_package, environment),
+        "app_activity": _value("APP_ACTIVITY", args.app_activity, environment),
         "test_mode": _value("TEST_MODE", args.test_mode, environment).lower(),
         "test_type": _value("TEST_TYPE", args.test_type, environment).lower(),
         "test_cid": _value("TEST_CID", args.test_cid, environment),
         "target_app_package": args.target_app_package.strip(),
-        "trigger_text": environment.get("TRIGGER_TEXT", qa_aos.DEFAULT_TRIGGER_TEXT).strip(),
-        "tab_text": environment.get("TAB_TEXT", "").strip(),
-        "udid": environment.get("UDID", "").strip(),
+        "trigger_text": args.trigger_text.strip(),
+        "tab_text": args.tab_text.strip(),
+        "udid": args.udid.strip(),
     }
     if config["test_mode"] not in qa_aos.MODE_TABS:
         raise SystemExit(f"Unsupported TEST_MODE={config['test_mode']!r}")
