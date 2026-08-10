@@ -505,17 +505,33 @@ def _capture_native_visual_review(driver, config, folder):
         (item for item in visible if item["normalized_text"].lower() == "ad"),
         None,
     )
-    cta_id = f"{config.app_package}:id/native_cta"
-    privacy_id = f"{config.app_package}:id/native_privacy_information_icon_image"
-    cta_view = next((item for item in visible if item["resource_id"] == cta_id), None)
-    privacy_view = next((item for item in visible if item["resource_id"] == privacy_id), None)
+    view_ids = {
+        "cta": f"{config.app_package}:id/native_cta",
+        "iconImage": f"{config.app_package}:id/native_icon_image",
+        "mainImage": f"{config.app_package}:id/native_main_image",
+        "privacyInformationIcon": f"{config.app_package}:id/native_privacy_information_icon_image",
+    }
+    rendered_views = {
+        key: next((item for item in visible if item["resource_id"] == resource_id), None)
+        for key, resource_id in view_ids.items()
+    }
+    cta_view = rendered_views["cta"]
+    privacy_view = rendered_views["privacyInformationIcon"]
     image_views = [
         item for item in visible
         if item["class"] == "android.widget.ImageView"
         and item["rect"]["width"] > 0
         and item["rect"]["height"] > 0
     ]
-    required_views = [*text_matches.values(), ad_label, cta_view, privacy_view]
+    response_images = {
+        key: bool(isinstance(native.get(key), dict) and native[key].get("url"))
+        for key in ("iconImage", "mainImage", "privacyInformationIcon")
+    }
+    required_views = [
+        *(text_matches[key] for key, value in expected_text.items() if value),
+        ad_label,
+        *(rendered_views[key] for key, returned in response_images.items() if returned),
+    ]
     inside_viewport = all(
         item is not None
         and item["rect"]["width"] > 0
@@ -526,20 +542,16 @@ def _capture_native_visual_review(driver, config, folder):
         and item["rect"]["y"] + item["rect"]["height"] <= window["height"]
         for item in required_views
     )
-    response_images = {
-        key: bool(isinstance(native.get(key), dict) and native[key].get("url"))
-        for key in ("iconImage", "mainImage", "privacyInformationIcon")
-    }
     checks = {
         "response_native_present": bool(native),
-        "title_matches": text_matches["title"] is not None,
-        "text_matches": text_matches["text"] is not None,
-        "cta_matches": text_matches["cta"] is not None,
+        "title_matches_when_returned": not expected_text["title"] or text_matches["title"] is not None,
+        "text_matches_when_returned": not expected_text["text"] or text_matches["text"] is not None,
+        "cta_matches_when_returned": not expected_text["cta"] or text_matches["cta"] is not None,
         "ad_label_visible": ad_label is not None,
-        "cta_view_visible": cta_view is not None,
-        "privacy_view_visible": privacy_view is not None,
-        "response_image_urls_present": all(response_images.values()),
-        "visible_image_view_count_at_least_three": len(image_views) >= 3,
+        "returned_images_have_rendered_views": all(
+            not returned or rendered_views[key] is not None
+            for key, returned in response_images.items()
+        ),
         "required_views_inside_viewport": inside_viewport,
     }
     review = {
@@ -548,7 +560,8 @@ def _capture_native_visual_review(driver, config, folder):
             "text": expected_text,
             "images": response_images,
             "ad_label": "Ad",
-            "minimum_visible_image_views": 3,
+            "image_policy": "Only assets returned by the response are required in the View tree.",
+            "human_review": "Use the screenshot to confirm pixels, clipping, and visual quality.",
         },
         "actual": {
             "window": window,
@@ -556,6 +569,7 @@ def _capture_native_visual_review(driver, config, folder):
             "ad_label": ad_label,
             "cta_view": cta_view,
             "privacy_view": privacy_view,
+            "rendered_views": rendered_views,
             "visible_image_views": image_views,
         },
         "checks": checks,

@@ -1,6 +1,7 @@
 """Android E2E S baseline shared by Standalone and Mediation."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -22,11 +23,25 @@ TESTCASES = definitions(
 )
 
 
-def _blocked(key, reason):
+def _blocked(key, reason, *, actual=None, evidence=None):
     testcase = TESTCASES[key]
     row = blocked(key, reason).to_dict()
+    if actual is not None:
+        row["actual"] = actual
+    if evidence:
+        row["evidence"] = evidence
     row.update({"layer": "E2E", "title": testcase.title, "description": reason})
     return row
+
+
+def _local_time(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.astimezone().isoformat(timespec="seconds")
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _read_json(path, default=None):
@@ -305,6 +320,36 @@ def validate_bundle(folder):
         "The recorded CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response." if click_ok else "FAILED: the E2E round does not prove the CTA click with visible interaction evidence and an xclk matching the visible impression.",
     )
 
+    # Preserve the exact lookup key for the exposure that led to the tested
+    # click.  A round may contain several bids, so using the last bid request
+    # or CID alone is not sufficient for later Spark/MMP reconciliation.
+    selected_click = matching_clicks[-1] if matching_clicks else None
+    selected_ids = _tracking_ids(selected_click.get("url")) if selected_click else (
+        impression_ids[-1] if impression_ids else {}
+    )
+    selected_impression = next(
+        (
+            row for row in reversed(impressions)
+            if _tracking_ids(row.get("url")) == selected_ids
+        ),
+        impressions[-1] if impressions else None,
+    )
+    attribution_lookup = {
+        "purpose": "Lookup key for E2E-S15 install attribution and E2E-S16 backend reconciliation",
+        "bidobjid": selected_ids.get("bidobjid"),
+        "cid": selected_ids.get("cid") or cid,
+        "crid": selected_ids.get("crid"),
+        "crpid": selected_ids.get("crpid"),
+        "bid_requested_at": _local_time(bid_request_event.get("timestamp")) if bid_request_event else None,
+        "ad_impression_at": _local_time(selected_impression.get("timestamp")) if selected_impression else None,
+        "ad_clicked_at": _local_time(selected_click.get("timestamp")) if selected_click else None,
+        "source": "proxy-events.jsonl",
+        "note": "ad_impression_at is the test ad display time; query backend systems with bidobjid and this time window.",
+    }
+    (folder / "attribution-query.json").write_text(
+        json.dumps(attribution_lookup, ensure_ascii=False, indent=2) + "\n"
+    )
+
     destination = click_state.get("destination", {}) if isinstance(click_state, dict) else {}
     landing_ok = bool(click_ok and click_state.get("opened") and click_screenshot and destination)
     landing_row = _evaluated(
@@ -368,7 +413,12 @@ def validate_bundle(folder):
         "standalone-creative-assets": asset_row,
         "standalone-native-render": _evaluated(
             "standalone-native-render",
-            {"visual_comparison_recorded": True, "text_cta_images_privacy_label_layout_match": True},
+            {
+                "screenshot_and_response_saved": True,
+                "returned_text_and_assets_have_visible_counterparts": True,
+                "ad_label_and_required_views_are_visible": True,
+                "human_visual_review": "Confirm no broken image, clipping, or layout defect in the screenshot",
+            },
             {
                 "screenshot_saved": screenshot_exists,
                 "bid_response_saved": response is not None,
@@ -376,13 +426,23 @@ def validate_bundle(folder):
             },
             bool(screenshot_exists and response is not None and visual_review.get("passed")),
             "ad-before-interactions.png" if (folder / "ad-before-interactions.png").is_file() else "screenshot.png",
-            "The visible native ad was reviewed for response elements, Ad label, assets, clipping, and layout." if visual_review.get("passed") else "FAILED: the round ran, but no recorded visual comparison proves that the rendered ad matches the response and layout contract.",
+            "The response and screenshot were saved, and the rendered View tree matches every text or asset actually returned by the response. Pixel quality, clipping, and layout remain visible for human review." if visual_review.get("passed") else "FAILED: the saved screenshot or rendered View tree does not satisfy the objective response-to-UI contract; see visual-review.json for the exact failed check.",
         ),
         "standalone-impression": impression_row,
         "standalone-click": click_row,
         "standalone-landing": landing_row,
         "standalone-privacy": privacy_row,
-        "standalone-install-attribution": _blocked("standalone-install-attribution", "Not executed: install attribution requires a coordinated attribution window"),
-        "standalone-attribution-reconciliation": _blocked("standalone-attribution-reconciliation", "Not executed: backend reconciliation requires completed install attribution and internal-system access"),
+        "standalone-install-attribution": _blocked(
+            "standalone-install-attribution",
+            "The traffic lookup key was captured automatically. Install and first-open verification still require a coordinated attribution window.",
+            actual=attribution_lookup,
+            evidence="attribution-query.json",
+        ),
+        "standalone-attribution-reconciliation": _blocked(
+            "standalone-attribution-reconciliation",
+            "The traffic lookup key was captured automatically. Spark/MMP reconciliation still requires internal-system access and a completed attribution action.",
+            actual=attribution_lookup,
+            evidence="attribution-query.json",
+        ),
     }
     return [rows[key] for key in TESTCASES]

@@ -2,13 +2,13 @@
 """Render the LazyAdFinder result platform and TestCase catalog."""
 
 import argparse
-import base64
 import hashlib
 import html
 import json
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,6 +42,9 @@ TC_ALIASES = {
     "ios-ipv6-slow-network": "ipv6-refresh-slow-network",
 }
 
+_REPORT_ASSETS = {}
+_REPORT_ASSET_PREFIX = "assets"
+
 
 class ReportError(RuntimeError):
     pass
@@ -54,6 +57,30 @@ def _load_json(path):
         raise ReportError(f"Cannot read {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ReportError(f"Invalid JSON in {path}: {exc}") from exc
+
+
+def _begin_report_assets(prefix):
+    global _REPORT_ASSETS, _REPORT_ASSET_PREFIX
+    _REPORT_ASSETS = {}
+    _REPORT_ASSET_PREFIX = str(prefix).strip("/") or "assets"
+
+
+def _register_report_asset(path):
+    path = Path(path).resolve()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:20]
+    suffix = path.suffix.lower() or ".bin"
+    name = f"{digest}{suffix}"
+    _REPORT_ASSETS[name] = path
+    return f"{_REPORT_ASSET_PREFIX}/{name}"
+
+
+def _write_report_assets(directory):
+    directory = Path(directory)
+    if directory.exists():
+        shutil.rmtree(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, source in _REPORT_ASSETS.items():
+        shutil.copy2(source, directory / name)
 
 
 def load_catalog(path):
@@ -446,6 +473,10 @@ DYNAMIC_ZH = {
     "The recorded CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response.": "錄製的 CTA 點擊已送出 xclk，其 correlation IDs 與畫面曝光的廣告一致，並保存了 response。",
     "FAILED: the E2E round does not prove the CTA click with visible interaction evidence and an xclk matching the visible impression.": "FAILED：本輪 E2E 沒有以可見互動 Evidence 與符合畫面曝光廣告的 xclk 共同證明 CTA 點擊。",
     "The visible native ad was reviewed for response elements, Ad label, assets, clipping, and layout.": "已人工檢視 Native ad 的 response 元素、Ad label、素材、裁切與版面配置。",
+    "The response and screenshot were saved, and the rendered View tree matches every text or asset actually returned by the response. Pixel quality, clipping, and layout remain visible for human review.": "已保存 response 與截圖，且畫面 View tree 對應 response 實際回傳的每項文字與素材；圖片品質、裁切與版面仍保留在截圖中供人眼覆核。",
+    "FAILED: the saved screenshot or rendered View tree does not satisfy the objective response-to-UI contract; see visual-review.json for the exact failed check.": "FAILED：保存的截圖或畫面 View tree 未符合客觀的 response-to-UI 契約；請在 visual-review.json 查看實際失敗項目。",
+    "The traffic lookup key was captured automatically. Install and first-open verification still require a coordinated attribution window.": "已自動保存流量查詢鍵；安裝與首次開啟驗證仍需協調歸因測試窗口。",
+    "The traffic lookup key was captured automatically. Spark/MMP reconciliation still requires internal-system access and a completed attribution action.": "已自動保存流量查詢鍵；Spark／MMP 對帳仍需內部系統權限與已完成的歸因操作。",
     "The click redirect completed and the final external destination was preserved as visible evidence.": "Click redirect 已完成，並將最終外部 Landing destination 保存為人眼可見的 Evidence。",
     "FAILED: the E2E round does not preserve a proven final landing destination after the tracked click.": "FAILED：本輪 E2E 沒有保存可證明 tracked click 最終 Landing destination 的 Evidence。",
     "The Privacy icon interaction opened an external destination and preserved the visible result alongside the response contract.": "Privacy icon 操作已開啟外部 destination，並將可見結果與 response 契約一併保存。",
@@ -549,9 +580,16 @@ def _evidence_content(row, guidance="", guidance_en=""):
             state = _load_json(target.parent / "tracking-denied-state.json") if (target.parent / "tracking-denied-state.json").exists() else {}
             if state.get("visual_contract") != "opt-out-row-visible-v2":
                 return guidance_html + f'<div class="evidence-missing">{_bi("Stale Evidence hidden: recapture the complete Opt out row with the switch visibly ON.", "已隱藏舊 Evidence：請重新擷取完整的 Opt out 開關列，並讓 ON 狀態清楚可見。")}</div>'
-        encoded = base64.b64encode(target.read_bytes()).decode("ascii")
-        return guidance_html + f'''<figure class="evidence-image"><button class="evidence-zoom" type="button" aria-label="放大 {html.escape(reference)}"><img src="data:{mime};base64,{encoded}" alt="{html.escape(reference)}"></button>
+        asset_url = _register_report_asset(target)
+        return guidance_html + f'''<figure class="evidence-image"><button class="evidence-zoom" type="button" aria-label="放大 {html.escape(reference)}"><img loading="lazy" src="{html.escape(asset_url, quote=True)}" alt="{html.escape(reference)}"></button>
 <figcaption>{html.escape(reference)} · {_bi("Click to view full image", "點擊查看全圖")}</figcaption></figure>'''
+    if mime and mime.startswith("video/"):
+        asset_url = _register_report_asset(target)
+        return guidance_html + f'''<figure class="evidence-video"><video controls preload="metadata" src="{html.escape(asset_url, quote=True)}"></video>
+<figcaption>{html.escape(reference)}</figcaption></figure>'''
+    if mime and mime.startswith("audio/"):
+        asset_url = _register_report_asset(target)
+        return guidance_html + f'<audio controls preload="metadata" src="{html.escape(asset_url, quote=True)}"></audio>'
     if target.suffix.lower() == ".json":
         document = _load_json(target)
         expected_html = ""
@@ -815,6 +853,19 @@ def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>{_bi("Ordered by execution Round; gray cards were not run.", "依執行 Round 排列；灰色卡片代表未執行。")}</p></div></div>{signal_rounds()}</div></section>'''
 
 
+def _compact_datetime(value):
+    """Render stored ISO timestamps as a short, local, human-readable label."""
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone()
+        return parsed.strftime("%Y/%m/%d %H:%M")
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _history_archive(verdicts, catalog_by_key):
     grouped = {}
     for row in verdicts:
@@ -844,10 +895,12 @@ def _history_archive(verdicts, catalog_by_key):
         kind = representative.get("test_type", "")
         captured = representative.get("captured_at", "")
         executed = representative.get("test_run_started_at") or captured
-        label_en = f"{platform} {mode} {kind} · {executed}"
-        label_zh = f"{platform} {mode} {kind} · {executed}"
+        display_time = _compact_datetime(executed)
+        label_en = f"{display_time} · {kind.upper()}"
+        label_zh = f"{display_time} · {kind.upper()}"
         options.append(
-            f'<option value="{run_id}" data-en="{html.escape(label_en, quote=True)}" '
+            f'<option value="{run_id}" data-platform="{html.escape(representative["platform"], quote=True)}" '
+            f'data-mode="{html.escape(mode, quote=True)}" data-en="{html.escape(label_en, quote=True)}" '
             f'data-zh="{html.escape(label_zh, quote=True)}">{html.escape(label_zh)}</option>'
         )
         round_sections = []
@@ -861,10 +914,14 @@ def _history_archive(verdicts, catalog_by_key):
         cards = "".join(round_sections)
         sections.append(f'''<section class="history-run" data-history-run="{run_id}" hidden>
 {_run_information(rows, latest=False)}
-<div class="history-run-head"><div><span>{html.escape(platform)} / {html.escape(mode)} / {html.escape(kind)}</span><h2>{html.escape(str(round_name))}</h2></div><button type="button" data-history-delete="{run_id}">{_bi("Delete from archive", "從過去報告刪除")}</button></div>
+<div class="history-run-head"><div><span>{html.escape(platform)} · {html.escape(mode.title())}</span><h2>{html.escape(display_time)} · {html.escape(kind.upper())}</h2><small>{html.escape(str(round_name))}</small></div><button type="button" data-history-delete="{run_id}">{_bi("Delete from archive", "從過去報告刪除")}</button></div>
 <div class="result-grid">{cards}</div></section>''')
     empty = f'<div class="empty" id="history-empty"{(" hidden" if reports else "")}><b>{_bi("No saved reports", "沒有過去報告")}</b><p>{_bi("Completed runs will appear here.", "完成的執行會顯示在這裡。")}</p></div>'
-    controls = f'''<div class="history-controls"{("" if reports else " hidden")}><label>{_bi("Select report", "選擇報告")}</label><select id="history-select">{"".join(options)}</select></div>'''
+    controls = f'''<div class="history-controls"{("" if reports else " hidden")}>
+<div class="history-filter-group"><label>{_bi("Platform", "平台")}</label><div class="history-filter" data-history-filter="platform"><button type="button" data-value="aos">AOS</button><button type="button" data-value="ios">iOS</button></div></div>
+<div class="history-filter-group"><label>{_bi("Mode", "模式")}</label><div class="history-filter" data-history-filter="mode"><button type="button" data-value="standalone">Standalone</button><button type="button" data-value="mediation">Mediation</button></div></div>
+<div class="history-select-group"><label>{_bi("Test time", "測試時間")}</label><select id="history-select">{"".join(options)}</select></div>
+<b id="history-context"></b></div>'''
     return controls + empty + "".join(sections)
 
 
@@ -990,7 +1047,7 @@ CSS = r"""
 .catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
 .compact-evidence{overflow:visible}.compact-evidence>label{display:block;margin-top:10px;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.raw-capture{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.raw-capture summary{width:max-content;max-width:100%;color:var(--accent);font:750 10px var(--mono);cursor:pointer}.raw-capture pre{max-height:320px;margin:10px 0 0;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.45 var(--mono)}
 .result-card[data-tc="admob-pubsetting"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}
-.history-controls{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;margin:20px 0;padding:14px 16px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.history-controls label{color:var(--faint);font:750 10px var(--mono);text-transform:uppercase}.history-controls select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--ink)}.history-run-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:0 0 14px}.history-run-head span{color:var(--accent);font:750 10px var(--mono);text-transform:uppercase}.history-run-head h2{margin:3px 0 0}.history-run-head button{border:1px solid #c0392b66;border-radius:8px;background:#c0392b12;color:var(--fail);padding:7px 10px;cursor:pointer}@media(max-width:650px){.history-controls{grid-template-columns:1fr}.history-run-head{align-items:flex-start;flex-direction:column}}
+.history-controls{display:grid;grid-template-columns:auto auto minmax(220px,1fr) auto;align-items:end;gap:14px;margin:20px 0;padding:14px 16px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.history-controls label{display:block;margin-bottom:6px;color:var(--faint);font:750 10px var(--mono);text-transform:uppercase}.history-select-group select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--ink)}.history-filter{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}.history-filter button{border:0;border-right:1px solid var(--line);padding:9px 12px;background:var(--panel2);color:var(--soft);cursor:pointer}.history-filter button:last-child{border-right:0}.history-filter button.on{background:var(--accent);color:#fff}.history-filter button:disabled{opacity:.35;cursor:not-allowed}.history-controls> b{align-self:center;white-space:nowrap;color:var(--accent);font:800 11px var(--mono)}.history-run-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:0 0 14px}.history-run-head span{color:var(--accent);font:750 10px var(--mono);text-transform:uppercase}.history-run-head h2{margin:3px 0 0}.history-run-head small{display:block;margin-top:4px;color:var(--faint);font:700 10px var(--mono)}.history-run-head button{border:1px solid #c0392b66;border-radius:8px;background:#c0392b12;color:var(--fail);padding:7px 10px;cursor:pointer}@media(max-width:850px){.history-controls{grid-template-columns:1fr 1fr}.history-select-group{grid-column:1/-1}.history-controls>b{grid-column:1/-1}}@media(max-width:650px){.history-controls{grid-template-columns:1fr}.history-select-group,.history-controls>b{grid-column:auto}.history-run-head{align-items:flex-start;flex-direction:column}}
 """
 
 
@@ -1026,15 +1083,23 @@ SCRIPT = r"""
   })
  }
  document.querySelectorAll(".main-nav button").forEach(function(b){b.onclick=function(){activePage=b.dataset.page;document.querySelectorAll(".main-nav button").forEach(function(x){x.classList.toggle("on",x===b)});document.querySelectorAll(".app-page").forEach(function(p){p.hidden=p.id!==activePage+"-page"});if(activePage==="reports")showOverview()}});
- var historySelect=document.getElementById("history-select"),historyEmpty=document.getElementById("history-empty"),historyControls=document.querySelector(".history-controls");
- function showHistory(runId){document.querySelectorAll("[data-history-run]").forEach(function(section){section.hidden=section.dataset.historyRun!==runId});if(historySelect&&runId)historySelect.value=runId}
+ var historySelect=document.getElementById("history-select"),historyEmpty=document.getElementById("history-empty"),historyControls=document.querySelector(".history-controls"),historyContext=document.getElementById("history-context"),historyPlatform="",historyMode="";
+ function historyLabel(value,type){if(type==="platform")return value==="aos"?"AOS":"iOS";return value==="standalone"?"Standalone":"Mediation"}
+ function setHistoryFilter(type,value){if(type==="platform")historyPlatform=value;else historyMode=value;document.querySelectorAll('[data-history-filter="'+type+'"] button').forEach(function(button){button.classList.toggle("on",button.dataset.value===value)})}
+ function showHistory(runId){document.querySelectorAll("[data-history-run]").forEach(function(section){section.hidden=section.dataset.historyRun!==runId});if(historySelect&&runId)historySelect.value=runId;if(historyContext)historyContext.textContent=historyLabel(historyPlatform,"platform")+" · "+historyLabel(historyMode,"mode")}
  function refreshHistory(){
   if(!historySelect)return;
   Array.from(historySelect.options).forEach(function(option){if(deletedHistory.indexOf(option.value)>=0)option.remove()});
-  var available=Array.from(historySelect.options);historyControls.hidden=available.length===0;historyEmpty.hidden=available.length!==0;
-  if(available.length)showHistory(available[0].value);else document.querySelectorAll("[data-history-run]").forEach(function(section){section.hidden=true})
+  var all=Array.from(historySelect.options),platforms=["aos","ios"],modes=["standalone","mediation"];
+  document.querySelectorAll('[data-history-filter="platform"] button').forEach(function(button){button.disabled=!all.some(function(option){return option.dataset.platform===button.dataset.value})});
+  if(!historyPlatform||!all.some(function(option){return option.dataset.platform===historyPlatform}))setHistoryFilter("platform",platforms.find(function(value){return all.some(function(option){return option.dataset.platform===value)})||"aos");
+  document.querySelectorAll('[data-history-filter="mode"] button').forEach(function(button){button.disabled=!all.some(function(option){return option.dataset.platform===historyPlatform&&option.dataset.mode===button.dataset.value})});
+  if(!historyMode||!all.some(function(option){return option.dataset.platform===historyPlatform&&option.dataset.mode===historyMode}))setHistoryFilter("mode",modes.find(function(value){return all.some(function(option){return option.dataset.platform===historyPlatform&&option.dataset.mode===value)})||"standalone");
+  var available=all.filter(function(option){var visible=option.dataset.platform===historyPlatform&&option.dataset.mode===historyMode;option.hidden=!visible;option.disabled=!visible;return visible});historyControls.hidden=all.length===0;historyEmpty.hidden=available.length!==0;
+  if(available.length)showHistory(available[0].value);else{document.querySelectorAll("[data-history-run]").forEach(function(section){section.hidden=true});if(historyContext)historyContext.textContent=historyLabel(historyPlatform,"platform")+" · "+historyLabel(historyMode,"mode")}
  }
  if(historySelect)historySelect.onchange=function(){showHistory(historySelect.value)};
+ document.querySelectorAll("[data-history-filter] button").forEach(function(button){button.onclick=function(){setHistoryFilter(button.parentElement.dataset.historyFilter,button.dataset.value);refreshHistory()}});
  document.querySelectorAll("[data-history-delete]").forEach(function(button){button.onclick=function(){var runId=button.dataset.historyDelete,zh=root.dataset.lang==="zh",message=zh?"要從這個瀏覽器的過去報告中刪除這次執行嗎？原始 Evidence 不會被刪除。":"Delete this run from this browser's report archive? Raw Evidence will not be deleted.";if(!confirm(message))return;if(deletedHistory.indexOf(runId)<0)deletedHistory.push(runId);try{localStorage.setItem(historyStorageKey,JSON.stringify(deletedHistory))}catch(e){}refreshHistory()}});
  function select(group,value){document.querySelectorAll('.seg.'+group+' button').forEach(function(b){b.classList.toggle("on",b.dataset.value===value)})}
  function update(){select("platform",platform);select("mode",mode);document.querySelectorAll(".type-card").forEach(function(c){c.hidden=!c.dataset.slot.startsWith(platform+":"+mode+":")});document.getElementById("result-context").textContent=(platform==="aos"?"AOS":"iOS")+" · "+(mode==="standalone"?"Standalone":"Mediation")}
@@ -1063,7 +1128,8 @@ SCRIPT = r"""
 """
 
 
-def render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_verdicts=()):
+def render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_verdicts=(), asset_prefix="assets"):
+    _begin_report_assets(asset_prefix)
     cards, details = [], []
     catalog_by_key = {str(row["key"]): row for row in catalog}
     latest = max(verdicts, key=lambda row: row["captured_at"], default=None)
@@ -1091,12 +1157,14 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_ve
 <div class="image-lightbox" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Evidence full image" hidden><button class="image-lightbox-close" type="button" aria-label="Close">×</button><img alt=""><p></p></div><script>{SCRIPT}</script></body></html>'''
 
 
-def write_report(output, content):
+def write_report(output, content, asset_directory=None):
     output = Path(output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent, delete=False) as stream:
         temporary = Path(stream.name); stream.write(content)
     os.replace(temporary, output)
+    asset_directory = Path(asset_directory) if asset_directory else output.parent / f"{output.stem}_assets"
+    _write_report_assets(asset_directory)
     return output
 
 
@@ -1118,7 +1186,7 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
     catalog = load_catalog(catalog_path)
     history_verdicts = list(verdicts)
     verdicts = current_verdicts(verdicts, catalog, captures)
-    document = render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_verdicts)
+    document = render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_verdicts, asset_prefix="assets")
     with tempfile.TemporaryDirectory(prefix="lazyadfinder2-pages-") as temp:
         checkout = Path(temp) / "pages"
         exists = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "gh-pages"], text=True, capture_output=True).returncode == 0
@@ -1129,7 +1197,8 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
             subprocess.run(["git", "switch", "--orphan", "gh-pages"], cwd=checkout, check=True)
             subprocess.run(["git", "rm", "-rf", "--ignore-unmatch", "."], cwd=checkout, check=True, stdout=subprocess.DEVNULL)
         (checkout / "index.html").write_text(document, encoding="utf-8")
-        subprocess.run(["git", "add", "index.html"], cwd=checkout, check=True)
+        _write_report_assets(checkout / "assets")
+        subprocess.run(["git", "add", "index.html", "assets"], cwd=checkout, check=True)
         changed = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=checkout).returncode != 0
         if changed:
             subprocess.run(["git", "commit", "-m", f"publish: QA report {datetime.now():%Y-%m-%d %H:%M:%S}"], cwd=checkout, check=True)
@@ -1167,7 +1236,13 @@ def main(argv=None):
     catalog = load_catalog(args.catalog)
     history_verdicts = list(verdicts)
     verdicts = current_verdicts(verdicts, catalog, captures)
-    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog, history_verdicts))
+    output_path = Path(args.out).expanduser().resolve()
+    asset_name = f"{output_path.stem}_assets"
+    output = write_report(
+        output_path,
+        render(verdicts, captures, verdict_files, args.evidence, catalog, history_verdicts, asset_prefix=asset_name),
+        asset_directory=output_path.parent / asset_name,
+    )
     print(f"[report] {output} · catalog={len(catalog)} verdicts={len(verdicts)} captures={len(captures)}")
     if args.local and not args.no_open:
         subprocess.run(["open", output.as_uri()], check=False)
