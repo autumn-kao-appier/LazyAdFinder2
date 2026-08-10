@@ -94,8 +94,8 @@ PASS 有三種合法狀態：
 2. `EMPTY`：欄位存在且為空陣列 `[]`。
 3. `CAPTURED`：欄位是非空陣列，每項皆為唯一且格式合法的 package-name 字串。
 
-FAILED：欄位存在但為 `null`、非陣列，或陣列包含非字串、空字串或重複套件。沒有取得／解開
-Extended payload，導致 TC 根本無法執行時才是 BLOCKED。
+FAILED：欄位存在但為 `null`、非陣列，或陣列包含非字串、空字串或重複套件。TC 已開始執行，
+但沒有取得／解開 Extended payload，因而無法完成比較時是 BLOCKED；尚未開始執行時不產生 Verdict。
 
 ## In App Purchase History
 

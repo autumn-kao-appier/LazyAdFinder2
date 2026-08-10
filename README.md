@@ -173,9 +173,12 @@ iOS 可能因 TLS／pinning 只觀察到 impression callback、沒有 bid body�
 
 `verdict.py` 目前只定義三種對外結果：
 
-- `BLOCKED`：Round／環境限制導致 TC 沒有執行。
+- `BLOCKED`：TC 已開始執行，但因 Round／環境限制、無法取得獨立真值或缺少已確認的正確標準，無法得出 `PASS`／`FAILED`。
 - `PASS`：TC 已執行，實際值符合人工確認的正確標準。
 - `FAILED`：TC 已執行，實際值不符合正確標準。
+
+尚未開始執行的 TC 不產生 Verdict；Page 根據 Catalog 以「未執行」呈現，不得以
+`BLOCKED` 代替未執行狀態。
 
 TC answer key 與 validator 只包含已人工確認的 TC；目前已加入 advertising-id、
 app-set-id、installed-app-list、in-app-purchase-history、boot-timestamps、ram-total、
@@ -187,8 +190,14 @@ precise-gps-latitude、precise-gps-longitude、foreground-session-duration、
 gyroscope、accelerometer、tracking-allowed、sdk-version。`page.py` 只呈現
 結構化 `Verdict`，不得自行重算答案。
 
-已執行的 TC 呼叫 `evaluate(expected=..., actual=...)`，比較後必然得到 `PASS` 或
-`FAILED`；只有因 Round／環境限制而根本沒執行，才呼叫 `blocked(reason=...)`。
+已取得可比較的 expected／actual 時呼叫 `evaluate(expected=..., actual=...)`，得到 `PASS` 或
+`FAILED`；TC 已開始執行，但因 Round／環境限制或缺少可驗證正確標準而無法完成比較時，
+才呼叫 `blocked(reason=...)`。尚未開始執行時不寫入 Verdict。
+
+## 下一期改善
+
+- 降低 Android Evidence 擷取對固定 UI 文字與特定畫面結構的依賴，優先使用穩定的系統 API／ADB 狀態來源，
+  並對 Android 版本與廠牌 UI 差異提供可明確診斷的 fallback。
 
 ## Report
 

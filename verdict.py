@@ -62,7 +62,7 @@ class Verdict:
 
 
 def blocked(tc: str, reason: str) -> Verdict:
-    """Return BLOCKED when a Round or environment limitation prevented a run."""
+    """Return BLOCKED after execution starts but a valid comparison cannot finish."""
     return Verdict(tc=tc, status=Status.BLOCKED, reason=reason)
 
 

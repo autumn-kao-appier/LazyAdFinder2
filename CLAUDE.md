@@ -88,8 +88,10 @@ Advertising ID TC 確立以下品質門檻。後續每一條 Signal／E2E TC 在
    以 Android Ads 頁面直接顯示的 GAID，對照 `req.device.ia` 與 `ext.device.ia`。
 4. **Raw 與 derived 分離**：`bid_raw.json` 永不改寫；解碼、正規化與比較資料另存於
    `bid_decoded.json`／`verdicts.json`。
-5. **已執行必有答案**：比較完成只能是 `PASS` 或 `FAILED`；環境／Round 導致根本無法執行
-   才是 `BLOCKED`，且必須保存 interrupted Evidence、具體 Step 與原因，不可靜默。
+5. **Verdict 與未執行分開**：比較完成只能是 `PASS` 或 `FAILED`；TC 已開始執行，
+   但因環境／Round 限制、無法取得獨立真值或缺少已確認標準而無法完成比較時，才是
+   `BLOCKED`，且必須保存 Evidence、具體 Step 與原因，不可靜默。尚未開始執行時不產生
+   Verdict，由 Page 以「未執行」呈現。
 6. **正向與負向測試**：至少驗證一組 PASS，並針對每項規則驗證錯值確實 FAILED；格式、
    缺欄位、大小寫、全零、跨來源不一致等條件不可只靠閱讀 Code 推測。
 7. **完整實機閉環**：mock 只驗接口；TC 完成前必須在目標實機跑完 setup → capture →
