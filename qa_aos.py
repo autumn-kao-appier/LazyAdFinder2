@@ -587,21 +587,37 @@ def create_capture_folder(config, capture_name):
     return folder
 
 
-def record_skip(config, round_name, scenario, reason, checks=None):
+def record_skip(config, round_name, scenario, reason, checks=None, testcase_keys=()):
     """Record an unmet precondition without manufacturing a verdict."""
     folder = create_capture_folder(config, f"{round_name}-{scenario}-SKIPPED")
+    recorded_at = datetime.now().astimezone().isoformat()
     document = {
         "status": "SKIPPED",
         "round": round_name,
         "scenario": scenario,
         "reason": reason,
         "checks": checks or {},
-        "recorded_at": datetime.now().astimezone().isoformat(),
+        "recorded_at": recorded_at,
+        "testcases": list(testcase_keys),
         "policy": "No device mutation, capture, or verdict was produced.",
     }
     (folder / "round-skip.json").write_text(
         json.dumps(document, ensure_ascii=False, indent=2) + "\n"
     )
+    (folder / "summary.json").write_text(json.dumps({
+        "result": "SKIPPED",
+        "platform": "aos",
+        "test_mode": config.test_mode,
+        "test_type": config.test_type,
+        "test_cid": config.test_cid,
+        "test_round": round_name,
+        "capture_name": scenario,
+        "started_at": recorded_at,
+        "finished_at": recorded_at,
+        "skipped_testcases": list(testcase_keys),
+        "skip_reason": reason,
+        "device": {},
+    }, ensure_ascii=False, indent=2) + "\n")
     print(f"[{round_name} {scenario}] SKIPPED: {reason}")
     return folder
 
@@ -1322,7 +1338,7 @@ def run_round(config, plan):
     if name == "R4":
         scenario = plan.scenarios[0]
         if scenario.decision == "SKIP":
-            return [record_skip(config, name, scenario.label, scenario.reason, scenario.checks)]
+            return [record_skip(config, name, scenario.label, scenario.reason, scenario.checks, scenario.testcase_keys)]
         return run_ipv6_refresh_round(config)
     if name == "E2E-STANDALONE":
         if config.test_mode != "standalone":
@@ -1367,10 +1383,11 @@ def run_round(config, plan):
                 required = tuple(sorted(required, key=lambda item: priority.get(item, 10)))
             scenario = scenario_plans[label]
             if scenario.decision == "SKIP":
-                folders.append(record_skip(config, "R5", label, scenario.reason, scenario.checks))
+                folders.append(record_skip(config, "R5", label, scenario.reason, scenario.checks, scenario.testcase_keys))
                 return
             phase = "state mutation"
             scenario_error = None
+            scenario_folder = None
             try:
                 mutate()
                 phase = "Evidence capture"
@@ -1378,6 +1395,7 @@ def run_round(config, plan):
                     config, required,
                     lambda setup: capture(config, capture_name=label, setup=setup),
                 )
+                scenario_folder = Path(folder)
                 phase = "TestCase validation"
                 rows = []
                 validator_errors = []
@@ -1404,20 +1422,44 @@ def run_round(config, plan):
                 scenario_error = exc
                 evidence_folder = getattr(exc, "evidence_folder", None)
                 if evidence_folder is not None:
+                    scenario_folder = Path(evidence_folder)
                     rows = []
                     for testcase in testcases:
                         row = blocked(testcase.key, f"R5 {label} failed at {phase}: {exc}").to_dict()
                         row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                         rows.append(row)
-                    (Path(evidence_folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
-                    folders.append(Path(evidence_folder))
+                    (scenario_folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+                    if scenario_folder not in folders:
+                        folders.append(scenario_folder)
             finally:
                 try:
                     restore()
                 except Exception as restore_exc:
                     print(f"[R5 {label}] restore failed: {restore_exc}", file=sys.stderr)
-                    if folders:
-                        (folders[-1] / "restore-error.txt").write_text(str(restore_exc) + "\n")
+                    if scenario_folder is None:
+                        scenario_folder = create_capture_folder(config, f"{label}-RESTORE-FAILED")
+                        now = datetime.now().astimezone().isoformat()
+                        finalize_bundle(
+                            scenario_folder,
+                            driver=None,
+                            platform="aos",
+                            config=config,
+                            device={},
+                            started_at=now,
+                            result="INTERRUPTED",
+                            failed_step=f"R5 {label} restore",
+                            error=str(restore_exc),
+                        )
+                        rows = []
+                        for testcase in testcases:
+                            row = blocked(testcase.key, f"R5 {label} restore failed: {restore_exc}").to_dict()
+                            row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+                            rows.append(row)
+                        (scenario_folder / "verdicts.json").write_text(
+                            json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+                        )
+                        folders.append(scenario_folder)
+                    (scenario_folder / "restore-error.txt").write_text(str(restore_exc) + "\n")
                     round_errors.append(f"{label} restore: {restore_exc}")
             if scenario_error is not None:
                 print(f"[R5 {label}] failed: {scenario_error}", file=sys.stderr)
@@ -1613,9 +1655,8 @@ def publish_completed_round(evidence_dir, folders):
         joined = ", ".join(str(folder) for folder in missing)
         print(f"[publish] skipped; verdicts.json is not finalized: {joined}", file=sys.stderr)
         return None
-    if not completed:
-        print("[publish] skipped; all applicable Scenarios were skipped before execution")
-        return None
+    if not completed and skipped:
+        print(f"[publish] publishing {len(skipped)} skipped Scenario(s) as the latest unexecuted state")
     if skipped:
         print(f"[publish] {len(skipped)} Scenario(s) skipped; publishing {len(completed)} completed result set(s)")
     if _env("AUTO_PUBLISH", "1") == "0":

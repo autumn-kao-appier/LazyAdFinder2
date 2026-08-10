@@ -4,7 +4,9 @@
 
 R5 保留 R1 Happy Path，追加兩個 Scenario。Privacy 不與其他裝置狀態混用：
 
-- `PRIVACY-DENIED`：Opt out ON；驗證 `device.ia` 不可為可用 GAID，且 req/ext
+- `PRIVACY-DENIED`：沿用 R1 正向 GAID 的 Settings → Security and privacy → Privacy controls → Ads
+  路徑；現代 UI 執行 Delete advertising ID，舊版 UI 開啟 Opt out。動作後重新走同一路徑確認
+  Renew/Get new 或 Opt out ON 的停用狀態；驗證 `device.ia` 不可為可用 GAID，且 req/ext
   `device.lat` 必須為 integer `1`。
 - `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、font scale 1.5、brightness raw 0、
   Media volume 0、Battery Saver ON，各自以 Android 原生頁／OS 狀態對照 payload。

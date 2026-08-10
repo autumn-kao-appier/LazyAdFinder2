@@ -285,7 +285,7 @@ def validate_advertising_id_opt_out(folder):
         failures.append("req/ext device.ia must be absent, empty, or the zero advertising ID when tracking is denied")
     return _verdict(
         key, "Advertising ID — Tracking Denied",
-        "Opt out ON must prevent the SDK from sending a usable advertising ID.",
+        "A visibly disabled Advertising ID must prevent the SDK from sending a usable advertising ID.",
         {"visible_tracking_denied": True, "req_ext_device_ia": "ABSENT, empty, or zero UUID"},
         {"visible_tracking_denied": state.get("tracking_allowed") is False, "req_device_ia": req if req is not None else ABSENT, "ext_device_ia": ext if ext is not None else ABSENT},
         "advertising-id-opt-out.png", failures,
@@ -309,9 +309,9 @@ def validate_tracking_denied(folder):
         failures.append(f"ext.device.lat must be integer 1, got {ext!r}")
     return _verdict(
         key, "Advertising Tracking Denied",
-        "Opt out ON means tracking is denied and the inverse LAT flag is enabled.",
-        {"visible_opt_out": True, "req_device_lat": 1, "ext_device_lat": 1},
-        {"visible_opt_out": state.get("opt_out"), "req_device_lat": req if req_present else ABSENT, "ext_device_lat": ext if ext_present else ABSENT},
+        "A visibly disabled Advertising ID means tracking is denied and the inverse LAT flag is enabled.",
+        {"visible_tracking_denied": True, "req_device_lat": 1, "ext_device_lat": 1},
+        {"visible_tracking_denied": state.get("tracking_allowed") is False, "req_device_lat": req if req_present else ABSENT, "ext_device_lat": ext if ext_present else ABSENT},
         "tracking-denied.png", failures,
     )
 

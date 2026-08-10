@@ -96,7 +96,7 @@ def _tc_label(key, catalog_by_key):
     return str(display_id).strip() if display_id is not None else key
 
 
-def current_verdicts(verdicts, catalog):
+def current_verdicts(verdicts, catalog, captures=()):
     """Return the latest result per registered TC and report slot.
 
     Evidence discovery intentionally reads all historical runs.  The current
@@ -111,6 +111,26 @@ def current_verdicts(verdicts, catalog):
         previous = latest.get(key)
         if previous is None or row["captured_at"] >= previous["captured_at"]:
             latest[key] = row
+    skipped_at = {}
+    for folder in captures:
+        summary_path = Path(folder) / SUMMARY_FILE
+        if not summary_path.is_file():
+            continue
+        summary = _load_json(summary_path)
+        if summary.get("result") != "SKIPPED":
+            continue
+        mode = _mode_group(summary.get("test_mode", ""))
+        platform = str(summary.get("platform", "")).strip().lower()
+        test_type = str(summary.get("test_type", "")).strip().lower()
+        captured_at = str(summary.get("finished_at") or summary.get("started_at", ""))
+        for tc in summary.get("skipped_testcases", []):
+            key = (platform, mode, test_type, str(tc))
+            if captured_at >= skipped_at.get(key, ""):
+                skipped_at[key] = captured_at
+    for key, captured_at in skipped_at.items():
+        previous = latest.get(key)
+        if previous is not None and captured_at >= previous["captured_at"]:
+            del latest[key]
     return list(latest.values())
 
 
@@ -988,7 +1008,7 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
     remote = remote or _origin_url()
     verdicts, captures, verdict_files = discover(evidence_dirs)
     catalog = load_catalog(catalog_path)
-    verdicts = current_verdicts(verdicts, catalog)
+    verdicts = current_verdicts(verdicts, catalog, captures)
     document = render(verdicts, captures, verdict_files, evidence_dirs, catalog)
     with tempfile.TemporaryDirectory(prefix="lazyadfinder2-pages-") as temp:
         checkout = Path(temp) / "pages"
@@ -1036,7 +1056,7 @@ def main(argv=None):
         publish(args.evidence, args.catalog, open_page=not args.no_open); return 0
     verdicts, captures, verdict_files = discover(args.evidence)
     catalog = load_catalog(args.catalog)
-    verdicts = current_verdicts(verdicts, catalog)
+    verdicts = current_verdicts(verdicts, catalog, captures)
     output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog))
     print(f"[report] {output} · catalog={len(catalog)} verdicts={len(verdicts)} captures={len(captures)}")
     if args.local and not args.no_open:

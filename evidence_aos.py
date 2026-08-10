@@ -238,7 +238,7 @@ def _open_ads_settings(udid):
     actions = {node.attrib.get("text") for node in opened.iter("node")}
     has_ads_control = bool(
         {"Delete advertising ID", "Renew advertising ID", "Reset advertising ID", "Get new advertising ID"} & actions
-    )
+    ) or "Opt out of Ads Personalization" in actions
     if not has_ads_control:
         raise EvidenceCaptureError(
             "Settings → Security and privacy → Privacy controls → Ads did not open the Advertising ID page"
@@ -295,6 +295,13 @@ def _tap_ads_action(udid, label):
         x, y = _bounds_center(buttons[-1].attrib.get("bounds"))
         _adb(udid, "shell", "input", "tap", str(x), str(y))
     time.sleep(1.2)
+
+    # Delete/Renew may close or replace the Ads page.  Re-enter through the
+    # same reviewed Settings path used by the positive GAID testcase before
+    # deciding whether the action changed the real device state.
+    _open_ads_settings(udid)
+    time.sleep(1.0)
+    _position_visible_opt_out(udid)
 
     for _ in range(5):
         state = _visible_ads_state(udid)
