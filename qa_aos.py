@@ -1642,7 +1642,7 @@ def run_round(config, plan):
         raise error from exc
 
 
-def publish_completed_round(evidence_dir, folders):
+def publish_completed_round(evidence_dir, folders, automation_started_at=None):
     """Publish only after this Round's finalized verdict files are on disk."""
     folders = [Path(folder) for folder in folders if folder is not None]
     if not folders:
@@ -1662,10 +1662,23 @@ def publish_completed_round(evidence_dir, folders):
     if _env("AUTO_PUBLISH", "1") == "0":
         print("[publish] AUTO_PUBLISH=0; skipped")
         return None
+    summary_paths = []
+    if automation_started_at:
+        for folder in folders:
+            summary_path = folder / "summary.json"
+            if not summary_path.is_file():
+                continue
+            summary = json.loads(summary_path.read_text())
+            summary["automation_started_at"] = automation_started_at
+            summary.pop("automation_finished_at", None)
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+            )
+            summary_paths.append(summary_path)
     sys.stdout.flush()
     sys.stderr.flush()
     try:
-        return subprocess.run(
+        result = subprocess.run(
             [
                 sys.executable,
                 str(Path(__file__).parent / "page.py"),
@@ -1675,12 +1688,21 @@ def publish_completed_round(evidence_dir, folders):
             ],
             check=True,
         )
+        return result
     except (OSError, subprocess.CalledProcessError) as exc:
         print(
             f"[warn] Round completed, but report publishing failed: {exc}",
             file=sys.stderr,
         )
         return None
+    finally:
+        automation_finished_at = datetime.now().astimezone().isoformat()
+        for summary_path in summary_paths:
+            summary = json.loads(summary_path.read_text())
+            summary["automation_finished_at"] = automation_finished_at
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+            )
 
 
 def build_parser():
@@ -1756,6 +1778,7 @@ def config_from_args(args, plan):
 
 
 def main(argv=None):
+    automation_started_at = datetime.now().astimezone().isoformat()
     args = build_parser().parse_args(argv)
     if args.command == "list-rounds":
         if not ROUND_DEFINITIONS:
@@ -1784,7 +1807,7 @@ def main(argv=None):
 
     if args.command == "round" and all(scenario.decision == "SKIP" for scenario in plan.scenarios):
         folders = run_round(config, plan)
-        publish_completed_round(config.evidence_dir, folders)
+        publish_completed_round(config.evidence_dir, folders, automation_started_at)
         return 0
 
     screen_timeout = keep_screen_awake(config)
@@ -1804,10 +1827,11 @@ def main(argv=None):
                 publish_completed_round(
                     config.evidence_dir,
                     evidence_folders,
+                    automation_started_at,
                 )
                 raise
             else:
-                publish_completed_round(config.evidence_dir, folders)
+                publish_completed_round(config.evidence_dir, folders, automation_started_at)
     finally:
         restore_orientation(config, orientation_state)
         restore_screen_timeout(config, screen_timeout)

@@ -3,6 +3,7 @@
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import mimetypes
@@ -204,6 +205,8 @@ def _verdict_rows(document, path):
             "captured_at": str(metadata.get("captured_at") or metadata.get("finished_at", "")),
             "started_at": str(metadata.get("started_at", "")),
             "finished_at": str(metadata.get("finished_at") or metadata.get("captured_at", "")),
+            "automation_started_at": str(metadata.get("automation_started_at", "")),
+            "automation_finished_at": str(metadata.get("automation_finished_at", "")),
             "run_root": str(path.parent.parent.resolve()),
             "capture_name": str(metadata.get("capture_name", "")),
             "test_round": str(config.get("test_round", "")),
@@ -669,7 +672,7 @@ def _round_sort_value(round_name):
     return (int(match.group(1)), str(round_name)) if match else (10_000, str(round_name or "Unassigned"))
 
 
-def _run_information(rows):
+def _run_information(rows, latest=True):
     if not rows:
         return ""
     row = max(rows, key=lambda item: item["captured_at"])
@@ -680,8 +683,14 @@ def _run_information(rows):
     os_text = f"Android {os_version}" + (f" · API {sdk}" if sdk else "")
     run_rows = [item for item in rows if item.get("run_root") == row.get("run_root")]
     try:
-        starts = [datetime.fromisoformat(item["started_at"]) for item in run_rows if item.get("started_at")]
-        finishes = [datetime.fromisoformat(item["finished_at"]) for item in run_rows if item.get("finished_at")]
+        automation_starts = [datetime.fromisoformat(item["automation_started_at"]) for item in run_rows if item.get("automation_started_at")]
+        automation_finishes = [datetime.fromisoformat(item["automation_finished_at"]) for item in run_rows if item.get("automation_finished_at")]
+        if automation_starts:
+            starts = automation_starts
+            finishes = automation_finishes or [datetime.now().astimezone()]
+        else:
+            starts = [datetime.fromisoformat(item["started_at"]) for item in run_rows if item.get("started_at")]
+            finishes = [datetime.fromisoformat(item["finished_at"]) for item in run_rows if item.get("finished_at")]
         elapsed = (max(finishes) - min(starts)).total_seconds()
         duration = f"{elapsed:.1f} s" if elapsed >= 0 else "—"
     except (TypeError, ValueError):
@@ -700,7 +709,8 @@ def _run_information(rows):
         f'<div><label>{label}</label><b>{html.escape(str(value))}</b></div>'
         for label, value in values
     )
-    return f'<section class="run-info"><div class="run-info-title"><span>{_bi("Latest Run", "最新執行")}</span><b>{_bi("Test specification", "測試規格")}</b></div><div class="run-info-grid">{cells}</div></section>'
+    run_label = _bi("Latest Run", "最新執行") if latest else _bi("Selected Run", "選取的執行")
+    return f'<section class="run-info"><div class="run-info-title"><span>{run_label}</span><b>{_bi("Test specification", "測試規格")}</b></div><div class="run-info-grid">{cells}</div></section>'
 
 
 def _status_filters(rows):
@@ -772,6 +782,52 @@ def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
 {_run_information(rows)}
 <div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Config / Route → Appier Ad → Creative / Render → Impression / Fill → Click → Landing / Privacy → Attribution</p></div></div><div class="result-grid">{e2e_cards}</div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>{_bi("Ordered by execution Round; gray cards were not run.", "依執行 Round 排列；灰色卡片代表未執行。")}</p></div></div>{signal_rounds()}</div></section>'''
+
+
+def _history_archive(verdicts, catalog_by_key):
+    grouped = {}
+    for row in verdicts:
+        run_root = str(row.get("run_root", "")).strip()
+        if not run_root:
+            continue
+        current = grouped.setdefault(run_root, {})
+        key = (row["platform"], row["mode_group"], row["test_type"], row["tc"])
+        previous = current.get(key)
+        if previous is None or row["captured_at"] >= previous["captured_at"]:
+            current[key] = row
+    reports = []
+    for run_root, indexed in grouped.items():
+        rows = list(indexed.values())
+        if not rows:
+            continue
+        representative = max(rows, key=lambda row: row["captured_at"])
+        run_id = hashlib.sha256(run_root.encode()).hexdigest()[:16]
+        reports.append((representative["captured_at"], run_id, rows, representative))
+    reports.sort(key=lambda item: item[0], reverse=True)
+    options, sections = [], []
+    for _captured_at, run_id, rows, representative in reports:
+        round_name = representative.get("test_round") or representative.get("capture_name") or "—"
+        platform = representative.get("platform", "").upper()
+        mode = representative.get("mode_group", "")
+        kind = representative.get("test_type", "")
+        captured = representative.get("captured_at", "")
+        label_en = f"{round_name} · {platform} {mode} {kind} · {captured}"
+        label_zh = f"{round_name} · {platform} {mode} {kind} · {captured}"
+        options.append(
+            f'<option value="{run_id}" data-en="{html.escape(label_en, quote=True)}" '
+            f'data-zh="{html.escape(label_zh, quote=True)}">{html.escape(label_zh)}</option>'
+        )
+        cards = "".join(
+            _result_card(row, catalog_by_key)
+            for row in sorted(rows, key=lambda row: (catalog_by_key.get(row["tc"], {}).get("order", float("inf")), row["tc"]))
+        )
+        sections.append(f'''<section class="history-run" data-history-run="{run_id}" hidden>
+{_run_information(rows, latest=False)}
+<div class="history-run-head"><div><span>{html.escape(platform)} / {html.escape(mode)} / {html.escape(kind)}</span><h2>{html.escape(str(round_name))}</h2></div><button type="button" data-history-delete="{run_id}">{_bi("Delete from archive", "從過去報告刪除")}</button></div>
+<div class="result-grid">{cards}</div></section>''')
+    empty = f'<div class="empty" id="history-empty"{(" hidden" if reports else "")}><b>{_bi("No saved reports", "沒有過去報告")}</b><p>{_bi("Completed runs will appear here.", "完成的執行會顯示在這裡。")}</p></div>'
+    controls = f'''<div class="history-controls"{("" if reports else " hidden")}><label>{_bi("Select report", "選擇報告")}</label><select id="history-select">{"".join(options)}</select></div>'''
+    return controls + empty + "".join(sections)
 
 
 def _catalog_text(spec, key, default="—"):
@@ -896,18 +952,20 @@ CSS = r"""
 .catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
 .compact-evidence{overflow:visible}.compact-evidence>label{display:block;margin-top:10px;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.raw-capture{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.raw-capture summary{width:max-content;max-width:100%;color:var(--accent);font:750 10px var(--mono);cursor:pointer}.raw-capture pre{max-height:320px;margin:10px 0 0;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.45 var(--mono)}
 .result-card[data-tc="admob-pubsetting"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}
+.history-controls{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;margin:20px 0;padding:14px 16px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.history-controls label{color:var(--faint);font:750 10px var(--mono);text-transform:uppercase}.history-controls select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--ink)}.history-run-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:0 0 14px}.history-run-head span{color:var(--accent);font:750 10px var(--mono);text-transform:uppercase}.history-run-head h2{margin:3px 0 0}.history-run-head button{border:1px solid #c0392b66;border-radius:8px;background:#c0392b12;color:var(--fail);padding:7px 10px;cursor:pointer}@media(max-width:650px){.history-controls{grid-template-columns:1fr}.history-run-head{align-items:flex-start;flex-direction:column}}
 """
 
 
 SCRIPT = r"""
 (function(){
  var root=document.documentElement,latestSlot=(root.dataset.latestSlot||"aos:standalone:aibid").split(":"),platform=latestSlot[0]||"aos",mode=latestSlot[1]||"standalone",activePage="reports";
- var overrideStorageKey="laf2-manual-overrides-v1",overrides={};
+ var overrideStorageKey="laf2-manual-overrides-v1",historyStorageKey="laf2-deleted-history-v1",overrides={},deletedHistory=[];
  try{var saved=localStorage.getItem("laf2-theme");if(saved)root.dataset.theme=saved}catch(e){}
  try{root.dataset.lang=localStorage.getItem("laf2-language")||"zh"}catch(e){root.dataset.lang="zh"}
  try{overrides=JSON.parse(localStorage.getItem(overrideStorageKey)||"{}")||{}}catch(e){overrides={}}
+ try{deletedHistory=JSON.parse(localStorage.getItem(historyStorageKey)||"[]")||[]}catch(e){deletedHistory=[]}
  document.getElementById("theme").onclick=function(){var dark=root.dataset.theme==="dark";root.dataset.theme=dark?"light":"dark";try{localStorage.setItem("laf2-theme",root.dataset.theme)}catch(e){}};
- function applyLanguage(){var zh=root.dataset.lang==="zh",button=document.getElementById("language");button.textContent=zh?"EN":"中文";button.title=zh?"Switch to English":"切換為中文";document.documentElement.lang=zh?"zh-Hant":"en";document.querySelectorAll(".type-card").forEach(function(card){var count=card.querySelectorAll(".result-card").length||Number((card.querySelector(".total")||{}).dataset&&card.querySelector(".total").dataset.resultCount)||0,total=card.querySelector(".total");if(total)total.textContent=count+(zh?" 個 TC":" TestCases")})}
+ function applyLanguage(){var zh=root.dataset.lang==="zh",button=document.getElementById("language");button.textContent=zh?"EN":"中文";button.title=zh?"Switch to English":"切換為中文";document.documentElement.lang=zh?"zh-Hant":"en";document.querySelectorAll(".type-card").forEach(function(card){var count=card.querySelectorAll(".result-card").length||Number((card.querySelector(".total")||{}).dataset&&card.querySelector(".total").dataset.resultCount)||0,total=card.querySelector(".total");if(total)total.textContent=count+(zh?" 個 TC":" TestCases")});document.querySelectorAll("#history-select option").forEach(function(option){option.textContent=zh?option.dataset.zh:option.dataset.en})}
  document.getElementById("language").onclick=function(){root.dataset.lang=root.dataset.lang==="zh"?"en":"zh";try{localStorage.setItem("laf2-language",root.dataset.lang)}catch(e){}applyLanguage();refreshCounts()};
  function persistOverrides(){try{localStorage.setItem(overrideStorageKey,JSON.stringify(overrides));return true}catch(e){alert("無法儲存 manual override："+e);return false}}
  function applyManualOverride(card){
@@ -930,6 +988,16 @@ SCRIPT = r"""
   })
  }
  document.querySelectorAll(".main-nav button").forEach(function(b){b.onclick=function(){activePage=b.dataset.page;document.querySelectorAll(".main-nav button").forEach(function(x){x.classList.toggle("on",x===b)});document.querySelectorAll(".app-page").forEach(function(p){p.hidden=p.id!==activePage+"-page"});if(activePage==="reports")showOverview()}});
+ var historySelect=document.getElementById("history-select"),historyEmpty=document.getElementById("history-empty"),historyControls=document.querySelector(".history-controls");
+ function showHistory(runId){document.querySelectorAll("[data-history-run]").forEach(function(section){section.hidden=section.dataset.historyRun!==runId});if(historySelect&&runId)historySelect.value=runId}
+ function refreshHistory(){
+  if(!historySelect)return;
+  Array.from(historySelect.options).forEach(function(option){if(deletedHistory.indexOf(option.value)>=0)option.remove()});
+  var available=Array.from(historySelect.options);historyControls.hidden=available.length===0;historyEmpty.hidden=available.length!==0;
+  if(available.length)showHistory(available[0].value);else document.querySelectorAll("[data-history-run]").forEach(function(section){section.hidden=true})
+ }
+ if(historySelect)historySelect.onchange=function(){showHistory(historySelect.value)};
+ document.querySelectorAll("[data-history-delete]").forEach(function(button){button.onclick=function(){var runId=button.dataset.historyDelete,zh=root.dataset.lang==="zh",message=zh?"要從這個瀏覽器的過去報告中刪除這次執行嗎？原始 Evidence 不會被刪除。":"Delete this run from this browser's report archive? Raw Evidence will not be deleted.";if(!confirm(message))return;if(deletedHistory.indexOf(runId)<0)deletedHistory.push(runId);try{localStorage.setItem(historyStorageKey,JSON.stringify(deletedHistory))}catch(e){}refreshHistory()}});
  function select(group,value){document.querySelectorAll('.seg.'+group+' button').forEach(function(b){b.classList.toggle("on",b.dataset.value===value)})}
  function update(){select("platform",platform);select("mode",mode);document.querySelectorAll(".type-card").forEach(function(c){c.hidden=!c.dataset.slot.startsWith(platform+":"+mode+":")});document.getElementById("result-context").textContent=(platform==="aos"?"AOS":"iOS")+" · "+(mode==="standalone"?"Standalone":"Mediation")}
  document.querySelectorAll(".seg.platform button").forEach(function(b){b.onclick=function(){platform=b.dataset.value;showOverview();update()}});
@@ -950,14 +1018,14 @@ SCRIPT = r"""
  function closeLightbox(){lightbox.hidden=true;lightboxImage.removeAttribute("src");document.body.style.overflow=""}
  document.querySelectorAll(".evidence-zoom").forEach(function(button){button.onclick=function(){var source=button.querySelector("img");lightboxImage.src=source.src;lightboxImage.alt=source.alt;lightboxCaption.textContent=source.alt;lightbox.hidden=false;document.body.style.overflow="hidden"}});
  lightbox.onclick=function(e){if(e.target===lightbox||e.target===lightboxImage)closeLightbox()};lightbox.querySelector("button").onclick=closeLightbox;
- addEventListener("keydown",function(e){if(e.key==="Escape"){if(!lightbox.hidden)closeLightbox();else showOverview()}});applyLanguage();update();
+ addEventListener("keydown",function(e){if(e.key==="Escape"){if(!lightbox.hidden)closeLightbox();else if(activePage==="reports")showOverview()}});refreshHistory();applyLanguage();update();
  var requestedSlot=new URLSearchParams(location.search).get("slot");
  if(requestedSlot){var target=Array.from(document.querySelectorAll(".type-card")).find(function(card){return card.dataset.slot===requestedSlot});if(target){var parts=requestedSlot.split(":");platform=parts[0];mode=parts[1];update();target.click()}}
 })();
 """
 
 
-def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
+def render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_verdicts=()):
     cards, details = [], []
     catalog_by_key = {str(row["key"]): row for row in catalog}
     latest = max(verdicts, key=lambda row: row["captured_at"], default=None)
@@ -969,14 +1037,16 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog):
                 cards.append(_slot_card(platform, mode, kind, label, description, rows))
                 details.append(_slot_detail(platform, mode, kind, label, rows, catalog_by_key))
     counts = Counter(row["status"] for row in verdicts)
+    history = _history_archive(history_verdicts, catalog_by_key)
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
     roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
     return f'''<!doctype html><html lang="zh-Hant" data-lang="zh" data-latest-slot="{html.escape(latest_slot, quote=True)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
-<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">{_bi("Round Reports", "輪次報告")}</button><button data-page="catalog">{_bi("TestCase Catalog", "TestCase 目錄")}</button></nav><button class="export-overrides" id="export-overrides">{_bi("Export overrides", "匯出人工覆寫")}</button><button class="language" id="language">EN</button><button class="theme" id="theme">◐</button></header>
-<main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>{_bi("Round Reports", "輪次報告")}</h1><p>{_bi("Each Round contains Signal and E2E results. Select a platform and integration mode, then open AIBID, REEN Static, or REEN Dynamic.", "一個 Round 同時包含 Signal 與 E2E。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。")}</p></div>
+<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">{_bi("Latest Report", "最新報告")}</button><button data-page="history">{_bi("Past Reports", "過去報告")}</button><button data-page="catalog">{_bi("TestCase Catalog", "TestCase 目錄")}</button></nav><button class="export-overrides" id="export-overrides">{_bi("Export overrides", "匯出人工覆寫")}</button><button class="language" id="language">EN</button><button class="theme" id="theme">◐</button></header>
+<main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>{_bi("Latest Report", "最新報告")}</h1><p>{_bi("The latest result for each TestCase. Select a platform and integration mode, then open AIBID, REEN Static, or REEN Dynamic.", "顯示每條 TestCase 的最新結果。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。")}</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid">{"".join(cards)}</div></div>{"".join(details)}</section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>{_bi("TestCase Catalog", "TestCase 目錄")}</h1><p>{_bi("Applicability is separate from execution status. Use these tables to find the contract; use Round Reports for PASS, FAILED, or BLOCKED.", "適用範圍不等於執行結果。這裡用來查 TC 契約；PASS／FAILED／BLOCKED 請看輪次報告。")}</p></div><b>{len(catalog)} TestCases</b></div>
+<section class="app-page" id="history-page" hidden><div class="hero"><h1>{_bi("Past Reports", "過去報告")}</h1><p>{_bi("Select a completed run to review its saved results. Deleting hides it from this browser only; raw Evidence remains unchanged.", "選擇過去的執行查看當次結果。刪除只會從這個瀏覽器隱藏，原始 Evidence 不會被刪除。")}</p></div>{history}</section>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>{_bi("TestCase Catalog", "TestCase 目錄")}</h1><p>{_bi("Applicability is separate from execution status. Use these tables to find the contract; use Latest Report for PASS, FAILED, or BLOCKED.", "適用範圍不等於執行結果。這裡用來查 TC 契約；PASS／FAILED／BLOCKED 請看最新報告。")}</p></div><b>{len(catalog)} TestCases</b></div>
 {_catalog_section(catalog, catalog_by_key, "e2e", "01", "E2E TestCases", _bi("Ordered user and network journeys, with Standalone and Mediation applicability.", "依操作與流量順序排列，並標示 Standalone／Mediation 適用性。"))}
 {_catalog_section(catalog, catalog_by_key, "signal", "02", "Signal TestCases", _bi("SDK fields and device signals shared by the applicable integration modes.", "SDK 欄位與裝置訊號；適用的整合模式共用同一份欄位契約。"))}</section>
 <p class="meta">{_bi("Results", "結果")}: {len(verdicts)} · PASS {counts[Status.PASS.value]} · FAILED {counts[Status.FAILED.value]} · BLOCKED {counts[Status.BLOCKED.value]}<br>{_bi("Raw captures", "原始擷取")}: {len(captures)} · {_bi("Verdict files", "Verdict 檔案")}: {len(verdict_files)} · {_bi("Generated", "產生時間")}: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main>
@@ -1008,8 +1078,9 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
     remote = remote or _origin_url()
     verdicts, captures, verdict_files = discover(evidence_dirs)
     catalog = load_catalog(catalog_path)
+    history_verdicts = list(verdicts)
     verdicts = current_verdicts(verdicts, catalog, captures)
-    document = render(verdicts, captures, verdict_files, evidence_dirs, catalog)
+    document = render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_verdicts)
     with tempfile.TemporaryDirectory(prefix="lazyadfinder2-pages-") as temp:
         checkout = Path(temp) / "pages"
         exists = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "gh-pages"], text=True, capture_output=True).returncode == 0
@@ -1056,8 +1127,9 @@ def main(argv=None):
         publish(args.evidence, args.catalog, open_page=not args.no_open); return 0
     verdicts, captures, verdict_files = discover(args.evidence)
     catalog = load_catalog(args.catalog)
+    history_verdicts = list(verdicts)
     verdicts = current_verdicts(verdicts, catalog, captures)
-    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog))
+    output = write_report(args.out, render(verdicts, captures, verdict_files, args.evidence, catalog, history_verdicts))
     print(f"[report] {output} · catalog={len(catalog)} verdicts={len(verdicts)} captures={len(captures)}")
     if args.local and not args.no_open:
         subprocess.run(["open", output.as_uri()], check=False)
