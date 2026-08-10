@@ -1,5 +1,12 @@
 # LazyAdFinder2 — 重建規則
 
+## Automation 一次性授權
+
+執行任何實機 Round 前必須完整讀取 `AUTOMATION_PERMISSIONS.md`。先顯示 ExecutionPlan 並針對該
+文件白名單只向使用者確認一次；確認後，本次執行應一路完成 setup、capture、validator、Report、
+publish 與開啟公開頁面，不得為白名單內步驟重複詢問。產品本身強制的安全核准不得繞過；超出
+白名單的操作必須另行取得明確授權。
+
 本專案正在從零重建 SSP Signal QA。核心原則是先保存可信的原始 evidence，再由人工逐條
 定義 TC 與正確標準。不得從舊專案批次搬回 TC、expected value 或判定結果。
 
