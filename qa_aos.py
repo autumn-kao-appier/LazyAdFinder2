@@ -30,6 +30,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -668,6 +669,81 @@ def _tcp_listening(host, port):
         return False
 
 
+def _listener_command(port):
+    result = subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+        text=True,
+        capture_output=True,
+    )
+    pids = [line.strip() for line in result.stdout.splitlines() if line.strip().isdigit()]
+    commands = []
+    for pid in pids:
+        command = subprocess.run(
+            ["ps", "-p", pid, "-o", "command="], text=True, capture_output=True
+        ).stdout.strip()
+        if command:
+            commands.append(command)
+    return commands
+
+
+def _verify_charles_external_proxy():
+    candidates = (
+        Path.home() / "Library/Preferences/com.xk72.charles.config",
+        Path.home() / "Library/Application Support/Charles/profiles/default.cfg.xml",
+    )
+    for path in candidates:
+        if not path.is_file():
+            continue
+        document = path.read_text(errors="replace")
+        block_match = re.search(
+            r"<externalProxyConfiguration>(.*?)</externalProxyConfiguration>",
+            document,
+            re.S,
+        )
+        block = block_match.group(1) if block_match else ""
+        valid = all(
+            re.search(
+                rf"<string>{scheme}</string>.*?<active>true</active>.*?"
+                rf"<host>127\.0\.0\.1</host>.*?<port>{MITMDUMP_PORT}</port>",
+                block,
+                re.S,
+            )
+            for scheme in ("http", "https")
+        )
+        if valid:
+            return str(path)
+    raise CaptureError(
+        "Proxy preflight failed: Charles HTTP/HTTPS External Proxy must be active at 127.0.0.1:8081"
+    )
+
+
+def _verify_proxy_event_path(config):
+    """Prove the selected Android device traverses Charles and our addon."""
+    token = uuid.uuid4().hex
+    probe_url = f"http://adx6.apx.appier.net/v2/sdk/net?laf2_preflight={token}"
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_WAKEUP", check=False)
+    adb(config.udid, "shell", "wm", "dismiss-keyguard", check=False)
+    result = adb(
+        config.udid,
+        "shell", "am", "start", "-W",
+        "-a", "android.intent.action.VIEW",
+        "-d", probe_url,
+        check=False,
+    )
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if EVENTS_FILE.is_file() and token in EVENTS_FILE.read_text(errors="replace"):
+            adb(config.udid, "shell", "input", "keyevent", "KEYCODE_BACK", check=False)
+            return probe_url
+        time.sleep(0.1)
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_BACK", check=False)
+    detail = result.strip() or "Android VIEW intent produced no diagnostic output"
+    raise CaptureError(
+        "Proxy preflight failed: the probe did not travel through "
+        f"Charles :{CHARLES_PORT} -> LazyAdFinder2 addon :{MITMDUMP_PORT} ({detail})"
+    )
+
+
 def _mac_lan_address():
     """Return the Mac address used for the default route without sending data."""
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -686,6 +762,12 @@ def ensure_proxy_capture_ready(config):
         raise CaptureError(
             f"Proxy preflight failed: Charles is not listening on :{CHARLES_PORT}"
         )
+    charles_commands = _listener_command(CHARLES_PORT)
+    if not any("Charles.app/Contents/MacOS/Charles" in command for command in charles_commands):
+        raise CaptureError(
+            f"Proxy preflight failed: :{CHARLES_PORT} is not owned by Charles ({charles_commands or 'unknown owner'})"
+        )
+    charles_config = _verify_charles_external_proxy()
 
     started_mitmdump = False
     if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
@@ -716,6 +798,13 @@ def ensure_proxy_capture_ready(config):
             )
         started_mitmdump = True
 
+    addon = str(Path(__file__).with_name("mitmdump_addon.py").resolve())
+    mitmdump_commands = _listener_command(MITMDUMP_PORT)
+    if not any("mitmdump" in command and addon in command for command in mitmdump_commands):
+        raise CaptureError(
+            f"Proxy preflight failed: :{MITMDUMP_PORT} is not using {addon} ({mitmdump_commands or 'unknown owner'})"
+        )
+
     phone_proxy = adb(
         config.udid, "shell", "settings", "get", "global", "http_proxy", check=False
     ).strip()
@@ -738,11 +827,15 @@ def ensure_proxy_capture_ready(config):
             )
         print(f"[proxy preflight] configured Android proxy: {expected_proxy}")
 
+    probe_url = _verify_proxy_event_path(config)
+
     result = {
         "android_proxy": phone_proxy,
         "charles": f"127.0.0.1:{CHARLES_PORT}",
         "mitmdump": f"127.0.0.1:{MITMDUMP_PORT}",
         "mitmdump_started": started_mitmdump,
+        "charles_config": charles_config,
+        "probe_url": probe_url,
     }
     print(
         "[proxy preflight] READY: "
@@ -1057,12 +1150,14 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                     if settle_delay:
                         print(f"[capture] waiting {settle_delay:g}s for trailing E2E events")
                         time.sleep(settle_delay)
-                    save_evidence(
-                        driver, config, folder, started_at, request, status, identity, source
-                    )
                     if strategy == "e2e":
                         print("[e2e] privacy → return → click → landing")
                         _capture_e2e_interactions(driver, config, folder)
+                        print(f"[e2e] waiting {max(settle_delay, 2):g}s for trailing interaction events")
+                        time.sleep(max(settle_delay, 2))
+                    save_evidence(
+                        driver, config, folder, started_at, request, status, identity, source
+                    )
                     if warmup_impression is not None:
                         (folder / "previous-impression.json").write_text(
                             json.dumps(warmup_impression, ensure_ascii=False, indent=2) + "\n"
@@ -1257,6 +1352,7 @@ def run_round(config, plan):
         return [folder]
     if name == "R5":
         folders = []
+        round_errors = []
 
         scenario_plans = {scenario.label: scenario for scenario in plan.scenarios}
 
@@ -1284,15 +1380,26 @@ def run_round(config, plan):
                 )
                 phase = "TestCase validation"
                 rows = []
+                validator_errors = []
                 for testcase in testcases:
                     try:
                         rows.append(testcase.validate(folder))
                     except Exception as exc:
-                        row = blocked(testcase.key, str(exc)).to_dict()
+                        row = {
+                            "tc": testcase.key,
+                            "status": "FAILED",
+                            "reason": f"Validator error after execution: {exc}",
+                            "expected": "Validator completes and compares captured Evidence",
+                            "actual": f"{type(exc).__name__}: {exc}",
+                            "evidence": "bid_decoded.json and captured Evidence artifacts",
+                        }
                         row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                         rows.append(row)
+                        validator_errors.append(f"{testcase.key}: {exc}")
                 (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
                 folders.append(folder)
+                if validator_errors:
+                    scenario_error = CaptureError("; ".join(validator_errors))
             except Exception as exc:
                 scenario_error = exc
                 evidence_folder = getattr(exc, "evidence_folder", None)
@@ -1311,8 +1418,10 @@ def run_round(config, plan):
                     print(f"[R5 {label}] restore failed: {restore_exc}", file=sys.stderr)
                     if folders:
                         (folders[-1] / "restore-error.txt").write_text(str(restore_exc) + "\n")
+                    round_errors.append(f"{label} restore: {restore_exc}")
             if scenario_error is not None:
                 print(f"[R5 {label}] failed: {scenario_error}", file=sys.stderr)
+                round_errors.append(f"{label}: {scenario_error}")
 
         def privacy_mutate():
             print("[R5 Privacy] Opt out will be enabled by direct Ads Settings evidence capture")
@@ -1414,6 +1523,11 @@ def run_round(config, plan):
         run_scenario("DISPLAY-AUDIO-HIGH", R5_DISPLAY_AUDIO_HIGH_KEYS, display_audio_high_mutate, display_audio_high_restore)
         run_scenario("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS, timezone_mutate, timezone_restore)
         run_scenario("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS, location_denied_mutate, location_denied_restore)
+        if round_errors:
+            error = CaptureError("R5 completed with errors: " + " | ".join(round_errors))
+            error.evidence_folders = tuple(folders)
+            error.evidence_folder = folders[-1] if folders else None
+            raise error
         return folders
     round_definition = ROUND_DEFINITIONS.get(name)
     if not round_definition:
@@ -1447,7 +1561,14 @@ def run_round(config, plan):
             try:
                 verdicts.append(testcase.validate(folder))
             except Exception as exc:
-                row = blocked(testcase.key, str(exc)).to_dict()
+                row = {
+                    "tc": testcase.key,
+                    "status": "FAILED",
+                    "reason": f"Validator error after execution: {exc}",
+                    "expected": "Validator completes and compares captured Evidence",
+                    "actual": f"{type(exc).__name__}: {exc}",
+                    "evidence": "bid_decoded.json and captured Evidence artifacts",
+                }
                 row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                 verdicts.append(row)
                 validator_errors.append(f"{testcase.key}: {exc}")
@@ -1610,14 +1731,15 @@ def main(argv=None):
     plan = resolve_execution_plan(args)
     config = config_from_args(args, plan)
     plan = preflight_execution_plan(plan, config)
-    if any(scenario.decision == "RUN" for scenario in plan.scenarios):
-        ensure_proxy_capture_ready(config)
     print(f"[device] {config.udid}")
     print(f"[app]    {config.app_package}/{config.app_activity}")
     print(f"[mode]   {config.test_mode} ({config.tab_text})")
     print(f"[type]   {config.test_type}")
     print(f"[cid]    {config.test_cid or '(any request)'}")
     print_execution_plan(plan, config)
+    sys.stdout.flush()
+    if any(scenario.decision == "RUN" for scenario in plan.scenarios):
+        ensure_proxy_capture_ready(config)
 
     if args.command == "round" and all(scenario.decision == "SKIP" for scenario in plan.scenarios):
         folders = run_round(config, plan)
@@ -1634,10 +1756,13 @@ def main(argv=None):
             try:
                 folders = run_round(config, plan)
             except Exception as exc:
+                evidence_folders = list(getattr(exc, "evidence_folders", ()))
                 evidence_folder = getattr(exc, "evidence_folder", None)
+                if not evidence_folders and evidence_folder is not None:
+                    evidence_folders = [evidence_folder]
                 publish_completed_round(
                     config.evidence_dir,
-                    [evidence_folder] if evidence_folder is not None else [],
+                    evidence_folders,
                 )
                 raise
             else:
