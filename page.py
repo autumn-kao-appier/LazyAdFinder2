@@ -293,6 +293,17 @@ TC_TITLES_ZH = {
     "last-foreground-times": "最近前景時間", "last-background-times": "最近背景時間",
     "impression-history": "曝光紀錄", "vpn-status": "VPN 狀態", "argus-sdk-version": "Argus SDK 版本",
     "network-latency": "網路延遲",
+    "advertising-id-opt-out": "廣告識別碼 — 拒絕追蹤",
+    "tracking-denied": "廣告追蹤 — 已拒絕",
+    "dark-mode-enabled": "深色模式 — 已開啟",
+    "font-scale-maximum": "字型縮放 — 最大",
+    "screen-brightness-minimum": "螢幕亮度 — 最低",
+    "output-volume-muted": "輸出音量 — 靜音",
+    "battery-saver-enabled": "省電模式 — 已開啟",
+    "screen-brightness-maximum": "螢幕亮度 — 最高",
+    "output-volume-maximum": "輸出音量 — 最大",
+    "timezone-changed": "時區 — 已變更",
+    "location-permission-denied": "定位權限 — 已拒絕",
 }
 
 
