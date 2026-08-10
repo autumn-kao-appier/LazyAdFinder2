@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -53,6 +54,9 @@ from verdict import blocked
 
 
 APPIUM_URL = "http://127.0.0.1:4723"
+CHARLES_PORT = 8888
+MITMDUMP_PORT = 8081
+MITMDUMP_LOG = Path("/tmp/lazyadfinder2_mitmdump.log")
 DEFAULT_TRIGGER_TEXT = "Native - basic format"
 MODE_TABS = {
     "standalone": "Appier SDK",
@@ -656,6 +660,97 @@ def location_permission_preflight(config):
     ), {"declared_permissions": permissions}
 
 
+def _tcp_listening(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def _mac_lan_address():
+    """Return the Mac address used for the default route without sending data."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("8.8.8.8", 80))
+        return probe.getsockname()[0]
+    except OSError:
+        return ""
+    finally:
+        probe.close()
+
+
+def ensure_proxy_capture_ready(config):
+    """Make the Charles -> mitmdump evidence path a hard precondition."""
+    if not _tcp_listening("127.0.0.1", CHARLES_PORT):
+        raise CaptureError(
+            f"Proxy preflight failed: Charles is not listening on :{CHARLES_PORT}"
+        )
+
+    started_mitmdump = False
+    if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
+        executable = shutil.which("mitmdump")
+        if not executable:
+            raise CaptureError(
+                "Proxy preflight failed: mitmdump is not installed or is not on PATH"
+            )
+        addon = Path(__file__).with_name("mitmdump_addon.py").resolve()
+        log_stream = MITMDUMP_LOG.open("a")
+        try:
+            subprocess.Popen(
+                [executable, "-s", str(addon), "--listen-port", str(MITMDUMP_PORT)],
+                cwd=addon.parent,
+                stdout=log_stream,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        finally:
+            log_stream.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
+            time.sleep(0.2)
+        if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
+            raise CaptureError(
+                f"Proxy preflight failed: mitmdump could not listen on :{MITMDUMP_PORT}; "
+                f"see {MITMDUMP_LOG}"
+            )
+        started_mitmdump = True
+
+    phone_proxy = adb(
+        config.udid, "shell", "settings", "get", "global", "http_proxy", check=False
+    ).strip()
+    proxy_missing = not phone_proxy or phone_proxy.lower() in {"null", ":0", "0.0.0.0:0"}
+    if proxy_missing or not phone_proxy.endswith(f":{CHARLES_PORT}"):
+        current_host = phone_proxy.rsplit(":", 1)[0] if ":" in phone_proxy else ""
+        proxy_host = current_host if current_host not in {"", "0.0.0.0"} else _mac_lan_address()
+        if not proxy_host:
+            raise CaptureError(
+                "Proxy preflight failed: Android proxy is missing and the Mac LAN address could not be determined"
+            )
+        expected_proxy = f"{proxy_host}:{CHARLES_PORT}"
+        adb(config.udid, "shell", "settings", "put", "global", "http_proxy", expected_proxy)
+        phone_proxy = adb(
+            config.udid, "shell", "settings", "get", "global", "http_proxy", check=False
+        ).strip()
+        if phone_proxy != expected_proxy:
+            raise CaptureError(
+                f"Proxy preflight failed: could not configure Android proxy as {expected_proxy!r}; got {phone_proxy!r}"
+            )
+        print(f"[proxy preflight] configured Android proxy: {expected_proxy}")
+
+    result = {
+        "android_proxy": phone_proxy,
+        "charles": f"127.0.0.1:{CHARLES_PORT}",
+        "mitmdump": f"127.0.0.1:{MITMDUMP_PORT}",
+        "mitmdump_started": started_mitmdump,
+    }
+    print(
+        "[proxy preflight] READY: "
+        f"Android {phone_proxy} -> Charles :{CHARLES_PORT} -> mitmdump :{MITMDUMP_PORT}"
+    )
+    return result
+
+
 def resolve_execution_plan(args):
     """Resolve Round, Scenarios, and TestCases without touching a device."""
     mode = args.test_mode.strip().lower()
@@ -850,10 +945,19 @@ def _capture_session_duration_sequence(driver, config, folder, started_at):
     time.sleep(1)
     size = driver.get_window_size()
     driver.swipe(size["width"] // 2, int(size["height"] * 0.75), size["width"] // 2, int(size["height"] * 0.12), 700)
-    time.sleep(2)
-    terminated_pid_confirmed = _app_pid(config) is None
+    termination_deadline = time.monotonic() + 10
+    terminated_pid_confirmed = False
+    while time.monotonic() < termination_deadline:
+        if _app_pid(config) is None:
+            terminated_pid_confirmed = True
+            break
+        time.sleep(0.5)
     if not terminated_pid_confirmed:
-        raise CaptureError("R3 termination: swiping the App from Recents did not stop its process")
+        print(
+            "[R3 termination] App process remained alive after the Recents task was dismissed; "
+            "continuing so termination-dependent TestCases can compare the actual PID and payload",
+            file=sys.stderr,
+        )
     relaunch_requested_epoch_ms = round(time.time() * 1000)
     driver.activate_app(config.app_package)
     time.sleep(2)
@@ -925,7 +1029,9 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                     continue
 
                 request, status, identity, source = wait_for_bid(
-                    config, logcat_offset=logcat_offset
+                    config,
+                    proxy_only=strategy == "e2e",
+                    logcat_offset=logcat_offset,
                 )
                 if eligible(config, request, status, identity):
                     if completed_warmups < warmup_ads:
@@ -1504,6 +1610,8 @@ def main(argv=None):
     plan = resolve_execution_plan(args)
     config = config_from_args(args, plan)
     plan = preflight_execution_plan(plan, config)
+    if any(scenario.decision == "RUN" for scenario in plan.scenarios):
+        ensure_proxy_capture_ready(config)
     print(f"[device] {config.udid}")
     print(f"[app]    {config.app_package}/{config.app_activity}")
     print(f"[mode]   {config.test_mode} ({config.tab_text})")
