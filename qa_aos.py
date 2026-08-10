@@ -226,23 +226,65 @@ def restore_orientation(config, state):
     print("[orientation] restored original rotation settings")
 
 
+def require_device_unlocked(config):
+    """Fail before automation when Android is waiting for a secure unlock."""
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_WAKEUP", check=False)
+    adb(config.udid, "shell", "wm", "dismiss-keyguard", check=False)
+    time.sleep(0.5)
+    trust = adb(config.udid, "shell", "dumpsys", "trust", check=False)
+    policy = adb(config.udid, "shell", "dumpsys", "window", "policy", check=False)
+    device_locked = bool(re.search(r"\bdeviceLocked=1\b", trust))
+    keyguard_showing = bool(re.search(r"\bshowing=true\b", policy))
+    input_restricted = bool(re.search(r"\binputRestricted=true\b", policy))
+    if device_locked or (keyguard_showing and input_restricted):
+        raise CaptureError(
+            "Device requires manual unlock: Android is showing the Enter PIN "
+            "screen. Unlock the device before starting Automation."
+        )
+    print("[device preflight] unlocked; no Enter PIN screen")
+
+
 def keep_screen_awake(config):
     """Prevent long unattended Rounds from losing Settings behind screen-off."""
-    original = adb(
+    original_timeout = adb(
         config.udid, "shell", "settings", "get", "system", "screen_off_timeout",
         check=False,
     ).strip()
+    original_stay_on = adb(
+        config.udid, "shell", "settings", "get", "global", "stay_on_while_plugged_in",
+        check=False,
+    ).strip()
+    try:
+        stay_on = int(original_stay_on) | 3
+    except (TypeError, ValueError):
+        stay_on = 3
     adb(config.udid, "shell", "input", "keyevent", "KEYCODE_WAKEUP", check=False)
     adb(config.udid, "shell", "wm", "dismiss-keyguard", check=False)
+    adb(
+        config.udid, "shell", "settings", "put", "global",
+        "stay_on_while_plugged_in", str(stay_on),
+    )
     adb(config.udid, "shell", "settings", "put", "system", "screen_off_timeout", "1800000")
     time.sleep(2)
-    print("[screen] awake; timeout temporarily set to 30 minutes")
-    return original
+    print("[screen] awake while plugged in; timeout temporarily set to 30 minutes")
+    return {
+        "screen_off_timeout": original_timeout,
+        "stay_on_while_plugged_in": original_stay_on,
+    }
 
 
 def restore_screen_timeout(config, original):
-    _restore_setting(config.udid, "system", "screen_off_timeout", original)
-    print("[screen] restored original timeout")
+    if not original:
+        return
+    _restore_setting(
+        config.udid, "system", "screen_off_timeout",
+        original.get("screen_off_timeout"),
+    )
+    _restore_setting(
+        config.udid, "global", "stay_on_while_plugged_in",
+        original.get("stay_on_while_plugged_in"),
+    )
+    print("[screen] restored original timeout and stay-awake setting")
 
 
 def media_volume_state(config):
@@ -1302,6 +1344,43 @@ def run_ipv6_refresh_round(config):
     return [result_folder]
 
 
+def _run_e2e_round(config, capture_name, validators):
+    """Always finalize E2E verdicts, including an interrupted capture."""
+    folder = None
+    try:
+        folder = collect_evidence(
+            config,
+            ("bid",),
+            lambda setup: capture(
+                config,
+                capture_name=capture_name,
+                setup=setup,
+                settle_delay=2,
+                strategy="e2e",
+            ),
+        )
+    except Exception as exc:
+        folder = getattr(exc, "evidence_folder", None)
+        if folder is not None and (Path(folder) / "summary.json").is_file():
+            rows = []
+            for validator in validators:
+                rows.extend(validator(folder))
+            (Path(folder) / "verdicts.json").write_text(
+                json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+            )
+        error = exc if isinstance(exc, CaptureError) else CaptureError(str(exc))
+        error.evidence_folder = folder
+        raise error from exc
+
+    rows = []
+    for validator in validators:
+        rows.extend(validator(folder))
+    (Path(folder) / "verdicts.json").write_text(
+        json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+    )
+    return [folder]
+
+
 def run_round(config, plan):
     name = plan.round_name
     if name == "R4":
@@ -1312,29 +1391,17 @@ def run_round(config, plan):
     if name == "E2E-STANDALONE":
         if config.test_mode != "standalone":
             raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
-        folder = collect_evidence(
-            config,
-            ("bid",),
-            lambda setup: capture(config, capture_name="E2E-STANDALONE", setup=setup, settle_delay=2, strategy="e2e"),
+        return _run_e2e_round(
+            config, "E2E-STANDALONE", (validate_baseline_e2e,),
         )
-        rows = validate_baseline_e2e(folder)
-        (folder / "verdicts.json").write_text(
-            json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
-        )
-        return [folder]
     if name == "E2E-ADMOB":
         if config.test_mode != "admob-mediation":
             raise CaptureError("E2E-ADMOB requires TEST_MODE=admob-mediation")
-        folder = collect_evidence(
+        return _run_e2e_round(
             config,
-            ("bid",),
-            lambda setup: capture(config, capture_name="E2E-ADMOB", setup=setup, settle_delay=2, strategy="e2e"),
+            "E2E-ADMOB",
+            (validate_baseline_e2e, validate_admob_extensions),
         )
-        rows = validate_baseline_e2e(folder) + validate_admob_extensions(folder)
-        (folder / "verdicts.json").write_text(
-            json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
-        )
-        return [folder]
     if name == "R5":
         folders = []
         round_errors = []
@@ -1772,6 +1839,7 @@ def main(argv=None):
     print_execution_plan(plan, config)
     sys.stdout.flush()
     if any(scenario.decision == "RUN" for scenario in plan.scenarios):
+        require_device_unlocked(config)
         ensure_proxy_capture_ready(config)
 
     if args.command == "round" and all(scenario.decision == "SKIP" for scenario in plan.scenarios):
