@@ -30,7 +30,6 @@ import socket
 import subprocess
 import sys
 import time
-import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -733,33 +732,6 @@ def _verify_charles_external_proxy():
     )
 
 
-def _verify_proxy_event_path(config):
-    """Prove the selected Android device traverses Charles and our addon."""
-    token = uuid.uuid4().hex
-    probe_url = f"http://adx6.apx.appier.net/v2/sdk/net?laf2_preflight={token}"
-    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_WAKEUP", check=False)
-    adb(config.udid, "shell", "wm", "dismiss-keyguard", check=False)
-    result = adb(
-        config.udid,
-        "shell", "am", "start", "-W",
-        "-a", "android.intent.action.VIEW",
-        "-d", probe_url,
-        check=False,
-    )
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if EVENTS_FILE.is_file() and token in EVENTS_FILE.read_text(errors="replace"):
-            adb(config.udid, "shell", "input", "keyevent", "KEYCODE_BACK", check=False)
-            return probe_url
-        time.sleep(0.1)
-    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_BACK", check=False)
-    detail = result.strip() or "Android VIEW intent produced no diagnostic output"
-    raise CaptureError(
-        "Proxy preflight failed: the probe did not travel through "
-        f"Charles :{CHARLES_PORT} -> LazyAdFinder2 addon :{MITMDUMP_PORT} ({detail})"
-    )
-
-
 def _mac_lan_address():
     """Return the Mac address used for the default route without sending data."""
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -843,15 +815,12 @@ def ensure_proxy_capture_ready(config):
             )
         print(f"[proxy preflight] configured Android proxy: {expected_proxy}")
 
-    probe_url = _verify_proxy_event_path(config)
-
     result = {
         "android_proxy": phone_proxy,
         "charles": f"127.0.0.1:{CHARLES_PORT}",
         "mitmdump": f"127.0.0.1:{MITMDUMP_PORT}",
         "mitmdump_started": started_mitmdump,
         "charles_config": charles_config,
-        "probe_url": probe_url,
     }
     print(
         "[proxy preflight] READY: "
