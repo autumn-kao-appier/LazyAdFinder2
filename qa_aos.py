@@ -222,6 +222,55 @@ def restore_orientation(config, state):
     print("[orientation] restored original rotation settings")
 
 
+def keep_screen_awake(config):
+    """Prevent long unattended Rounds from losing Settings behind screen-off."""
+    original = adb(
+        config.udid, "shell", "settings", "get", "system", "screen_off_timeout",
+        check=False,
+    ).strip()
+    adb(config.udid, "shell", "input", "keyevent", "KEYCODE_WAKEUP", check=False)
+    adb(config.udid, "shell", "wm", "dismiss-keyguard", check=False)
+    adb(config.udid, "shell", "settings", "put", "system", "screen_off_timeout", "1800000")
+    time.sleep(2)
+    print("[screen] awake; timeout temporarily set to 30 minutes")
+    return original
+
+
+def restore_screen_timeout(config, original):
+    _restore_setting(config.udid, "system", "screen_off_timeout", original)
+    print("[screen] restored original timeout")
+
+
+def media_volume_state(config):
+    raw = adb(
+        config.udid, "shell", "cmd", "media_session", "volume",
+        "--stream", "3", "--get",
+    )
+    match = re.search(r"volume is (\d+) in range \[0\.\.(\d+)\]", raw)
+    if not match:
+        raise CaptureError(f"cannot read Android media volume current/max: {raw!r}")
+    return tuple(map(int, match.groups()))
+
+
+def set_media_volume(config, target):
+    """Use real volume key events; Pixel ignores media_session --set."""
+    current, maximum = media_volume_state(config)
+    target = max(0, min(int(target), maximum))
+    for _ in range(30):
+        if current == target or (target == maximum and current >= maximum):
+            return current, maximum
+        key = "KEYCODE_VOLUME_UP" if current < target else "KEYCODE_VOLUME_DOWN"
+        adb(config.udid, "shell", "input", "keyevent", key)
+        time.sleep(0.15)
+        updated, maximum = media_volume_state(config)
+        if updated == current:
+            continue
+        current = updated
+    if current != target:
+        raise CaptureError(f"media volume did not reach {target}; current={current}, max={maximum}")
+    return current, maximum
+
+
 def detect_udid(requested=""):
     if requested:
         state = adb(requested, "get-state", check=False)
@@ -1108,6 +1157,12 @@ def run_round(config, plan):
         def run_scenario(label, keys, mutate, restore):
             testcases = [TC_DEFINITIONS[key] for key in keys]
             required = tuple(evidence for testcase in testcases for evidence in testcase.evidence)
+            if label == "ALTERNATE-DEVICE-STATE":
+                # Pixel's Battery usage Activity may stay blank after the
+                # Display/Quick Settings capture. All providers observe the
+                # same already-mutated state, so capture Battery first.
+                priority = {"battery-status": 0, "display-status": 1, "volume-status": 2, "bid": 3}
+                required = tuple(sorted(required, key=lambda item: priority.get(item, 10)))
             scenario = scenario_plans[label]
             if scenario.decision == "SKIP":
                 folders.append(record_skip(config, "R5", label, scenario.reason, scenario.checks))
@@ -1168,15 +1223,11 @@ def run_round(config, plan):
                 "brightness": adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip(),
                 "low_power": adb(config.udid, "shell", "settings", "get", "global", "low_power").strip(),
             })
-            volume = adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
-            match = re.search(r"volume is (\d+)", volume)
-            if not match:
-                raise CaptureError(f"cannot read original media volume: {volume!r}")
-            original["volume"] = match.group(1)
+            original["volume"] = str(media_volume_state(config)[0])
             adb(config.udid, "shell", "cmd", "uimode", "night", "yes")
             adb(config.udid, "shell", "settings", "put", "system", "font_scale", "1.5")
             adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "0")
-            adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", "0")
+            set_media_volume(config, 0)
             adb(config.udid, "shell", "dumpsys", "battery", "unplug")
             original["battery_simulated"] = True
             adb(config.udid, "shell", "settings", "put", "global", "low_power", "1")
@@ -1192,7 +1243,10 @@ def run_round(config, plan):
             if "brightness" in original:
                 adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", original["brightness"], check=False)
             if "volume" in original:
-                adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", original["volume"], check=False)
+                try:
+                    set_media_volume(config, int(original["volume"]))
+                except Exception as exc:
+                    print(f"[R5 Alternate] volume restore failed: {exc}", file=sys.stderr)
             if original.get("battery_simulated"):
                 adb(config.udid, "shell", "dumpsys", "battery", "reset", check=False)
             if "low_power" in original:
@@ -1202,21 +1256,19 @@ def run_round(config, plan):
         high_original = {}
         def display_audio_high_mutate():
             high_original["brightness"] = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
-            volume = adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--get")
-            current = re.search(r"volume is (\d+)", volume)
-            audio = adb(config.udid, "shell", "dumpsys", "audio")
-            maximum = re.search(r"- STREAM_MUSIC:.*?Max:\s*(\d+)", audio, re.DOTALL)
-            if not current or not maximum:
-                raise CaptureError("cannot read Android media volume current/max")
-            high_original["volume"] = current.group(1)
+            current, maximum = media_volume_state(config)
+            high_original["volume"] = str(current)
             adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "255")
-            adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", maximum.group(1))
+            set_media_volume(config, maximum)
 
         def display_audio_high_restore():
             if "brightness" in high_original:
                 adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", high_original["brightness"], check=False)
             if "volume" in high_original:
-                adb(config.udid, "shell", "cmd", "media_session", "volume", "--stream", "3", "--set", high_original["volume"], check=False)
+                try:
+                    set_media_volume(config, int(high_original["volume"]))
+                except Exception as exc:
+                    print(f"[R5 Display/Audio High] volume restore failed: {exc}", file=sys.stderr)
             print("[R5 Display/Audio High] restored original brightness and volume")
 
         timezone_original = {}
@@ -1464,8 +1516,10 @@ def main(argv=None):
         publish_completed_round(config.evidence_dir, folders)
         return 0
 
-    orientation_state = lock_portrait(config)
+    screen_timeout = keep_screen_awake(config)
+    orientation_state = None
     try:
+        orientation_state = lock_portrait(config)
         if args.command == "capture":
             capture(config, capture_name=args.capture_name)
         else:
@@ -1482,6 +1536,7 @@ def main(argv=None):
                 publish_completed_round(config.evidence_dir, folders)
     finally:
         restore_orientation(config, orientation_state)
+        restore_screen_timeout(config, screen_timeout)
     return 0
 
 

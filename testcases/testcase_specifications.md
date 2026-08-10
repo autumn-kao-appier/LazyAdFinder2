@@ -8,7 +8,9 @@ R5 保留 R1 Happy Path，追加兩個 Scenario。Privacy 不與其他裝置狀�
   `device.lat` 必須為 integer `1`。
 - `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、font scale 1.5、brightness raw 0、
   Media volume 0、Battery Saver ON，各自以 Android 原生頁／OS 狀態對照 payload。
-- `DISPLAY-AUDIO-HIGH`：brightness raw 255 與 Media volume current=max，共用一包驗證正規化上界 1。
+- `DISPLAY-AUDIO-HIGH`：Android Display 亮度 100% 與 Media volume current=max。亮度須保存當下
+  UI 百分比、display-service float 與同步後 raw；payload 驗證 raw ÷ 255，不假設不同裝置的
+  UI 100% 必然對應 raw 255。
 - `TIMEZONE-CHANGED`：切換 `America/New_York`，依抓包當日 DST 動態計算 offset，完成後還原。
 - `LOCATION-PERMISSION-DENIED`：同時收回 precise/approximate location；Android Permissions 頁須顯示
   Location 為 Not allowed，req/ext 均不得包含 `geo_lat` 或 `geo_lon`，即使值是 0/null 也 FAILED。

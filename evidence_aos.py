@@ -34,7 +34,6 @@ VOLUME_STATUS = "volume-status"
 TIMEZONE_STATUS = "timezone-status"
 LOCATION_PERMISSION_STATUS = "location-permission-status"
 SDK_BUILD_INFO = "sdk-build-info"
-ADS_SETTINGS_ACTION = "com.google.android.gms.settings.ADS_PRIVACY"
 SETTINGS_COMPONENT = "com.android.settings/.Settings"
 INSTALLED_APPS_SETTINGS_ACTION = "android.settings.MANAGE_APPLICATIONS_SETTINGS"
 SETUP_SCREENSHOT = Path("/tmp/laf2_ads_settings.png")
@@ -91,9 +90,18 @@ class EvidenceProvider:
     after_bid: object = None
 
 
-def _adb(udid, *args, binary=False, check=True):
+def _adb(udid, *args, binary=False, check=True, timeout=None):
     command = ["adb", "-s", udid, *args]
-    result = subprocess.run(command, capture_output=True, text=not binary)
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=not binary, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        if check:
+            raise EvidenceCaptureError(
+                f"{' '.join(command)} timed out after {timeout} seconds"
+            ) from error
+        return b"" if binary else ""
     if check and result.returncode:
         stderr = result.stderr if isinstance(result.stderr, str) else result.stderr.decode(errors="replace")
         raise EvidenceCaptureError(f"{' '.join(command)} failed: {stderr.strip()}")
@@ -105,6 +113,14 @@ def _bounds_center(value):
     if len(values) != 4:
         raise EvidenceCaptureError(f"invalid UI bounds: {value!r}")
     return (values[0] + values[2]) // 2, (values[1] + values[3]) // 2
+
+
+def _wake_and_unlock(udid):
+    """Make Settings Evidence visible after long unattended capture phases."""
+    _adb(udid, "shell", "input", "keyevent", "KEYCODE_WAKEUP", check=False)
+    _adb(udid, "shell", "wm", "dismiss-keyguard", check=False)
+    _adb(udid, "shell", "cmd", "statusbar", "collapse", check=False)
+    time.sleep(1.5)
 
 
 def _visible_ads_state(udid):
@@ -159,66 +175,74 @@ def _visible_ads_state(udid):
     }
 
 
-def _open_ads_settings_via_search(udid):
-    """Navigate via Settings search: Ads → Privacy controls → Ads."""
-    _adb(udid, "shell", "am", "force-stop", "com.android.settings")
-    _adb(udid, "shell", "am", "start", "-n", SETTINGS_COMPONENT)
-    time.sleep(1.5)
-    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_home.xml")
-    home = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_home.xml", binary=True))
-    search = next((node for node in home.iter("node") if node.attrib.get("text") == "Search Settings"), None)
-    if search is None:
-        raise EvidenceCaptureError("Settings home does not expose Search Settings")
-    x, y = _bounds_center(search.attrib.get("bounds"))
-    _adb(udid, "shell", "input", "tap", str(x), str(y))
-    time.sleep(0.5)
-    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_search.xml")
-    search_page = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_search.xml", binary=True))
-    edit = next((node for node in search_page.iter("node") if node.attrib.get("class") == "android.widget.EditText"), None)
-    if edit is None:
-        raise EvidenceCaptureError("Settings search input is unavailable")
-    x, y = _bounds_center(edit.attrib.get("bounds"))
-    _adb(udid, "shell", "input", "tap", str(x), str(y))
-    _adb(udid, "shell", "input", "text", "Ads")
-    breadcrumb = None
-    results = None
-    for _ in range(6):
-        time.sleep(0.5)
-        _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_settings_search_results.xml")
-        results = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_settings_search_results.xml", binary=True))
-        breadcrumb = next(
-            (node for node in results.iter("node") if "Privacy controls" in node.attrib.get("text", "")),
+def _dump_ui(udid, remote_path, attempts=5):
+    for _ in range(attempts):
+        _adb(udid, "shell", "rm", "-f", remote_path, check=False, timeout=5)
+        _adb(
+            udid, "shell", "uiautomator", "dump", remote_path,
+            check=False, timeout=10,
+        )
+        document = _adb(
+            udid, "exec-out", "cat", remote_path,
+            binary=True, check=False, timeout=5,
+        )
+        try:
+            return ET.fromstring(document)
+        except (ET.ParseError, TypeError):
+            time.sleep(0.5)
+    raise EvidenceCaptureError(f"unable to read Android UI hierarchy: {remote_path}")
+
+
+def _tap_visible_text_row(udid, text, remote_path, scrolls=0):
+    """Tap a named preference through its clickable parent, never fixed coordinates."""
+    for attempt in range(scrolls + 1):
+        root = _dump_ui(udid, remote_path)
+        node = next(
+            (item for item in root.iter("node") if item.attrib.get("text") == text),
             None,
         )
-        if breadcrumb is not None:
-            break
-    if breadcrumb is None:
-        raise EvidenceCaptureError("Settings search for Ads did not return the Privacy controls result")
-    parents = {child: parent for parent in results.iter("node") for child in parent}
-    result_row = breadcrumb
-    while result_row is not None and result_row.attrib.get("clickable") != "true":
-        result_row = parents.get(result_row)
-    if result_row is None:
-        raise EvidenceCaptureError("Privacy controls search result is not clickable")
-    x, y = _bounds_center(result_row.attrib.get("bounds"))
-    _adb(udid, "shell", "input", "tap", str(x), str(y))
-    time.sleep(1.5)
-    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_privacy_controls.xml")
-    controls = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_privacy_controls.xml", binary=True))
-    ads = next((node for node in controls.iter("node") if node.attrib.get("text") == "Ads"), None)
-    if ads is None:
-        raise EvidenceCaptureError("Privacy controls does not expose the visible Ads preference")
-    x, y = _bounds_center(ads.attrib.get("bounds"))
-    _adb(udid, "shell", "input", "tap", str(x), str(y))
-    time.sleep(1.5)
-    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_ads_settings.xml")
-    opened = ET.fromstring(_adb(udid, "exec-out", "cat", "/sdcard/laf2_ads_settings.xml", binary=True))
+        if node is not None:
+            parents = {child: parent for parent in root.iter("node") for child in parent}
+            row = node
+            while row is not None and row.attrib.get("clickable") != "true":
+                row = parents.get(row)
+            if row is None:
+                raise EvidenceCaptureError(f"Android Settings row is not clickable: {text}")
+            x, y = _bounds_center(row.attrib.get("bounds"))
+            _adb(udid, "shell", "input", "tap", str(x), str(y))
+            time.sleep(1.2)
+            return
+        if attempt < scrolls:
+            _adb(udid, "shell", "input", "swipe", "540", "2050", "540", "450", "600")
+            time.sleep(0.6)
+    raise EvidenceCaptureError(f"Android Settings does not expose: {text}")
+
+
+def _open_ads_settings(udid):
+    """Open Settings → Security and privacy → Privacy controls → Ads."""
+    _wake_and_unlock(udid)
+    _adb(udid, "shell", "am", "force-stop", "com.android.settings", check=False)
+    _adb(udid, "shell", "am", "start", "-W", "-n", SETTINGS_COMPONENT)
+    time.sleep(1.0)
+    _tap_visible_text_row(
+        udid, "Security and privacy", "/sdcard/laf2_settings_home.xml", scrolls=4,
+    )
+    _tap_visible_text_row(
+        udid, "Privacy controls", "/sdcard/laf2_security_privacy.xml", scrolls=5,
+    )
+    _tap_visible_text_row(
+        udid, "Ads", "/sdcard/laf2_privacy_controls.xml", scrolls=1,
+    )
+
+    opened = _dump_ui(udid, "/sdcard/laf2_ads_settings.xml")
     actions = {node.attrib.get("text") for node in opened.iter("node")}
     has_ads_control = bool(
         {"Delete advertising ID", "Renew advertising ID", "Reset advertising ID", "Get new advertising ID"} & actions
-    ) or "Opt out of Ads Personalization" in actions
+    )
     if not has_ads_control:
-        raise EvidenceCaptureError("Privacy controls → Ads did not open the Advertising ID page")
+        raise EvidenceCaptureError(
+            "Settings → Security and privacy → Privacy controls → Ads did not open the Advertising ID page"
+        )
 
 
 def _position_visible_opt_out(udid):
@@ -233,7 +257,7 @@ def _position_visible_opt_out(udid):
         (node for node in root.iter("node") if node.attrib.get("text") == "Opt out of Ads Personalization"),
         None,
     )
-    if title is None or switch_center is None:
+    if title is None or state.get("switch_center") is None:
         return state
     bounds = [int(part) for part in re.findall(r"\d+", title.attrib.get("bounds", ""))]
     if len(bounds) != 4 or bounds[1] < 250 or bounds[3] > 2250:
@@ -248,7 +272,13 @@ def _tap_ads_action(udid, label):
     matches = [node for node in root.iter("node") if node.attrib.get("text") == label]
     if not matches:
         raise EvidenceCaptureError(f"Advertising ID page does not expose {label!r}")
-    x, y = _bounds_center(matches[0].attrib.get("bounds"))
+    parents = {child: parent for parent in root.iter("node") for child in parent}
+    target = matches[0]
+    while target is not None and target.attrib.get("clickable") != "true":
+        target = parents.get(target)
+    if target is None:
+        raise EvidenceCaptureError(f"Advertising ID action {label!r} has no clickable row")
+    x, y = _bounds_center(target.attrib.get("bounds"))
     _adb(udid, "shell", "input", "tap", str(x), str(y))
     time.sleep(0.7)
 
@@ -285,9 +315,9 @@ def capture_ads_settings(config):
             path.unlink()
         except FileNotFoundError:
             pass
-    _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
+    _wake_and_unlock(config.udid)
     _adb(config.udid, "shell", "input", "keyevent", "4", check=False)
-    _open_ads_settings_via_search(config.udid)
+    _open_ads_settings(config.udid)
     time.sleep(2)
     state = _position_visible_opt_out(config.udid)
     if state["get_new_visible"]:
@@ -343,9 +373,9 @@ def capture_tracking_denied(config):
     """Deny tracking through Delete ID (modern UI) or Opt out (legacy UI)."""
     for path in (SETUP_TRACKING_DENIED_SCREENSHOT, SETUP_TRACKING_DENIED_STATE):
         path.unlink(missing_ok=True)
-    _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
+    _wake_and_unlock(config.udid)
     _adb(config.udid, "shell", "input", "keyevent", "4", check=False)
-    _open_ads_settings_via_search(config.udid)
+    _open_ads_settings(config.udid)
     time.sleep(2)
     state = _position_visible_opt_out(config.udid)
     if state["ui_model"] == "delete-renew" and state["delete_visible"]:
@@ -667,20 +697,40 @@ def _parse_data_filesystem(raw):
 
 def _open_settings_screenshot(udid, component, target, expected_text, *, action=False):
     target.unlink(missing_ok=True)
-    if action:
-        result = _adb(udid, "shell", "am", "start", "-W", "-a", component, check=False)
-    else:
-        escaped_component = component.replace("$", r"\$")
-        result = _adb(udid, "shell", "am", "start", "-W", "-n", escaped_component, check=False)
-    if "Error" in result or "Exception" in result:
-        return ""
-    time.sleep(1.5)
-    _adb(udid, "shell", "uiautomator", "dump", "/sdcard/laf2_resource_settings.xml")
-    hierarchy = _adb(udid, "exec-out", "cat", "/sdcard/laf2_resource_settings.xml", binary=True)
-    visible_text = hierarchy.decode(errors="replace")
+    _wake_and_unlock(udid)
+    visible_text = ""
+    for _launch_attempt in range(2):
+        # The first Settings intent after wake can be swallowed by the unlock
+        # transition. A fresh task plus one relaunch makes this deterministic.
+        _adb(udid, "shell", "am", "force-stop", "com.android.settings", check=False)
+        if action:
+            result = _adb(udid, "shell", "am", "start", "-W", "-a", component, check=False)
+        else:
+            escaped_component = component.replace("$", r"\$")
+            result = _adb(udid, "shell", "am", "start", "-W", "-n", escaped_component, check=False)
+        if "Error" in result or "Exception" in result:
+            continue
+        for _ in range(8):
+            time.sleep(0.5)
+            try:
+                hierarchy = _dump_ui(
+                    udid, "/sdcard/laf2_resource_settings.xml", attempts=1,
+                )
+            except EvidenceCaptureError:
+                continue
+            visible_text = ET.tostring(hierarchy, encoding="unicode")
+            if expected_text in visible_text:
+                break
+        if expected_text in visible_text:
+            break
     if expected_text not in visible_text:
         return ""
-    target.write_bytes(_adb(udid, "exec-out", "screencap", "-p", binary=True))
+    target.write_bytes(
+        _adb(
+            udid, "exec-out", "screencap", "-p",
+            binary=True, timeout=10,
+        )
+    )
     return visible_text if target.exists() and target.stat().st_size > 1000 else ""
 
 
@@ -877,8 +927,8 @@ def capture_battery_status(config):
         config.udid, "android.settings.BATTERY_SAVER_SETTINGS",
         SETUP_BATTERY_SAVER_SCREENSHOT, "Battery Saver", action=True,
     )
-    if not battery_text or not saver_text:
-        raise EvidenceCaptureError("native Battery or Battery Saver page is unavailable")
+    if not saver_text:
+        raise EvidenceCaptureError("native Battery Saver page is unavailable")
     raw = _adb(config.udid, "shell", "dumpsys", "battery")
     values = _key_value_lines(raw)
     powered = any(values.get(name) == "true" for name in ("AC powered", "USB powered", "Wireless powered", "Dock powered"))
@@ -894,7 +944,8 @@ def materialize_battery_status(folder):
     device_ext = device.get("ext", {}) if isinstance(device, dict) else {}
     info["actual"] = {"batterylevel": device.get("batterylevel"), "charging": device.get("charging"), "battery_saver": device_ext.get("battery_saver") if isinstance(device_ext, dict) else None}
     (folder / "battery-status.json").write_text(json.dumps(info, indent=2) + "\n")
-    shutil.copy2(SETUP_BATTERY_SCREENSHOT, folder / "battery-settings.png")
+    if SETUP_BATTERY_SCREENSHOT.exists():
+        shutil.copy2(SETUP_BATTERY_SCREENSHOT, folder / "battery-settings.png")
     shutil.copy2(SETUP_BATTERY_SAVER_SCREENSHOT, folder / "battery-saver-settings.png")
 
 
@@ -908,14 +959,18 @@ def _wm_value(raw, label):
 
 
 def capture_display_status(config):
-    visible = _open_settings_screenshot(config.udid, "com.android.settings/.Settings$DisplaySettingsActivity", SETUP_DISPLAY_SCREENSHOT, "Display")
+    visible = _open_settings_screenshot(
+        config.udid, "android.settings.DISPLAY_SETTINGS",
+        SETUP_DISPLAY_SCREENSHOT, "Brightness", action=True,
+    )
     if not visible:
         raise EvidenceCaptureError("native Display page is unavailable")
     font_scale_visible = _open_settings_screenshot(
         config.udid,
-        "com.android.settings/.Settings$TextReadingSettingsActivity",
+        "android.settings.TEXT_READING_SETTINGS",
         SETUP_FONT_SCALE_SCREENSHOT,
         "Font size",
+        action=True,
     )
     if not font_scale_visible:
         raise EvidenceCaptureError("native Display size & text page is unavailable")
@@ -1171,6 +1226,8 @@ def _tap_visible_text(udid, text):
 
 def capture_location_permission_status(config):
     SETUP_LOCATION_PERMISSION_SCREENSHOT.unlink(missing_ok=True)
+    _wake_and_unlock(config.udid)
+    _adb(config.udid, "shell", "am", "force-stop", "com.android.settings", check=False)
     _adb(
         config.udid, "shell", "am", "start", "-W", "-a",
         "android.settings.APPLICATION_DETAILS_SETTINGS", "-d", f"package:{config.app_package}",

@@ -681,8 +681,8 @@ def validate_screen_brightness_minimum(folder):
 def validate_screen_brightness_maximum(folder):
     row = _validate_display_value(folder, "screen-brightness-maximum", "Screen Brightness — Maximum", "screen_brightness", "screen_bright", 1 / 255 + 1e-8)
     info = _status_info(folder, "display-status.json")
-    if info.get("brightness_raw") != 255:
-        row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce Android brightness raw 255"
+    if info.get("brightness_ui_percent") != "100%":
+        row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce Android Display brightness 100%"
     row["evidence"] = "screen-brightness-evidence.png"
     return row
 
