@@ -101,6 +101,8 @@ def finalize_bundle(
         "test_type": config.test_type,
         "test_cid": config.test_cid,
         "test_round": config.test_round,
+        "test_run_id": getattr(config, "test_run_id", ""),
+        "test_run_started_at": getattr(config, "test_run_started_at", ""),
         "capture_name": folder.name.rsplit("_", 2)[0],
         "started_at": started_at,
         "finished_at": finished_at,

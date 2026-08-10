@@ -8,7 +8,8 @@ R5 保留 R1 Happy Path，追加兩個 Scenario。Privacy 不與其他裝置狀�
   路徑；現代 UI 執行 Delete advertising ID，舊版 UI 開啟 Opt out。動作後重新走同一路徑確認
   Renew/Get new 或 Opt out ON 的停用狀態；驗證 `device.ia` 不可為可用 GAID，且 req/ext
   `device.lat` 必須為 integer `1`。
-- `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、font scale 1.5、brightness raw 0、
+- `ALTERNATE-DEVICE-STATE`：同一包設定 Dark Mode ON、font scale 1.5、最低有效 brightness raw 1
+  （`1 ÷ 255 = 0.0039215686`）、
   Media volume 0、Battery Saver ON，各自以 Android 原生頁／OS 狀態對照 payload。
 - `DISPLAY-AUDIO-HIGH`：Android Display 亮度 100% 與 Media volume current=max。亮度須保存當下
   UI 百分比、display-service float 與同步後 raw；payload 驗證 raw ÷ 255，不假設不同裝置的
@@ -206,8 +207,8 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   `ro.product.model`；About phone 是人眼 Evidence。
 - `default-timezone` / `device.utcoffset`：req/ext 均須等於 capture 當下 `date +%z` 轉換的
   UTC offset 分鐘數。答案隨系統時區改變，不固定為 480。
-- `default-language-iso` / `device.lang`：ext 值須等於 system locale 的 ISO-639-1 語言部分。
-- `default-language-bcp47` / `device.langb`：req/ext 均須等於 system locale 正規化後的 BCP 47
+- `default-language-iso` / `device.lang` / System Language Code：只驗 Settings 第一順位語言的 ISO-639-1 語言部分；例如 English (Japan) → `en`。
+- `default-language-bcp47` / `device.langb` / System Language and Region Tag：驗 Settings 第一順位語言＋地區的完整 BCP 47；例如 English (Japan) → `en-JP`，req/ext 均須完全相同。
   tag，例如 `en-JP`；答案不得由 payload 反推或固定寫死。
 
 共用 `device-context` capture 會保留 Sound、About phone、Date & time、Languages 四個原生頁面，

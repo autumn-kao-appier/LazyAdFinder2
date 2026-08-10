@@ -104,9 +104,21 @@ def current_verdicts(verdicts, catalog, captures=()):
     report must not turn those runs, or retired legacy IDs, into extra TC cards.
     """
     registered = {str(row["key"]) for row in catalog}
+    explicit_runs = {}
+    for row in verdicts:
+        if not row.get("test_run_id"):
+            continue
+        slot = (row["platform"], row["mode_group"], row["test_type"])
+        current = explicit_runs.get(slot)
+        if current is None or row["captured_at"] >= current[0]:
+            explicit_runs[slot] = (row["captured_at"], row["run_group"])
     latest = {}
     for row in verdicts:
         if row["tc"] not in registered:
+            continue
+        slot = (row["platform"], row["mode_group"], row["test_type"])
+        selected = explicit_runs.get(slot)
+        if selected is not None and row.get("run_group") != selected[1]:
             continue
         key = (row["platform"], row["mode_group"], row["test_type"], row["tc"])
         previous = latest.get(key)
@@ -123,6 +135,11 @@ def current_verdicts(verdicts, catalog, captures=()):
         mode = _mode_group(summary.get("test_mode", ""))
         platform = str(summary.get("platform", "")).strip().lower()
         test_type = str(summary.get("test_type", "")).strip().lower()
+        slot = (platform, mode, test_type)
+        selected = explicit_runs.get(slot)
+        summary_run_group = str(summary.get("test_run_id", "")).strip() or str(Path(folder).parent.resolve())
+        if selected is not None and summary_run_group != selected[1]:
+            continue
         captured_at = str(summary.get("finished_at") or summary.get("started_at", ""))
         for tc in summary.get("skipped_testcases", []):
             key = (platform, mode, test_type, str(tc))
@@ -208,6 +225,9 @@ def _verdict_rows(document, path):
             "automation_started_at": str(metadata.get("automation_started_at", "")),
             "automation_finished_at": str(metadata.get("automation_finished_at", "")),
             "run_root": str(path.parent.parent.resolve()),
+            "test_run_id": str(metadata.get("test_run_id", "")).strip(),
+            "test_run_started_at": str(metadata.get("test_run_started_at", "")).strip(),
+            "run_group": str(metadata.get("test_run_id", "")).strip() or str(path.parent.parent.resolve()),
             "capture_name": str(metadata.get("capture_name", "")),
             "test_round": str(config.get("test_round", "")),
             "test_cid": str(config.get("test_cid", "")),
@@ -281,7 +301,7 @@ TC_TITLES_ZH = {
     "gyroscope": "陀螺儀", "accelerometer": "加速度計", "tracking-allowed": "允許廣告追蹤",
     "sdk-version": "SDK 版本", "output-volume": "輸出音量", "device-make": "裝置品牌",
     "device-model": "裝置型號", "default-timezone": "預設時區",
-    "default-language-iso": "預設語言（ISO-639-1）", "default-language-bcp47": "預設語言（BCP 47）",
+    "default-language-iso": "系統語言代碼", "default-language-bcp47": "系統語言與地區標籤",
     "keyboard-languages": "已安裝的鍵盤語言", "root-status": "Root 狀態",
     "emulator-detection": "模擬器偵測", "ipv6-address": "IPv6 位址", "connection-type": "連線類型",
     "ipv6-refresh-launch": "App 啟動時取得 IPv6",
@@ -397,6 +417,13 @@ DYNAMIC_ZH = {
     "Round limitation: the SDK latency probe endpoint timing is not captured independently yet": "本輪限制：尚未獨立擷取 SDK latency probe endpoint 的計時證據。",
     "Sample App limitation: setForceGDPRApplies(true) is not exposed or invoked": "Sample App 限制：目前沒有提供或呼叫 setForceGDPRApplies(true)。",
     "req_langb, langb do not match Android locale tag": "req.langb 與 ext.langb 未符合 Android 系統地區語言標籤。",
+    "req_langb, langb do not match the primary Android system language tag": "req.langb 與 ext.langb 不符合 Android 設定頁的第一順位系統語言標籤。",
+    "Visible primary Android language": "Android 設定頁的第一順位語言",
+    "Visible system language code": "設定頁顯示的系統語言代碼",
+    "Visible system language and region": "設定頁顯示的系統語言與地區",
+    "The extended ISO-639-1 code must equal the language component of the primary language shown in Android Settings.": "Extended 的 ISO-639-1 代碼必須等於 Android 設定頁第一順位語言的語言部分。",
+    "Request and extended BCP 47 tags must equal the primary language and region shown in Android Settings.": "Request 與 Extended 的 BCP 47 標籤必須等於 Android 設定頁顯示的第一順位語言與地區。",
+    "lang does not match the primary Android system language code": "device.lang 不符合 Android 設定頁第一順位的系統語言代碼。",
     "Platform definition: Android Ads SDK has no standalone Init endpoint; keep BLOCKED while deciding whether AOS needs an equivalent contract aligned with the iOS Init flow": "平台定義：Android Ads SDK 沒有獨立的 Standalone Init endpoint；此項維持 BLOCKED，等待確認是否需要建立與 iOS Init 流程對齊的 AOS 等效契約。",
     "Capture limitation: no preserved proxy transaction proves that POST /v2/sdk/aos/ad request and response belong to the same flow": "擷取限制：目前沒有保存可證明 POST /v2/sdk/aos/ad request 與 response 屬於同一個 flow 的 proxy transaction。",
     "Capture limitation: the proxy flow exists, but its request or response body was not preserved": "擷取限制：已取得 proxy flow，但沒有完整保存 request 或 response body。",
@@ -429,7 +456,7 @@ DYNAMIC_ZH = {
     "FAILED: the round ran, but the proxy evidence does not contain both show_cb and winshowimg responses.": "FAILED：本輪已執行，但 proxy Evidence 沒有同時包含 show_cb 與 winshowimg response。",
     "R3 termination: swiping the App from Recents did not stop its process": "R3 終止步驟：從最近使用的 App 畫面滑除 Sample App 後，App process 仍未停止。",
     "R5 PRIVACY-DENIED failed at Evidence capture: Delete advertising ID did not produce the expected Advertising ID state": "R5 PRIVACY-DENIED 在擷取 Evidence 時失敗：點擊 Delete advertising ID 後，實機沒有進入預期的 Advertising ID 已刪除狀態。",
-    "R5 mutation did not produce Android brightness raw 0": "R5 狀態切換沒有讓 Android 螢幕亮度原始值變成 0。",
+    "R5 mutation did not produce Android minimum brightness raw 1": "R5 狀態切換沒有讓 Android 螢幕亮度達到最低有效原始值 1。",
     "The captured pubsetting response succeeded and contains Appier mediation configuration.": "已成功擷取 pubsetting response，且內容包含 Appier mediation 設定。",
     "FAILED: pubsetting transport or raw response evidence does not prove the Appier mediation configuration.": "FAILED：pubsetting transport 或 raw response Evidence 無法證明 Appier mediation 設定。",
     "The captured GMA transaction succeeded and its response contains Appier routing evidence.": "GMA transaction 成功，response 內含 Appier routing Evidence。",
@@ -681,11 +708,15 @@ def _run_information(rows, latest=True):
     os_version = device.get("android_version") or device.get("os_version") or "—"
     sdk = device.get("sdk")
     os_text = f"Android {os_version}" + (f" · API {sdk}" if sdk else "")
-    run_rows = [item for item in rows if item.get("run_root") == row.get("run_root")]
+    run_rows = [item for item in rows if item.get("run_group") == row.get("run_group")]
     try:
+        suite_starts = [datetime.fromisoformat(item["test_run_started_at"]) for item in run_rows if item.get("test_run_started_at")]
         automation_starts = [datetime.fromisoformat(item["automation_started_at"]) for item in run_rows if item.get("automation_started_at")]
         automation_finishes = [datetime.fromisoformat(item["automation_finished_at"]) for item in run_rows if item.get("automation_finished_at")]
-        if automation_starts:
+        if suite_starts:
+            starts = suite_starts
+            finishes = automation_finishes or [datetime.fromisoformat(item["finished_at"]) for item in run_rows if item.get("finished_at")]
+        elif automation_starts:
             starts = automation_starts
             finishes = automation_finishes or [datetime.now().astimezone()]
         else:
@@ -698,7 +729,7 @@ def _run_information(rows, latest=True):
     values = (
         (_bi("Device", "裝置"), device_name),
         (_bi("System", "系統"), os_text),
-        (_bi("Round", "輪次"), row["test_round"] or "—"),
+        (_bi("Rounds", "輪次"), " · ".join(sorted({item["test_round"] for item in run_rows if item.get("test_round")}, key=_round_sort_value)) or "—"),
         (_bi("Mode", "模式"), row["test_mode"] or "—"),
         (_bi("Type", "類型"), row["test_type"] or "—"),
         ("CID", row["test_cid"] or "—"),
@@ -787,40 +818,47 @@ def _slot_detail(platform, mode, kind, label, rows, catalog_by_key):
 def _history_archive(verdicts, catalog_by_key):
     grouped = {}
     for row in verdicts:
-        run_root = str(row.get("run_root", "")).strip()
-        if not run_root:
+        run_group = str(row.get("run_group", "")).strip()
+        if not run_group:
             continue
-        current = grouped.setdefault(run_root, {})
+        current = grouped.setdefault(run_group, {})
         key = (row["platform"], row["mode_group"], row["test_type"], row["tc"])
         previous = current.get(key)
         if previous is None or row["captured_at"] >= previous["captured_at"]:
             current[key] = row
     reports = []
-    for run_root, indexed in grouped.items():
+    for run_group, indexed in grouped.items():
         rows = list(indexed.values())
         if not rows:
             continue
         representative = max(rows, key=lambda row: row["captured_at"])
-        run_id = hashlib.sha256(run_root.encode()).hexdigest()[:16]
+        run_id = hashlib.sha256(run_group.encode()).hexdigest()[:16]
         reports.append((representative["captured_at"], run_id, rows, representative))
     reports.sort(key=lambda item: item[0], reverse=True)
     options, sections = [], []
     for _captured_at, run_id, rows, representative in reports:
-        round_name = representative.get("test_round") or representative.get("capture_name") or "—"
+        round_names = sorted({row.get("test_round") for row in rows if row.get("test_round")}, key=_round_sort_value)
+        round_name = " · ".join(round_names) or representative.get("capture_name") or "—"
         platform = representative.get("platform", "").upper()
         mode = representative.get("mode_group", "")
         kind = representative.get("test_type", "")
         captured = representative.get("captured_at", "")
-        label_en = f"{round_name} · {platform} {mode} {kind} · {captured}"
-        label_zh = f"{round_name} · {platform} {mode} {kind} · {captured}"
+        executed = representative.get("test_run_started_at") or captured
+        label_en = f"{platform} {mode} {kind} · {executed}"
+        label_zh = f"{platform} {mode} {kind} · {executed}"
         options.append(
             f'<option value="{run_id}" data-en="{html.escape(label_en, quote=True)}" '
             f'data-zh="{html.escape(label_zh, quote=True)}">{html.escape(label_zh)}</option>'
         )
-        cards = "".join(
-            _result_card(row, catalog_by_key)
-            for row in sorted(rows, key=lambda row: (catalog_by_key.get(row["tc"], {}).get("order", float("inf")), row["tc"]))
-        )
+        round_sections = []
+        for name in round_names:
+            round_rows = [row for row in rows if row.get("test_round") == name]
+            cards = "".join(
+                _result_card(row, catalog_by_key)
+                for row in sorted(round_rows, key=lambda row: (catalog_by_key.get(row["tc"], {}).get("order", float("inf")), row["tc"]))
+            )
+            round_sections.append(f'<section class="result-round"><div class="result-round-head"><b>{html.escape(str(name))}</b><span>{len(round_rows)} TC</span></div><div class="result-grid">{cards}</div></section>')
+        cards = "".join(round_sections)
         sections.append(f'''<section class="history-run" data-history-run="{run_id}" hidden>
 {_run_information(rows, latest=False)}
 <div class="history-run-head"><div><span>{html.escape(platform)} / {html.escape(mode)} / {html.escape(kind)}</span><h2>{html.escape(str(round_name))}</h2></div><button type="button" data-history-delete="{run_id}">{_bi("Delete from archive", "從過去報告刪除")}</button></div>
@@ -975,7 +1013,7 @@ SCRIPT = r"""
   var select=card.querySelector("[data-manual-status]"),reason=card.querySelector("[data-manual-reason]"),indicator=card.querySelector(".manual-indicator"),saved=card.querySelector(".manual-saved");
   select.value=item?item.status:"";reason.value=item?item.reason:"";indicator.hidden=!item;saved.hidden=!item;
   var expectedInput=card.querySelector("[data-version-expected]");if(expectedInput)expectedInput.value=item&&item.expected_version?item.expected_version:"";
-  var versionSummary=card.querySelector(".manual-expected-comparison");if(versionSummary){var expectedValue=versionSummary.querySelector(".required-value b"),operator=versionSummary.querySelector(".comparison-operator");expectedValue.textContent=item&&item.expected_version?item.expected_version:"Enter in Evidence";operator.textContent=item&&item.expected_version?(item.status==="PASS"?"=":"≠"):"?"}
+  card.querySelectorAll(".manual-expected-comparison").forEach(function(versionSummary){var expectedValue=versionSummary.querySelector(".required-value b"),operator=versionSummary.querySelector(".comparison-operator");expectedValue.textContent=item&&item.expected_version?item.expected_version:"Enter in Evidence";operator.textContent=item&&item.expected_version?(item.status==="PASS"?"=":"≠"):"?"});
   if(item)saved.textContent=item.status+" — "+item.reason+"\nUpdated "+item.updated_at;
  }
  function refreshCounts(){
@@ -1010,7 +1048,7 @@ SCRIPT = r"""
  document.querySelectorAll(".back").forEach(function(b){b.onclick=function(){showOverview();scrollTo(0,0)}});
  document.querySelectorAll("[data-card-tab]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),target=button.dataset.cardTab;card.querySelectorAll("[data-card-tab]").forEach(function(item){item.classList.toggle("on",item===button)});card.querySelectorAll("[data-card-page]").forEach(function(page){page.hidden=page.dataset.cardPage!==target})}});
  document.querySelectorAll("[data-version-review-save]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),review=button.closest(".version-review"),expected=review.querySelector("[data-version-expected]").value.trim(),actual=review.dataset.versionActual;if(!expected){alert("請先輸入預期版號");return}var status=expected===actual?"PASS":"FAILED",reason=(expected===actual?"Expected version matches captured value":"Expected version does not match captured value")+" (expected "+expected+", actual "+(actual||"ABSENT")+")";overrides[card.dataset.overrideKey]={status:status,reason:reason,expected_version:expected,actual_version:actual,updated_at:new Date().toISOString(),automation_status:card.dataset.automationStatus.toUpperCase()};if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
- document.querySelectorAll("[data-manual-save]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),status=card.querySelector("[data-manual-status]").value,reason=card.querySelector("[data-manual-reason]").value.trim();if(!status){delete overrides[card.dataset.overrideKey];persistOverrides();applyManualOverride(card);refreshCounts();return}if(!reason){alert("Manual override 必須填寫理由");card.querySelector("[data-manual-reason]").focus();return}overrides[card.dataset.overrideKey]={status:status,reason:reason,updated_at:new Date().toISOString(),automation_status:card.dataset.automationStatus.toUpperCase()};if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
+ document.querySelectorAll("[data-manual-save]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card"),status=card.querySelector("[data-manual-status]").value,reason=card.querySelector("[data-manual-reason]").value.trim(),previous=overrides[card.dataset.overrideKey]||{};if(!status){delete overrides[card.dataset.overrideKey];persistOverrides();applyManualOverride(card);refreshCounts();return}if(!reason){alert("Manual override 必須填寫理由");card.querySelector("[data-manual-reason]").focus();return}overrides[card.dataset.overrideKey]={status:status,reason:reason,expected_version:previous.expected_version,actual_version:previous.actual_version,updated_at:new Date().toISOString(),automation_status:card.dataset.automationStatus.toUpperCase()};if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
  document.querySelectorAll("[data-manual-reset]").forEach(function(button){button.onclick=function(){var card=button.closest(".result-card");delete overrides[card.dataset.overrideKey];if(persistOverrides()){applyManualOverride(card);refreshCounts()}}});
  document.getElementById("export-overrides").onclick=function(){var payload={schema_version:1,exported_at:new Date().toISOString(),page:location.href,overrides:overrides},blob=new Blob([JSON.stringify(payload,null,2)+"\n"],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="lazyadfinder2-manual-overrides.json";a.click();setTimeout(function(){URL.revokeObjectURL(url)},1000)};
  document.querySelectorAll(".result-card:not(.unexecuted-card)").forEach(applyManualOverride);refreshCounts();
@@ -1041,12 +1079,12 @@ def render(verdicts, captures, verdict_files, evidence_dirs, catalog, history_ve
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
     roots = "、".join(html.escape(str(Path(root).expanduser())) for root in evidence_dirs)
     return f'''<!doctype html><html lang="zh-Hant" data-lang="zh" data-latest-slot="{html.escape(latest_slot, quote=True)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LazyAdFinder2</title><style>{CSS}</style></head><body>
-<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">{_bi("Latest Report", "最新報告")}</button><button data-page="history">{_bi("Past Reports", "過去報告")}</button><button data-page="catalog">{_bi("TestCase Catalog", "TestCase 目錄")}</button></nav><button class="export-overrides" id="export-overrides">{_bi("Export overrides", "匯出人工覆寫")}</button><button class="language" id="language">EN</button><button class="theme" id="theme">◐</button></header>
+<header class="top"><div class="brand">SDK QA Platform<small>LazyAdFinder2</small></div><nav class="main-nav"><button class="on" data-page="reports">{_bi("Latest Report", "最新報告")}</button><button data-page="history">{_bi("Past Reports", "過去報告")}</button><button data-page="catalog">{_bi("All TestCases", "總 TestCase 目錄")}</button></nav><button class="export-overrides" id="export-overrides">{_bi("Export overrides", "匯出人工覆寫")}</button><button class="language" id="language">EN</button><button class="theme" id="theme">◐</button></header>
 <main><section class="app-page" id="reports-page"><div id="slot-overview"><div class="hero"><h1>{_bi("Latest Report", "最新報告")}</h1><p>{_bi("The latest result for each TestCase. Select a platform and integration mode, then open AIBID, REEN Static, or REEN Dynamic.", "顯示每條 TestCase 的最新結果。先選平台與整合模式，再進入 AIBID／REEN Static／REEN Dynamic。")}</p></div>
 <div class="controls"><div class="seg platform"><button class="on" data-value="aos">AOS</button><button data-value="ios">iOS</button></div><div class="seg mode"><button class="on" data-value="standalone">Standalone</button><button data-value="mediation">Mediation</button></div><b id="result-context"></b></div>
 <div class="type-grid">{"".join(cards)}</div></div>{"".join(details)}</section>
 <section class="app-page" id="history-page" hidden><div class="hero"><h1>{_bi("Past Reports", "過去報告")}</h1><p>{_bi("Select a completed run to review its saved results. Deleting hides it from this browser only; raw Evidence remains unchanged.", "選擇過去的執行查看當次結果。刪除只會從這個瀏覽器隱藏，原始 Evidence 不會被刪除。")}</p></div>{history}</section>
-<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>{_bi("TestCase Catalog", "TestCase 目錄")}</h1><p>{_bi("Applicability is separate from execution status. Use these tables to find the contract; use Latest Report for PASS, FAILED, or BLOCKED.", "適用範圍不等於執行結果。這裡用來查 TC 契約；PASS／FAILED／BLOCKED 請看最新報告。")}</p></div><b>{len(catalog)} TestCases</b></div>
+<section class="app-page" id="catalog-page" hidden><div class="catalog-head"><div><h1>{_bi("All TestCases", "總 TestCase 目錄")}</h1><p>{_bi("Applicability is separate from execution status. Use these tables to find the contract; use Latest Report for PASS, FAILED, or BLOCKED.", "適用範圍不等於執行結果。這裡用來查 TC 契約；PASS／FAILED／BLOCKED 請看最新報告。")}</p></div><b>{len(catalog)} TestCases</b></div>
 {_catalog_section(catalog, catalog_by_key, "e2e", "01", "E2E TestCases", _bi("Ordered user and network journeys, with Standalone and Mediation applicability.", "依操作與流量順序排列，並標示 Standalone／Mediation 適用性。"))}
 {_catalog_section(catalog, catalog_by_key, "signal", "02", "Signal TestCases", _bi("SDK fields and device signals shared by the applicable integration modes.", "SDK 欄位與裝置訊號；適用的整合模式共用同一份欄位契約。"))}</section>
 <p class="meta">{_bi("Results", "結果")}: {len(verdicts)} · PASS {counts[Status.PASS.value]} · FAILED {counts[Status.FAILED.value]} · BLOCKED {counts[Status.BLOCKED.value]}<br>{_bi("Raw captures", "原始擷取")}: {len(captures)} · {_bi("Verdict files", "Verdict 檔案")}: {len(verdict_files)} · {_bi("Generated", "產生時間")}: {html.escape(generated)}<br>Evidence roots: {roots or '—'}</p></main>

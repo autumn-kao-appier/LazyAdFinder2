@@ -30,6 +30,7 @@ import socket
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -108,6 +109,8 @@ class CaptureConfig:
     max_attempts: int
     phase_timeout: float
     accept_request: bool
+    test_run_id: str
+    test_run_started_at: str
 
 
 @dataclass(frozen=True)
@@ -450,6 +453,121 @@ def _screen_state(driver):
     }
 
 
+def _normalized_ui_text(value):
+    return " ".join(str(value or "").split())
+
+
+def _capture_native_visual_review(driver, config, folder):
+    """Compare the rendered native View tree with the captured ad response."""
+    response = _read_json(BID_RESPONSE_FILE) or {}
+    try:
+        native = response["adUnits"][0]["ad"]["native"]
+    except (KeyError, IndexError, TypeError):
+        native = {}
+
+    window = driver.get_window_size()
+    visible = []
+    for element in driver.find_elements(AppiumBy.XPATH, "//*"):
+        try:
+            if not element.is_displayed():
+                continue
+            location = element.location
+            size = element.size
+            text_value = element.get_attribute("text") or element.get_attribute("content-desc") or ""
+            visible.append({
+                "text": text_value,
+                "normalized_text": _normalized_ui_text(text_value),
+                "resource_id": element.get_attribute("resource-id") or "",
+                "class": element.get_attribute("class") or "",
+                "rect": {
+                    "x": location["x"],
+                    "y": location["y"],
+                    "width": size["width"],
+                    "height": size["height"],
+                },
+            })
+        except Exception:
+            continue
+
+    expected_text = {
+        "title": _normalized_ui_text(native.get("title")),
+        "text": _normalized_ui_text(native.get("text")),
+        "cta": _normalized_ui_text(native.get("ctaText")),
+    }
+    text_matches = {
+        key: next(
+            (item for item in visible if item["normalized_text"] == value),
+            None,
+        )
+        for key, value in expected_text.items()
+    }
+    ad_label = next(
+        (item for item in visible if item["normalized_text"].lower() == "ad"),
+        None,
+    )
+    cta_id = f"{config.app_package}:id/native_cta"
+    privacy_id = f"{config.app_package}:id/native_privacy_information_icon_image"
+    cta_view = next((item for item in visible if item["resource_id"] == cta_id), None)
+    privacy_view = next((item for item in visible if item["resource_id"] == privacy_id), None)
+    image_views = [
+        item for item in visible
+        if item["class"] == "android.widget.ImageView"
+        and item["rect"]["width"] > 0
+        and item["rect"]["height"] > 0
+    ]
+    required_views = [*text_matches.values(), ad_label, cta_view, privacy_view]
+    inside_viewport = all(
+        item is not None
+        and item["rect"]["width"] > 0
+        and item["rect"]["height"] > 0
+        and item["rect"]["x"] >= 0
+        and item["rect"]["y"] >= 0
+        and item["rect"]["x"] + item["rect"]["width"] <= window["width"]
+        and item["rect"]["y"] + item["rect"]["height"] <= window["height"]
+        for item in required_views
+    )
+    response_images = {
+        key: bool(isinstance(native.get(key), dict) and native[key].get("url"))
+        for key in ("iconImage", "mainImage", "privacyInformationIcon")
+    }
+    checks = {
+        "response_native_present": bool(native),
+        "title_matches": text_matches["title"] is not None,
+        "text_matches": text_matches["text"] is not None,
+        "cta_matches": text_matches["cta"] is not None,
+        "ad_label_visible": ad_label is not None,
+        "cta_view_visible": cta_view is not None,
+        "privacy_view_visible": privacy_view is not None,
+        "response_image_urls_present": all(response_images.values()),
+        "visible_image_view_count_at_least_three": len(image_views) >= 3,
+        "required_views_inside_viewport": inside_viewport,
+    }
+    review = {
+        "contract": "response native fields vs rendered Android View tree",
+        "expected": {
+            "text": expected_text,
+            "images": response_images,
+            "ad_label": "Ad",
+            "minimum_visible_image_views": 3,
+        },
+        "actual": {
+            "window": window,
+            "text_matches": text_matches,
+            "ad_label": ad_label,
+            "cta_view": cta_view,
+            "privacy_view": privacy_view,
+            "visible_image_views": image_views,
+        },
+        "checks": checks,
+        "passed": all(checks.values()),
+        "evidence": ["ad-before-interactions.png", "bid_response.json"],
+    }
+    (Path(folder) / "visual-review.json").write_text(
+        json.dumps(review, ensure_ascii=False, indent=2) + "\n"
+    )
+    return review
+
+
 def _capture_e2e_interactions(driver, config, folder):
     """Exercise Privacy first, then CTA, preserving human-readable evidence."""
     folder = Path(folder)
@@ -468,6 +586,9 @@ def _capture_e2e_interactions(driver, config, folder):
     )
     try:
         driver.save_screenshot(str(folder / "ad-before-interactions.png"))
+        result["visual_review"] = _capture_native_visual_review(
+            driver, config, folder,
+        )
         privacy = driver.find_element(
             AppiumBy.ID,
             f"{config.app_package}:id/native_privacy_information_icon_image",
@@ -652,6 +773,8 @@ def record_skip(config, round_name, scenario, reason, checks=None, testcase_keys
         "test_type": config.test_type,
         "test_cid": config.test_cid,
         "test_round": round_name,
+        "test_run_id": config.test_run_id,
+        "test_run_started_at": config.test_run_started_at,
         "capture_name": scenario,
         "started_at": recorded_at,
         "finished_at": recorded_at,
@@ -969,6 +1092,36 @@ def device_evidence(config):
         "locale": adb(config.udid, "shell", "getprop", "persist.sys.locale", check=False),
         "timezone": adb(config.udid, "shell", "getprop", "persist.sys.timezone", check=False),
     }
+
+
+def set_font_scale_to_ui_maximum(config):
+    """Use the native Font size control so the maximum follows this device's UI."""
+    adb(config.udid, "shell", "am", "start", "-a", "android.settings.TEXT_READING_SETTINGS")
+    time.sleep(1.5)
+    adb(config.udid, "shell", "input", "swipe", "540", "1900", "540", "800", "500")
+    time.sleep(0.5)
+    remote = "/sdcard/laf2_font_scale_max.xml"
+    for _ in range(12):
+        adb(config.udid, "shell", "uiautomator", "dump", remote)
+        root = ET.fromstring(adb(config.udid, "exec-out", "cat", remote))
+        increase = next(
+            (node for node in root.iter("node") if node.attrib.get("content-desc") == "Increase font size"),
+            None,
+        )
+        if increase is None:
+            raise CaptureError("Font size UI does not expose the Increase font size control")
+        if increase.attrib.get("enabled") == "false":
+            value = adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip()
+            if not value:
+                raise CaptureError("Android font_scale is empty at the UI maximum")
+            print(f"[R5 Alternate] native Font size maximum = {value}")
+            return float(value)
+        bounds = [int(part) for part in re.findall(r"\d+", increase.attrib.get("bounds", ""))]
+        if len(bounds) != 4:
+            raise CaptureError("Font size Increase control has invalid bounds")
+        adb(config.udid, "shell", "input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
+        time.sleep(0.25)
+    raise CaptureError("Font size UI did not reach its maximum within 12 increments")
 
 
 def save_evidence(driver, config, folder, started_at, request, status, identity, source):
@@ -1518,8 +1671,9 @@ def run_round(config, plan):
             })
             original["volume"] = str(media_volume_state(config)[0])
             adb(config.udid, "shell", "cmd", "uimode", "night", "yes")
-            adb(config.udid, "shell", "settings", "put", "system", "font_scale", "1.5")
-            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "0")
+            set_font_scale_to_ui_maximum(config)
+            # Android clamps the minimum effective brightness to raw 1.
+            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "1")
             set_media_volume(config, 0)
             adb(config.udid, "shell", "dumpsys", "battery", "unplug")
             original["battery_simulated"] = True
@@ -1810,6 +1964,13 @@ def config_from_args(args, plan):
         max_attempts=args.max_attempts,
         phase_timeout=args.phase_timeout,
         accept_request=args.accept_request,
+        test_run_id=_env(
+            "TEST_RUN_ID",
+            f"aos-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}",
+        ).strip(),
+        test_run_started_at=_env(
+            "TEST_RUN_STARTED_AT", datetime.now().astimezone().isoformat(),
+        ).strip(),
     )
 
 

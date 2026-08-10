@@ -981,6 +981,12 @@ def capture_display_status(config):
     )
     if not font_scale_visible:
         raise EvidenceCaptureError("native Display size & text page is unavailable")
+    font_scale_root = ET.fromstring(font_scale_visible)
+    increase_font_size = next(
+        (node for node in font_scale_root.iter("node") if node.attrib.get("content-desc") == "Increase font size"),
+        None,
+    )
+    font_scale_ui_maximum = increase_font_size is not None and increase_font_size.attrib.get("enabled") == "false"
     visible_labels = [html.unescape(value) for value in re.findall(r'text="([^"]+)"', visible)]
     brightness_ui_percent = next(
         (value for value in visible_labels if re.fullmatch(r"\d+%", value)),
@@ -1027,6 +1033,7 @@ def capture_display_status(config):
                 "brightness_sync_int": brightness_sync_int,
                 "brightness_sync_float": brightness_sync_float,
                 "font_scale": font_scale,
+                "font_scale_ui_maximum": font_scale_ui_maximum,
                 "dark_mode": dark_mode,
                 "official_spec": OFFICIAL_DISPLAY_SPECS.get(model),
                 "source": ["native Display screenshot", "native Display size & text screenshot", "wm size", "wm density"],
@@ -1086,18 +1093,32 @@ def _display_evidence_document(field, info, source_image):
         explanation = "Android density scale is derived directly from logical density DPI divided by the 160-dpi baseline."
         source_label = f'wm density {info["density_dpi"]} ÷ 160 = {reference:g}'
     elif field == "screen_brightness":
-        official_row = (
-            f'<div class="row"><span>Visible UI brightness</span><b>{html.escape(info.get("brightness_ui_percent") or "Unavailable")}</b></div>'
-            f'<div class="row"><span>Android display service</span><b>{info["brightness_system_float"]:.8f} · same UI state</b></div>'
-            f'<div class="row"><span>BrightnessSynchronizer</span><b>int {info["brightness_sync_int"]} ↔ float {info["brightness_sync_float"]:.8f}</b></div>'
-            f'<div class="row"><span>SDK normalization</span><b>{info["brightness_raw"]} ÷ 255 = {reference:.8f}</b></div>'
-        )
-        explanation = "Display Settings shows the perceptual UI percentage. The same Android display-service snapshot links that UI state to a float brightness, while BrightnessSynchronizer links it to the legacy integer used by the SDK. The SDK value is that integer normalized to 0–1."
-        source_label = f'UI {info.get("brightness_ui_percent") or "—"} ↔ Android {info["brightness_sync_float"]:.8f} ↔ int {info["brightness_sync_int"]} → SDK {reference:.8f}'
+        is_maximum = info.get("brightness_ui_percent") == "100%" and info["brightness_raw"] == 255
+        if is_maximum:
+            title = "Screen Brightness — Maximum"
+            official_row = (
+                '<div class="row"><span>Visible UI brightness</span><b>100% · maximum</b></div>'
+                '<div class="row"><span>Android raw brightness</span><b>255 · maximum</b></div>'
+                f'<div class="row"><span>SDK normalization</span><b>255 ÷ 255 = {reference:.8f}</b></div>'
+            )
+            explanation = "The native Display page visibly proves the maximum position. Android raw 255 is the maximum value consumed by the SDK, and the decoded value must therefore be 1.0."
+            source_label = f'UI 100% → raw 255 → SDK {reference:.8f}'
+        else:
+            official_row = (
+                f'<div class="row"><span>Visible UI brightness</span><b>{html.escape(info.get("brightness_ui_percent") or "Unavailable")}</b></div>'
+                f'<div class="row"><span>Android display service</span><b>{info["brightness_system_float"]:.8f} · same UI state</b></div>'
+                f'<div class="row"><span>BrightnessSynchronizer</span><b>int {info["brightness_sync_int"]} ↔ float {info["brightness_sync_float"]:.8f}</b></div>'
+                f'<div class="row"><span>SDK normalization</span><b>{info["brightness_raw"]} ÷ 255 = {reference:.8f}</b></div>'
+            )
+            explanation = "Display Settings shows the perceptual UI percentage. The same Android display-service snapshot links that UI state to a float brightness, while BrightnessSynchronizer links it to the legacy integer used by the SDK. The SDK value is that integer normalized to 0–1."
+            source_label = f'UI {info.get("brightness_ui_percent") or "—"} ↔ Android {info["brightness_sync_float"]:.8f} ↔ int {info["brightness_sync_int"]} → SDK {reference:.8f}'
     elif field == "font_scale":
-        official_row = '<div class="row"><span>OS source</span><b>settings get system font_scale</b></div>'
-        explanation = "Display size & text is the visible setting; Android font_scale supplies its exact numeric state."
-        source_label = f'Android font_scale = {reference:g}'
+        maximum = info.get("font_scale_ui_maximum") is True
+        if maximum:
+            title = "Font Scale — Maximum"
+        official_row = f'<div class="row"><span>Native UI maximum</span><b>{"YES · Increase button disabled" if maximum else "NO"}</b></div><div class="row"><span>OS source</span><b>settings get system font_scale</b></div>'
+        explanation = "The native Font size slider establishes whether the UI is at its rightmost position; Android font_scale supplies the exact device-specific numeric value."
+        source_label = f'UI maximum {str(maximum).lower()} → Android font_scale {reference:g}'
     else:
         official_row = '<div class="row"><span>OS source</span><b>cmd uimode night</b></div>'
         explanation = "The native Dark theme switch is the visible source and Android UI mode supplies the exact boolean state."
@@ -1358,7 +1379,6 @@ def capture_device_context(config):
         "locale": locale,
         "lang": re.split(r"[-_]", locale, maxsplit=1)[0].lower(),
         "langb_system_hint": locale.replace("_", "-"),
-        "langb_process_ground_truth": None,
         "timezone": _adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip(),
         "utcoffset": _utc_offset_minutes(_adb(config.udid, "shell", "date", "+%z")),
         "input_lang": input_languages,
@@ -1378,8 +1398,8 @@ def _device_context_evidence(field, info, image_path):
         "make": ("Device Make", info["make"], f'{info["actual"]["req_make"]} / {info["actual"]["make"]}', "Android manufacturer · req / ext"),
         "model": ("Device Model", info["model"], f'{info["actual"]["req_model"]} / {info["actual"]["model"]} · hwv {info["actual"]["req_hwv"]} / {info["actual"]["hwv"]}', "Android product model · req / ext"),
         "utcoffset": ("Default Timezone", f'UTC offset {info["utcoffset"]:+d} minutes', f'{info["actual"]["req_utcoffset"]} / {info["actual"]["utcoffset"]}', f'{info["timezone"]} · req / ext'),
-        "lang": ("Default Language (ISO-639-1)", info["lang"], info["actual"]["lang"], f'System locale {info["locale"]}'),
-        "langb": ("Default Language (BCP 47)", "Sample App Locale.getDefault().toLanguageTag() output required", f'{info["actual"]["req_langb"]} / {info["actual"]["langb"]}', f'System locale hint {info["locale"]} · not process ground truth'),
+        "lang": ("System Language Code", info["lang"], info["actual"]["lang"], f'Language component of the primary Android language · {info["locale"]}'),
+        "langb": ("System Language and Region Tag", info["langb_system_hint"], f'{info["actual"]["req_langb"]} / {info["actual"]["langb"]}', f'Complete BCP 47 tag of the primary Android language · {info["locale"]}'),
         "input_lang": ("Installed Keyboard Languages", info["input_lang"], info["actual"]["input_lang"], "Enabled Gboard subtypes"),
         "jailbreak": ("Root Status", info["jailbreak"], info["actual"]["jailbreak"], "su -c id · Android field name remains jailbreak"),
         "emulator": ("Emulator Detection", info["emulator"], info["actual"]["emulator"], "Android hardware properties"),
@@ -1395,7 +1415,7 @@ def _device_context_evidence(field, info, image_path):
         "model": lambda: all(info["actual"][name] == info["model"] for name in ("req_model", "model", "req_hwv", "hwv")),
         "utcoffset": lambda: all(info["actual"][name] == info["utcoffset"] for name in ("req_utcoffset", "utcoffset")),
         "lang": lambda: info["actual"]["lang"] == info["lang"],
-        "langb": lambda: False,
+        "langb": lambda: all(info["actual"][name] == info["langb_system_hint"] for name in ("req_langb", "langb")),
         "input_lang": lambda: info["actual"]["input_lang"] == info["input_lang"],
         "jailbreak": lambda: info["actual"]["jailbreak"] is info["jailbreak"],
         "emulator": lambda: info["actual"]["emulator"] is info["emulator"],
@@ -1404,14 +1424,9 @@ def _device_context_evidence(field, info, image_path):
         "mccmnc": lambda: info["no_active_sim"] and info["actual"]["mccmnc"] == "",
     }
     passed = checks[field]()
-    if field == "langb":
-        color, result = "#b5761a", "BLOCKED"
-        evidence_note = "The Settings page and persist.sys.locale are supporting context only. Add a Sample App output for Locale.getDefault().toLanguageTag() before comparing req/ext device.langb."
-        result_action = "Waiting for independent App process ground truth"
-    else:
-        color, result = ("#287a3d", "PASS") if passed else ("#b9342b", "FAILED")
-        evidence_note = "The visible Settings page establishes the human-readable device state; the independent Android system value is compared with the decoded bid."
-        result_action = "Compare Android source with SDK answer"
+    color, result = ("#287a3d", "PASS") if passed else ("#b9342b", "FAILED")
+    evidence_note = "The visible Settings page establishes the human-readable device state; the independent Android system value is compared with the decoded bid."
+    result_action = "Compare Android source with SDK answer"
     return f'''<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box}}body{{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}main{{width:1400px;height:1000px;padding:42px 62px}}.eyebrow{{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}}h1{{font-size:38px;margin:8px 0 20px}}.content{{display:grid;grid-template-columns:430px 1fr;gap:38px}}.phone{{height:700px;display:flex;justify-content:center;overflow:hidden;background:#dfe5f5;border-radius:24px;padding:22px}}.phone img{{height:656px;width:auto;border-radius:13px;box-shadow:0 12px 28px #17233335}}.panel{{padding-top:22px}}.source{{padding:22px 26px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 22px ui-monospace,monospace}}.note{{font-size:18px;line-height:1.5;color:#526571;margin:18px 3px 26px}}.rows{{background:#fff;border-radius:18px;padding:10px 25px}}.row{{display:grid;grid-template-columns:210px 1fr;gap:18px;padding:21px 0;border-bottom:1px solid #e3e9ed}}.row:last-child{{border:0}}.row span{{color:#60717c}}.row b{{font:700 19px ui-monospace,monospace;overflow-wrap:anywhere}}.result{{display:flex;justify-content:space-between;margin-top:22px;padding:22px 26px;background:#fff;border-radius:16px;border-left:8px solid {color};}}.result b{{font-size:28px;color:{color};}}</style></head><body><main>
 <div class="eyebrow">DIRECT SETTINGS EVIDENCE · ANDROID OS</div><h1>{html.escape(title)}</h1><div class="content"><div class="phone"><img src="data:image/png;base64,{encoded}"></div><div class="panel"><div class="source">{html.escape(str(source))}</div><p class="note">{html.escape(evidence_note)}</p><div class="rows"><div class="row"><span>Expected · Android</span><b>{html.escape(str(expected))}</b></div><div class="row"><span>Captured · Bid</span><b>{html.escape(str(actual))}</b></div></div><div class="result"><span>{html.escape(result_action)}</span><b>{result}</b></div></div></div></main></body></html>'''
