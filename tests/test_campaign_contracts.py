@@ -170,6 +170,8 @@ class CampaignContractTests(unittest.TestCase):
         document = page.render([], [], [], [], self.catalog)
         self.assertNotIn('id="history-page"', document)
         self.assertNotIn('data-page="history"', document)
+        self.assertIn('" TC・已執行 "+executed+"・未執行 "', document)
+        self.assertIn('" TC · Executed "+executed+" · Not run "', document)
         self.assertIn('data-slot="aos:standalone:reen-static"', document)
         reen_start = document.index('<section class="slot-detail" data-slot="aos:standalone:reen-static"')
         reen_end = document.find('<section class="slot-detail"', reen_start + 1)
