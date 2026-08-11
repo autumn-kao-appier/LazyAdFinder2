@@ -3,93 +3,47 @@
 LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。TC、正確標準、Evidence 與報告
 由人工逐條定義；目前只有 AOS 完成可用的 Signal／E2E 自動化閉環。
 
-## 目前覆蓋範圍與使用但書
+## 下載專案
 
-- **目前僅完成 AOS**：Android 已建立 Round、Evidence、Validator、Verdict 與 Report 的實機閉環。
-  iOS 只保留 runner／capture 與部分框架，尚未完成與 AOS 同等的 TC 覆蓋，不得將目前結果解讀為
-  已完成跨平台驗證。
-- **目前自動化以專案開發者的 Android 實機為主要基準**：TC setup、Android Settings 路徑、
-  UI 文字、元件位置與人眼 Evidence，是依目前測試手機的實際 UI 狀態逐條建立。
-  不同 Android 版本、廠牌 ROM、系統語言、螢幕尺寸或 Settings 版型都可能導致尚未覆蓋的差異。
-- **通過現有 TC 不代表已覆蓋所有裝置與環境**：未納入 Catalog／Round 的欄位、裝置狀態、
-  OEM 差異、系統版本與外部服務失敗，都不在現有自動化保證範圍內。每條 TC 的實際覆蓋以
-  `testcases/testcase_catalog.json` 與 `testcases/testcase_specifications.md` 為準。
-- **尚未設計所有外力干擾的自動防呆**：例如防災／緊急警報、來電、鎖定畫面、系統強制對話框、
-  通知覆蓋、網路被切換，或其他中斷 Appium／ADB／抓包時序的事件，目前不保證能自動關閉、繞過或復原。
-- **遇到上述干擾時需要人工介入**：操作者應確認手機畫面、排除干擾、檢查裝置狀態與 Evidence，
-  必要時重跑受影響的 Scenario。外力干擾造成的擷取失敗不應盲目解讀為 SDK 功能 `FAILED`；
-  應依是否已開始執行與現有 Evidence，正確記錄為未執行、`BLOCKED` 或重新執行。
-- **Sample App 不等於所有 Publisher App**：目前結果驗證的是指定 Sample App、SDK build、Campaign 與
-  QA 實機組合。真實 Publisher App 的生命週期、語言資源、權限、WebView、ProGuard／R8、
-  Mediation 設定與其他 SDK 交互可能產生不同結果，需依實際整合另行驗證。
-- **目前只支援單裝置、單 Run 序列執行**：AOS、mitmdump 與 Evidence 封裝共用固定暫存狀態；
-  尚未對同時執行多台手機、多個 suite 或 AOS／iOS 平行 capture 提供隔離保證。
-  平行執行可能使 request、response、impression、log 或截圖混入其他 Run。
-- **外部環境是必要前提，不是 Automation 能保證的結果**：執行依賴 Appium／UiAutomator2、ADB、
-  Charles、mitmdump、proxy／CA 信任、網路連線、後端服務、Campaign／CID 設定與可用廣告。
-  沒有 bid、CID 未命中或外部服務無回應，不得未經分析就解讀為 SDK 邏輯錯誤。
-- **裝置狀態復原為 best effort**：部分 Scenario 會修改追蹤設定、深色模式、字體、亮度、音量、
-  省電模式、時區或權限。Runner 會嘗試復原，但進程被終止、ADB 斷線、系統 UI 改變或外力干擾時
-  無法保證成功；每次異常中斷後都應人工確認手機已回復預期狀態。
-- **Report 是自動判定與導覽工具，不取代人工 Evidence review**：特別是 `BLOCKED`、中斷擷取、
-  UI 截圖、動態容差與外部服務異常，都應開啟 raw Evidence 確認。Page 主要呈現每個平台／
-  模式／類型／TC 的最新結果；舊結果仍保留在 Evidence，不一定出現在主報告。
-
-### 執行狀態的正確解讀
-
-| 情況 | 報告／處理方式 |
-|---|---|
-| 前置條件不成立，TC 尚未開始 | 不產生 Verdict，以 `SKIPPED`／未執行呈現 |
-| TC 已開始，但環境、外力或缺少獨立真值使比較無法完成 | `BLOCKED`，保留已取得的 Evidence 與原因 |
-| Evidence 完整，SDK 實際值符合已確認標準 | `PASS` |
-| Evidence 完整，SDK 實際值不符合已確認標準 | `FAILED` |
-| Evidence 受防災警報、來電、系統對話框等干擾 | 人工排除後重跑；不得直接將干擾當作 SDK `FAILED` |
-
-### 每次執行的實際基準
-
-README 不固定寫死裝置與工具版本，以免文件過期。每次報告的適用範圍應以當次
-Evidence 中的 `summary.json`、`traffic.log`、截圖與 Test Run metadata 為準，至少確認：
-
-- 裝置型號、Android 版本、SDK level 與系統語言／時區。
-- Sample App package、SDK build／version、Campaign type、CID 與 integration mode。
-- Test Run ID、開始／結束時間、executor 與實際執行的 Round／Scenario。
-- Proxy 與網路路徑，以及當次是否發生人工介入、外力干擾或狀態復原異常。
-
-## 目前邊界
-
-```text
-Android sample app
-       │ Appium / ADB
-       ▼
-qa_aos.py ──執行 Round──────────────┐
-testcases/android_signal_testcases.py ──宣告 Evidence─┤
-evidence_aos.py ──操作手機、等待 bid─┤
-                                    │
-Phone → Charles :8888 → mitmdump :8081
-                            │
-                            └─ bid request / response / impression
-                                    │
-                                    ▼
-                              raw evidence folder
+```bash
+git clone https://github.com/autumn-kao-appier/LazyAdFinder2.git
+cd LazyAdFinder2
 ```
 
-一個 Round 先將 TC 所需的 Evidence keys 去重，只 capture 一包，再逐條產生 Verdict。
+## 快速使用
 
-## 檔案責任
+1. 安裝 Python 依賴與 Appium：
 
-| 檔案 | 責任 |
-|---|---|
-| `qa_aos.py` | Android automation engine；讀 registry 並執行 Round |
-| `qa_ios.py` | iOS automation、Round 執行框架、raw evidence 擷取 |
-| `testcases/testcase_catalog.json` | Page 與 TestCase Catalog 的跨平台 metadata 單一來源 |
-| `testcases/testcase_specifications.md` | 所有 TC 的人工可讀規格與品質限制 |
-| `testcases/android_signal_testcases.py` | AOS Signal 比較邏輯、Evidence requirements 與 Round registry |
-| `evidence_aos.py` | 所有 AOS Evidence providers；負責去重、手機狀態與共用 bid capture |
-| `evidence_bundle.py` | AOS/iOS 共用 Evidence bundle 格式與 raw/decoded 檔案封裝 |
-| `mitmdump_addon.py` | 攔截 bid request、bid response 與 impression callback |
-| `apr_xorenc.py` | `ae1` 密文字串進、UTF-8 明文字串出 |
-| `verdict.py` | `BLOCKED`／`PASS`／`FAILED` 三態與結構化判定結果契約 |
-| `page.py` | 讀取結構化 Verdict，統計三態並產生靜態 HTML report |
+   ```bash
+   python3 -m pip install -r requirements.txt
+   npm install -g appium
+   appium driver install uiautomator2
+   ```
+
+2. 啟動抓包與手機自動化服務：
+
+   ```bash
+   mitmdump -s mitmdump_addon.py --listen-port 8081
+   appium
+   ```
+
+3. 連接 Android 手機，設定 App、Campaign 與 CID，然後執行完整 suite：
+
+   ```bash
+   export APP_PACKAGE=com.appier.android.sample
+   export APP_ACTIVITY=com.appier.android.sample.MainActivity
+   export TEST_CID='<campaign-cid>'
+
+   python3 run_aos_test_suite.py --integration-mode standalone
+   ```
+
+4. 開啟本機報告：
+
+   ```bash
+   python3 page.py --local
+   ```
+
+完整的 Campaign、REEN、Round、capture 與 publish 參數請繼續往下看。
 
 ## 安裝與服務
 
@@ -344,3 +298,75 @@ python3 page.py --publish --no-open
 capture（raw evidence）→ 分別解密需要檢視的 req_enc／ext_enc → 寫入 TC 與判定（verdicts.json）
 → python3 page.py --publish
 ```
+
+## 專案架構
+
+```text
+Android Sample App
+       │ Appium / ADB
+       ▼
+qa_aos.py ──執行 Round──────────────┐
+testcases/android_signal_testcases.py ──宣告 Evidence─┤
+evidence_aos.py ──操作手機、等待 bid─┤
+                                    │
+Phone → Charles :8888 → mitmdump :8081
+                            │
+                            └─ bid request / response / impression
+                                    │
+                                    ▼
+                              raw evidence folder
+```
+
+一個 Round 會先將 TC 需要的 Evidence keys 去重，共用同一份 capture，再逐條產生 Verdict。
+
+### 主要檔案
+
+| 檔案 | 用途 |
+|---|---|
+| `qa_aos.py` | 執行 Android Round 與裝置自動化 |
+| `qa_ios.py` | iOS runner、Round 框架與 raw evidence capture；TC 尚未完整覆蓋 |
+| `testcases/testcase_catalog.json` | Report 與 TC metadata 的共用來源 |
+| `testcases/testcase_specifications.md` | TC 規格、前提與品質限制 |
+| `testcases/android_signal_testcases.py` | AOS Signal 比較邏輯、Evidence requirements 與 Round registry |
+| `evidence_aos.py` | 取得 AOS 裝置狀態與共用 bid evidence |
+| `evidence_bundle.py` | 封裝 AOS／iOS 的 raw 與 decoded evidence |
+| `mitmdump_addon.py` | 攔截 bid request、bid response 與 impression callback |
+| `apr_xorenc.py` | 解密 `ae1` 字串 |
+| `verdict.py` | 定義 `BLOCKED`、`PASS`、`FAILED` 判定格式 |
+| `page.py` | 讀取 Verdict 並產生靜態 HTML report |
+
+## 限制與使用但書
+
+### 目前支援範圍
+
+- 目前只有 AOS 完成 Signal／E2E 自動化流程；iOS 尚未完成相同的 TC 覆蓋。
+- Android 操作是依開發時使用的實機 UI 設計。不同 Android 版本、廠牌 ROM、系統語言或設定頁版型，可能找不到相同按鈕或畫面。
+- 現有結果只代表指定 Sample App、SDK build、Campaign、CID 與測試手機的組合，不代表所有 Publisher App 與裝置。
+- 實際覆蓋項目以 `testcases/testcase_catalog.json` 與 `testcases/testcase_specifications.md` 為準。
+- 目前只支援單裝置、單一 suite 依序執行，不要同時跑多台手機或多個 capture。
+
+### Automation 卡住時
+
+- 防災警報、來電、鎖定畫面、通知、系統對話框或網路切換，都可能中斷 Automation。
+- 目前不會自動關閉這些外力畫面。請先人工排除，再重跑受影響的 Scenario。
+- 若畫面沒有繼續，請檢查手機、ADB、Appium、Charles、mitmdump、Proxy、網路與 CID 設定。
+- 沒有 bid 或抓包失敗不一定是 SDK 問題，請先查看該輪 Evidence，不要直接判定為 `FAILED`。
+
+### 執行後請確認手機狀態
+
+- 部分 Scenario 會修改追蹤設定、深色模式、字體、亮度、音量、省電模式、時區或權限。
+- Runner 會嘗試還原狀態；若中途停止、ADB 斷線或系統 UI 改變，可能無法完整還原。
+- 異常中斷後，請人工確認手機狀態再執行下一輪。
+
+### 如何解讀結果
+
+| 情況 | 結果／處理方式 |
+|---|---|
+| TC 尚未開始 | 顯示未執行，不產生 Verdict |
+| TC 已開始，但環境或 Evidence 不足，無法比較 | `BLOCKED` |
+| Evidence 完整且符合標準 | `PASS` |
+| Evidence 完整但不符合標準 | `FAILED` |
+| 執行被外力干擾 | 人工排除後重跑，不直接視為 SDK `FAILED` |
+
+Report 是判定與導覽工具，不能取代人工查看 raw Evidence。每次執行的適用範圍，應以當次
+`summary.json`、`traffic.log`、截圖與 Test Run metadata 為準。
