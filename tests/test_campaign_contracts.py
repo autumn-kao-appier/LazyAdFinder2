@@ -2,6 +2,7 @@ import json
 import tempfile
 import types
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -196,6 +197,24 @@ class CampaignContractTests(unittest.TestCase):
         for reason in reasons:
             self.assertIn(reason, page.DYNAMIC_ZH)
 
+    def test_capture_limit_reasons_have_parameterized_chinese_translations(self):
+        interrupted = page._dynamic_bi(
+            "Standalone R5-1 was stopped by the user after 21 attempts without capturing "
+            "an eligible bid for CID target-cid. The current runner had no attempt or phase "
+            "timeout limit, so no comparison result is claimed."
+        )
+        limited = page._dynamic_bi(
+            "No eligible bid for CID target-cid after 20 attempts "
+            "(NETWORK_ERROR=1, NO_BID=17, WRONG_CID=2)"
+        )
+        server = page._dynamic_bi(
+            "Appier Server error: 3 consecutive 5xx responses; No eligible bid for CID "
+            "target-cid after 3 attempts (SERVER_ERROR=3)"
+        )
+        self.assertIn("嘗試 21 次後由使用者中止", interrupted)
+        self.assertIn("20 次嘗試內未取得有效 Bid", limited)
+        self.assertIn("連續 3 次回傳 5xx", server)
+
     def test_campaign_skip_is_labeled_cannot_run(self):
         card = page._unexecuted_card(
             self.catalog_by_key["tracking-denied"],
@@ -301,6 +320,171 @@ class CampaignContractTests(unittest.TestCase):
             qa_aos.classify_ineligible_bid({}, "200", {"cid": "another-cid"}, target),
         )
         self.assertEqual("INVALID_RESPONSE", qa_aos.classify_ineligible_bid({}, "200", None, target))
+
+    def _capture_config(self, evidence_dir, run_id="run-one", max_attempts=20):
+        return qa_aos.CaptureConfig(
+            app_package="com.example.app", app_activity="com.example.app.MainActivity",
+            test_mode="standalone", test_type="aibid", test_cid="target-cid",
+            target_app_package="", test_round="R1", trigger_text="Native",
+            tab_text="Appier SDK", udid="device", executor="test",
+            evidence_dir=Path(evidence_dir), bid_timeout=0.01, retry_delay=0,
+            max_attempts=max_attempts, phase_timeout=0, accept_request=False,
+            test_run_id=run_id, test_run_started_at="2026-08-11T10:00:00+08:00",
+        )
+
+    def _capture_patches(self, responses):
+        driver = types.SimpleNamespace(
+            activate_app=lambda _package: None, back=lambda: None, quit=lambda: None,
+        )
+        return (
+            patch.object(qa_aos, "adb", return_value=""),
+            patch.object(qa_aos, "LogcatRecorder", side_effect=lambda _udid: nullcontext()),
+            patch.object(qa_aos, "create_driver", return_value=driver),
+            patch.object(qa_aos, "select_tab"),
+            patch.object(qa_aos, "tap_placement", return_value=True),
+            patch.object(qa_aos, "wait_for_bid", side_effect=responses),
+            patch.object(qa_aos, "clear_detector_state"),
+            patch.object(qa_aos.time, "sleep"),
+        )
+
+    def test_capture_stops_at_twenty_and_writes_classified_summary(self):
+        responses = [(None, "204", None, None)] * 17 + [
+            ({}, "200", {"cid": "other"}, "proxy"),
+            (None, None, None, None),
+            ({}, "200", None, "proxy"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._capture_config(directory)
+            patches = self._capture_patches(responses)
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+                with self.assertRaises(qa_aos.CaptureError) as caught:
+                    qa_aos.capture(config, "LIMIT")
+            folder = Path(caught.exception.evidence_folder)
+            summary = json.loads((folder / "capture-attempt-summary.json").read_text())
+            self.assertEqual(20, summary["attempts"])
+            self.assertEqual({
+                "NO_BID": 17, "WRONG_CID": 1,
+                "NETWORK_ERROR": 1, "INVALID_RESPONSE": 1,
+            }, summary["counts"])
+
+    def test_capture_stops_after_three_consecutive_server_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._capture_config(directory)
+            patches = self._capture_patches([(None, "503", None, None)] * 3)
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+                with self.assertRaisesRegex(qa_aos.CaptureError, "3 consecutive 5xx") as caught:
+                    qa_aos.capture(config, "SERVER")
+            summary = json.loads(
+                (Path(caught.exception.evidence_folder) / "capture-attempt-summary.json").read_text()
+            )
+            self.assertEqual(3, summary["attempts"])
+            self.assertEqual({"SERVER_ERROR": 3}, summary["counts"])
+
+    def test_missing_ui_trigger_is_counted_and_stops_at_twenty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._capture_config(directory)
+            patches = self._capture_patches([])
+            with patches[0], patches[1], patches[2], patches[3], patch.object(
+                qa_aos, "tap_placement", return_value=False,
+            ), patches[6], patches[7]:
+                with self.assertRaises(qa_aos.CaptureError) as caught:
+                    qa_aos.capture(config, "NO-TRIGGER")
+            summary = json.loads(
+                (Path(caught.exception.evidence_folder) / "capture-attempt-summary.json").read_text()
+            )
+            self.assertEqual(20, summary["attempts"])
+            self.assertEqual({"UI_TRIGGER_MISSING": 20}, summary["counts"])
+
+    def test_keyboard_interrupt_is_preserved_as_user_interrupted_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._capture_config(directory)
+            patches = self._capture_patches([KeyboardInterrupt()])
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+                with self.assertRaises(qa_aos.UserInterrupted) as caught:
+                    qa_aos.capture(config, "INTERRUPTED")
+            summary = json.loads((Path(caught.exception.evidence_folder) / "summary.json").read_text())
+            self.assertEqual("INTERRUPTED", summary["result"])
+            self.assertEqual("Stopped by user", summary["error"])
+            plan = types.SimpleNamespace(scenarios=(
+                qa_aos.ScenarioPlan("TRACKING-ALLOWED", ("advertising-id",)),
+            ))
+            qa_aos.record_interrupted_verdicts([caught.exception.evidence_folder], plan, str(caught.exception))
+            verdict = json.loads(
+                (Path(caught.exception.evidence_folder) / "verdicts.json").read_text()
+            )["verdicts"][0]
+            self.assertEqual("BLOCKED", verdict["status"])
+            self.assertIn("Stopped by user", verdict["reason"])
+
+    def test_round_directories_are_isolated_by_run_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            one = qa_aos.round_directory(self._capture_config(directory, "run-one"))
+            two = qa_aos.round_directory(self._capture_config(directory, "run-two"))
+            self.assertNotEqual(one, two)
+            self.assertIn("run-one", one.name)
+            self.assertIn("run-two", two.name)
+
+    def test_launcher_activity_is_resolved_and_wrong_internal_activity_is_rejected(self):
+        output = "priority=0 preferredOrder=0\ncom.example.app/.MainActivity"
+        with patch.object(qa_aos, "adb", return_value=output):
+            self.assertEqual(
+                "com.example.app.MainActivity",
+                qa_aos.resolve_launcher_activity("device", "com.example.app"),
+            )
+            with self.assertRaises(qa_aos.InfrastructureError):
+                qa_aos.resolve_launcher_activity(
+                    "device", "com.example.app", "com.example.app.InternalActivity",
+                )
+
+    def _suite_config(self):
+        return {
+            "app_package": "com.example.app", "app_activity": "com.example.app.MainActivity",
+            "test_mode": "standalone", "test_type": "aibid", "test_cid": "target-cid",
+            "target_app_package": "", "trigger_text": "Native", "tab_text": "", "udid": "device",
+        }
+
+    def test_suite_stops_later_rounds_after_infrastructure_exit(self):
+        plans = [
+            (types.SimpleNamespace(round_name="R1"), None, "standalone"),
+            (types.SimpleNamespace(round_name="R2"), None, "standalone"),
+        ]
+        processes = []
+        class Process:
+            def wait(self, timeout=None): return 2
+        def factory(*_args, **_kwargs):
+            process = Process(); processes.append(process); return process
+        failures, interrupted = run_aos_test_suite.execute_plans(
+            plans, self._suite_config(), {"TEST_RUN_ID": "run-one"}, factory,
+        )
+        self.assertEqual(["R1"], failures)
+        self.assertFalse(interrupted)
+        self.assertEqual(1, len(processes))
+
+    def test_suite_ctrl_c_signals_child_and_publish_still_runs(self):
+        plan = [(types.SimpleNamespace(round_name="R1"), None, "standalone")]
+        class Process:
+            def __init__(self): self.waits = 0; self.signal = None
+            def wait(self, timeout=None):
+                self.waits += 1
+                if self.waits == 1: raise KeyboardInterrupt()
+                return 130
+            def send_signal(self, value): self.signal = value
+            def terminate(self): self.terminated = True
+        process = Process()
+        failures, interrupted = run_aos_test_suite.execute_plans(
+            plan, self._suite_config(), {"TEST_RUN_ID": "run-one"},
+            lambda *_args, **_kwargs: process,
+        )
+        self.assertTrue(interrupted)
+        self.assertEqual(["R1"], failures)
+        self.assertIsNone(process.signal)
+        publish_calls = []
+        code = run_aos_test_suite.finalize_suite(
+            "run-one", failures, interrupted, publish=True,
+            runner=lambda *args, **kwargs: publish_calls.append((args, kwargs)),
+        )
+        self.assertEqual(130, code)
+        self.assertEqual(1, len(publish_calls))
+        self.assertIn("page.py", " ".join(publish_calls[0][0][0]))
 
 
 if __name__ == "__main__":

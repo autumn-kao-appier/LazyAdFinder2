@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
 from datetime import datetime
@@ -52,6 +53,77 @@ def suite_rounds(test_mode, *, signal_only=False):
     return rounds
 
 
+def execute_plans(plans, config, environment, popen_factory=subprocess.Popen):
+    """Execute resolved plans, stopping only for suite-wide failures or Ctrl-C."""
+    failures = []
+    interrupted = False
+    for plan, _capture_config, execution_mode in plans:
+        print(f"\n[suite {environment['TEST_RUN_ID']}] {plan.round_name} ({execution_mode})", flush=True)
+        child_environment = environment.copy()
+        if (
+            config["test_mode"] == "admob-mediation"
+            and config["test_type"] == "aibid"
+            and plan.round_name == "R5-1"
+        ):
+            child_environment["PRIVACY_COVERAGE_ONLY"] = "1"
+        process = popen_factory(
+            [sys.executable, str(ROOT / "qa_aos.py"), *_round_arguments(
+                plan.round_name, config, test_mode=execution_mode,
+            )],
+            cwd=ROOT,
+            env=child_environment,
+        )
+        try:
+            returncode = process.wait()
+        except KeyboardInterrupt:
+            interrupted = True
+            print(f"\n[suite] stopping {plan.round_name}; preserving its Evidence", file=sys.stderr)
+            try:
+                returncode = process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.send_signal(signal.SIGINT)
+                try:
+                    returncode = process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+                    returncode = process.wait(timeout=10)
+        if returncode:
+            failures.append(plan.round_name)
+        if returncode == 2:
+            print(
+                f"[suite] infrastructure/configuration failure in {plan.round_name}; "
+                "later Rounds will not repeat the same broken prerequisite",
+                file=sys.stderr,
+            )
+            break
+        if interrupted or returncode == 130:
+            interrupted = True
+            break
+    return failures, interrupted
+
+
+def finalize_suite(run_id, failures, interrupted, *, publish=False, runner=subprocess.run):
+    """Publish even after failures or Ctrl-C, then choose the suite exit code."""
+    failures = list(failures)
+    if publish:
+        try:
+            runner(
+                [sys.executable, str(ROOT / "page.py"), "--publish"],
+                cwd=ROOT,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            failures.append(f"publish(exit={exc.returncode})")
+    if interrupted:
+        print(f"[suite] interrupted after publishing: {run_id}", file=sys.stderr)
+        return 130
+    if failures:
+        print(f"[suite] completed with failures: {', '.join(failures)}", file=sys.stderr)
+        return 1
+    print(f"[suite] completed: {run_id}")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--signal-only", action="store_true", help="run R1-R5 without E2E")
@@ -81,7 +153,7 @@ def main(argv=None):
     environment = os.environ.copy()
     config = {
         "app_package": _value("APP_PACKAGE", args.app_package, environment),
-        "app_activity": _value("APP_ACTIVITY", args.app_activity, environment),
+        "app_activity": str(args.app_activity or environment.get("APP_ACTIVITY", "")).strip(),
         "test_mode": INTEGRATION_MODE_ALIASES[_value("TEST_MODE", args.integration_mode, environment).lower()],
         "test_type": _value("TEST_TYPE", args.test_type, environment).lower(),
         "test_cid": _value("TEST_CID", args.test_cid, environment),
@@ -149,37 +221,9 @@ def main(argv=None):
         "TEST_RUN_STARTED_AT": started.isoformat(),
         "AUTO_PUBLISH": "0",
     })
-    failures = []
-    for plan, _capture_config, execution_mode in plans:
-        print(f"\n[suite {run_id}] {plan.round_name} ({execution_mode})", flush=True)
-        child_environment = environment.copy()
-        if append_privacy_round and plan.round_name == "R5-1":
-            child_environment["PRIVACY_COVERAGE_ONLY"] = "1"
-        result = subprocess.run(
-            [
-                sys.executable, str(ROOT / "qa_aos.py"),
-                *_round_arguments(plan.round_name, config, test_mode=execution_mode),
-            ],
-            cwd=ROOT,
-            env=child_environment,
-        )
-        if result.returncode:
-            failures.append(plan.round_name)
+    failures, interrupted = execute_plans(plans, config, environment)
 
-    if args.publish:
-        try:
-            subprocess.run(
-                [sys.executable, str(ROOT / "page.py"), "--publish"],
-                cwd=ROOT,
-                check=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            failures.append(f"publish(exit={exc.returncode})")
-    if failures:
-        print(f"[suite] completed with failures: {', '.join(failures)}", file=sys.stderr)
-        return 1
-    print(f"[suite] completed: {run_id}")
-    return 0
+    return finalize_suite(run_id, failures, interrupted, publish=args.publish)
 
 
 if __name__ == "__main__":

@@ -74,7 +74,8 @@ appium
 
 ```bash
 export APP_PACKAGE=com.appier.android.sample
-export APP_ACTIVITY=com.appier.android.sample.MainActivity
+# APP_ACTIVITY 可省略；runner 會由 Android MAIN/LAUNCHER intent 自動解析。
+# 若明確提供，必須與 exported Launcher Activity 相同，內部 Activity 會在 R1 前被拒絕。
 export TEST_MODE=standalone
 export TEST_TYPE=aibid
 export TEST_CID='<campaign-cid>'
@@ -147,7 +148,12 @@ python3 qa_aos.py capture --accept-request --max-attempts 1
 - `--tab-text`：覆蓋 integration mode 對應的 tab 文字。
 - `--max-attempts`：預設 `20`；`0` 僅供人工明確指定為不限制次數。達上限時 Evidence／Report
   會統計 `NO_BID`、`WRONG_CID`、`SERVER_ERROR`、`REQUEST_REJECTED`、`NETWORK_ERROR`、
-  `INVALID_RESPONSE`，不得靜默結束。連續 3 次 HTTP 5xx 會提前停止並標示 Server error。
+  `INVALID_RESPONSE`、`UI_TRIGGER_MISSING`，不得靜默結束。連續 3 次 HTTP 5xx 會提前停止並
+  標示 Server error；找不到可點擊版位也必須計入 20 次總上限。
+- 每次完整 suite 以 `TEST_RUN_ID` 建立獨立的 Round Evidence 目錄，不得把新結果寫入舊 run。
+- Ctrl-C 會先通知當前 Round 保存 `INTERRUPTED` Evidence 與 BLOCKED cards、恢復手機狀態並發布，
+  再以中止狀態退出。Activity、裝置、Appium 或 Proxy 等基礎設施失敗會停止後續 Round；單一
+  Scenario／TC failure 則仍允許後續測試繼續。
 - `--phase-timeout`：整次 capture 的牆鐘上限；`0` 表示不限。
 - `--evidence-dir`：evidence 根目錄。
 

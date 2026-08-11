@@ -604,7 +604,40 @@ def _dynamic_bi(text, zh=None):
     text = str(text)
     if text == "Actual SDK Payload":
         text = "Decoded Bid Request"
-    if text.startswith("The traffic lookup key was captured automatically. MMP "):
+    stopped = re.fullmatch(
+        r"Standalone R5-1 was stopped by the user after (\d+) attempts without capturing "
+        r"an eligible bid for CID (.+?)\. The current runner had no attempt or phase timeout "
+        r"limit, so no comparison result is claimed\.",
+        text,
+    )
+    attempt_limit = re.search(
+        r"No eligible bid for CID (.+?) after (\d+) attempts \((.+)\)",
+        text,
+    )
+    stopped_testcase = re.fullmatch(
+        r"Stopped by user before this TestCase could be completed: (.+)", text,
+    )
+    if stopped:
+        attempts, cid = stopped.groups()
+        zh = (
+            f"Standalone R5-1 嘗試 {attempts} 次後由使用者中止；仍未擷取到指定 CID {cid} "
+            "的有效 Bid。當時 runner 尚未設定嘗試次數或階段逾時上限，因此本次不宣稱任何比較結果。"
+        )
+    elif stopped_testcase:
+        zh = f"使用者中止執行，因此這個 TestCase 尚未完成：{stopped_testcase.group(1)}"
+    elif attempt_limit:
+        cid, attempts, counts = attempt_limit.groups()
+        if "Appier Server error: 3 consecutive 5xx responses" in text:
+            zh = (
+                f"Appier Server 連續 3 次回傳 5xx，因此提前停止；指定 CID {cid} "
+                f"在 {attempts} 次嘗試內未取得有效 Bid（{counts}）。"
+            )
+        else:
+            zh = (
+                f"指定 CID {cid} 在 {attempts} 次嘗試內未取得有效 Bid；"
+                f"各類結果統計：{counts}。"
+            )
+    elif text.startswith("The traffic lookup key was captured automatically. MMP "):
         zh = "已自動保存流量查詢鍵；MMP Click Action 仍需查詢 MMP action 才能完成驗證。"
     elif text.startswith("The traffic lookup key was captured automatically.") and "attribution recognition" in text:
         zh = "已自動保存流量查詢鍵；歸因認列仍需完成 Spark／MMP 對帳。"

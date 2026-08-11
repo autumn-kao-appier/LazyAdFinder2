@@ -190,6 +190,14 @@ class CaptureError(RuntimeError):
     evidence_folder = None
 
 
+class InfrastructureError(CaptureError):
+    """A suite-wide prerequisite is broken; later Rounds must not retry it."""
+
+
+class UserInterrupted(CaptureError):
+    """The operator stopped the run after Evidence capture had started."""
+
+
 def _env(name, fallback=""):
     value = os.environ.get(name)
     return fallback if value is None else value
@@ -231,6 +239,33 @@ def adb(udid, *args, check=True):
         detail = result.stderr.strip() or result.stdout.strip() or "unknown adb error"
         raise CaptureError(f"adb {' '.join(args)} failed: {detail}")
     return result.stdout.strip()
+
+
+def resolve_launcher_activity(udid, app_package, requested=""):
+    """Resolve and validate the one exported Android Launcher activity."""
+    output = adb(
+        udid, "shell", "cmd", "package", "resolve-activity", "--brief",
+        "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+        app_package,
+    )
+    components = [line.strip() for line in output.splitlines() if "/" in line]
+    if not components:
+        raise InfrastructureError(f"No exported Launcher Activity found for {app_package}")
+    component = components[-1]
+    package, activity = component.split("/", 1)
+    if package != app_package:
+        raise InfrastructureError(
+            f"Launcher resolver returned unexpected package {package!r} for {app_package!r}"
+        )
+    resolved = app_package + activity if activity.startswith(".") else activity
+    requested = str(requested or "").strip()
+    if requested:
+        normalized = app_package + requested if requested.startswith(".") else requested
+        if normalized != resolved:
+            raise InfrastructureError(
+                f"APP_ACTIVITY {requested!r} is not the exported Launcher Activity; use {resolved!r}"
+            )
+    return resolved
 
 
 def _restore_setting(udid, namespace, key, value):
@@ -830,12 +865,8 @@ def round_directory(config):
     kind = _safe_label(config.test_type, "type").upper()
     cid = _safe_label(config.test_cid, "ANY")
     label = _safe_label(config.test_round, "MANUAL")
-    prefix = f"AOS_{mode}_{kind}_CID_{cid}_{label}"
-    existing = sorted(path for path in config.evidence_dir.glob(f"{prefix}_*") if path.is_dir())
-    if existing:
-        return existing[-1]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return config.evidence_dir / f"{prefix}_{timestamp}"
+    run_label = _safe_label(config.test_run_id, "RUN", 64)
+    return config.evidence_dir / f"AOS_{mode}_{kind}_CID_{cid}_{label}_{run_label}"
 
 
 def create_capture_folder(config, capture_name):
@@ -1467,6 +1498,10 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
             attempt = 0
             while True:
                 attempt += 1
+                if config.max_attempts and attempt > config.max_attempts:
+                    raise CaptureError(attempt_limit_message(
+                        config.test_cid, config.max_attempts, attempt_counts,
+                    ))
                 if config.phase_timeout and time.monotonic() - started > config.phase_timeout:
                     raise CaptureError(f"Capture timed out after {config.phase_timeout:g} seconds")
 
@@ -1479,6 +1514,24 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                 failed_step = f"capture-attempt-{attempt}"
                 logcat_offset = LOGCAT_FILE.stat().st_size if LOGCAT_FILE.exists() else 0
                 if not tap_placement(driver, config):
+                    category = "UI_TRIGGER_MISSING"
+                    attempt_counts[category] = attempt_counts.get(category, 0) + 1
+                    print(
+                        f"[retry] category={category}, status=not-requested, cid=unknown"
+                    )
+                    if config.max_attempts and attempt >= config.max_attempts:
+                        summary = {
+                            "target_cid": config.test_cid,
+                            "attempts": attempt,
+                            "stop_reason": "ATTEMPT_LIMIT",
+                            "counts": attempt_counts,
+                        }
+                        (folder / "capture-attempt-summary.json").write_text(
+                            json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+                        )
+                        raise CaptureError(attempt_limit_message(
+                            config.test_cid, attempt, attempt_counts,
+                        ))
                     driver.activate_app(config.app_package)
                     time.sleep(config.retry_delay)
                     continue
@@ -1564,7 +1617,7 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                     )
                     raise CaptureError(attempt_limit_message(config.test_cid, attempt, attempt_counts))
                 time.sleep(config.retry_delay)
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt) as exc:
         try:
             finalize_bundle(
                 folder,
@@ -1579,12 +1632,19 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                 source=source,
                 result="INTERRUPTED",
                 failed_step=failed_step,
-                error=str(exc),
+                error="Stopped by user" if isinstance(exc, KeyboardInterrupt) else str(exc),
                 capture_log=LOGCAT_FILE,
             )
         except Exception as bundle_exc:
             print(f"[warn] failed to finalize interrupted evidence: {bundle_exc}", file=sys.stderr)
-        error = exc if isinstance(exc, CaptureError) else CaptureError(str(exc))
+        if isinstance(exc, KeyboardInterrupt):
+            error = UserInterrupted("Stopped by user during " + failed_step)
+        elif failed_step == "launch-app":
+            error = InfrastructureError(f"Cannot launch Appium session: {exc}")
+        elif isinstance(exc, CaptureError):
+            error = exc
+        else:
+            error = CaptureError(str(exc))
         error.evidence_folder = folder
         raise error from exc
     finally:
@@ -1882,6 +1942,9 @@ def run_round(config, plan):
             if scenario_error is not None:
                 print(f"[R5 {label}] failed: {scenario_error}", file=sys.stderr)
                 round_errors.append(f"{label}: {scenario_error}")
+                if isinstance(scenario_error, UserInterrupted):
+                    scenario_error.evidence_folders = tuple(folders)
+                    raise scenario_error
 
         def privacy_mutate():
             print("[R5 Privacy] Opt out will be enabled by direct Ads Settings evidence capture")
@@ -2096,6 +2159,34 @@ def run_round(config, plan):
         raise error from exc
 
 
+def record_interrupted_verdicts(folders, plan, reason):
+    """Make an operator interruption visible on Report cards without claiming comparison."""
+    keys = tuple(dict.fromkeys(
+        key for scenario in plan.scenarios if scenario.decision == "RUN"
+        for key in scenario.testcase_keys
+    ))
+    for folder_value in folders:
+        folder = Path(folder_value)
+        verdict_path = folder / "verdicts.json"
+        if verdict_path.is_file():
+            continue
+        rows = []
+        for key in keys:
+            testcase = TC_DEFINITIONS.get(key)
+            e2e = BASELINE_E2E_TESTCASES.get(key) or ADMOB_E2E_EXTENSIONS.get(key)
+            title = testcase.title if testcase else e2e.title if e2e else key
+            description = testcase.description if testcase else e2e.description if e2e else ""
+            row = blocked(key, f"Stopped by user before this TestCase could be completed: {reason}").to_dict()
+            row.update({
+                "layer": "Signal" if testcase else "E2E",
+                "title": title,
+                "description": description,
+            })
+            rows.append(row)
+        if rows:
+            verdict_path.write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+
+
 def publish_completed_round(evidence_dir, folders, automation_started_at=None):
     """Publish only after this Round's finalized verdict files are on disk."""
     folders = [Path(folder) for folder in folders if folder is not None]
@@ -2193,7 +2284,6 @@ def config_from_args(args, plan):
         name
         for name, value in (
             ("APP_PACKAGE/--app-package", args.app_package),
-            ("APP_ACTIVITY/--app-activity", args.app_activity),
             ("TEST_MODE/--test-mode", args.test_mode),
             ("TEST_TYPE/--test-type", args.test_type),
             ("TRIGGER_TEXT/--trigger-text", args.trigger_text),
@@ -2219,9 +2309,10 @@ def config_from_args(args, plan):
     if not tab_text:
         raise CaptureError(f"No tab mapping for TEST_MODE={mode!r}; specify --tab-text")
     udid = detect_udid(args.udid.strip())
+    app_activity = resolve_launcher_activity(udid, args.app_package.strip(), args.app_activity)
     return CaptureConfig(
         app_package=args.app_package.strip(),
-        app_activity=args.app_activity.strip(),
+        app_activity=app_activity,
         test_mode=mode,
         test_type=args.test_type.strip().lower(),
         test_cid=args.test_cid.strip(),
@@ -2276,15 +2367,21 @@ def main(argv=None):
     if not confirm_mediation_test_device(config.test_mode, udid=config.udid):
         return 2
     if any(scenario.decision == "RUN" for scenario in plan.scenarios):
-        require_device_unlocked(config)
-        ensure_proxy_capture_ready(config)
+        try:
+            require_device_unlocked(config)
+            ensure_proxy_capture_ready(config)
+        except CaptureError as exc:
+            raise InfrastructureError(str(exc)) from exc
 
     if args.command == "round" and all(scenario.decision == "SKIP" for scenario in plan.scenarios):
         folders = run_round(config, plan)
         publish_completed_round(config.evidence_dir, folders, automation_started_at)
         return 0
 
-    screen_timeout = keep_screen_awake(config)
+    try:
+        screen_timeout = keep_screen_awake(config)
+    except CaptureError as exc:
+        raise InfrastructureError(str(exc)) from exc
     orientation_state = None
     try:
         orientation_state = lock_portrait(config)
@@ -2293,6 +2390,18 @@ def main(argv=None):
         else:
             try:
                 folders = run_round(config, plan)
+            except UserInterrupted as exc:
+                evidence_folders = list(getattr(exc, "evidence_folders", ()))
+                evidence_folder = getattr(exc, "evidence_folder", None)
+                if not evidence_folders and evidence_folder is not None:
+                    evidence_folders = [evidence_folder]
+                record_interrupted_verdicts(evidence_folders, plan, str(exc))
+                publish_completed_round(
+                    config.evidence_dir,
+                    evidence_folders,
+                    automation_started_at,
+                )
+                raise
             except Exception as exc:
                 evidence_folders = list(getattr(exc, "evidence_folders", ()))
                 evidence_folder = getattr(exc, "evidence_folder", None)
@@ -2315,6 +2424,12 @@ def main(argv=None):
 if __name__ == "__main__":
     try:
         sys.exit(main())
+    except UserInterrupted as exc:
+        print(f"[interrupted] {exc}", file=sys.stderr)
+        sys.exit(130)
+    except InfrastructureError as exc:
+        print(f"[infrastructure error] {exc}", file=sys.stderr)
+        sys.exit(2)
     except (CaptureError, OSError, subprocess.SubprocessError) as exc:
         print(f"[error] {exc}", file=sys.stderr)
         sys.exit(1)
