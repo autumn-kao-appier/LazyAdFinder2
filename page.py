@@ -974,7 +974,7 @@ def _e2e_run_recording(rows):
             continue
         asset_url = _register_report_asset(video)
         return f'''<section class="e2e-run-recording">
-<div class="e2e-run-recording-copy"><span>{_bi("Shared E2E Evidence", "E2E 共用 Evidence")}</span><h4>{_bi("Complete interaction recording", "完整操作紀錄")}</h4><p>{_bi("Ad display → Privacy interaction → Return to ad → CTA click → Final destination.<br>This recording documents the complete journey.", "廣告顯示 → Privacy 操作 → 返回廣告 → CTA 點擊 → 最終目的地。<br>影片記錄完整流程。")}</p></div>
+<div class="e2e-run-recording-copy"><span>{_bi("Shared E2E Evidence", "E2E 共用 Evidence")}</span><h4>{_bi("Complete interaction recording", "完整操作紀錄")}</h4><p>{_bi("Ad display → Privacy interaction → Return to ad → CTA click → Final destination.", "廣告顯示 → Privacy 操作 → 返回廣告 → CTA 點擊 → 最終目的地。")}<br>{_bi("This recording documents the complete journey.", "影片記錄完整流程。")}</p></div>
 <video controls preload="metadata" src="{html.escape(asset_url, quote=True)}"></video></section>'''
     return ""
 
