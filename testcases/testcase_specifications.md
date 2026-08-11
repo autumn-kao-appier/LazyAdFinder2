@@ -215,9 +215,8 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   `ro.product.model`；About phone 是人眼 Evidence。
 - `default-timezone` / `device.utcoffset`：req/ext 均須等於 capture 當下 `date +%z` 轉換的
   UTC offset 分鐘數。答案隨系統時區改變，不固定為 480。
-- `default-language-iso` / `device.lang` / App Language Code：App 當前語言的低精度 ISO-639-1 語言部分；例如 App locale `en-US` → `en`。App 畫面截圖作人眼 Evidence，Android per-app locale 作精確答案來源。
-- `default-language-bcp47` / `device.langb` / App Language and Region Tag：App 當前語言＋地區的高精度 BCP 47；例如 App locale `en-US` → `en-US`，req/ext 均須完全相同。與 ISO TC 共用 App 畫面截圖。
-  tag，例如 `en-JP`；答案不得由 payload 反推或固定寫死。
+- `default-language-iso` / `device.lang` / System Language Code：只驗 Settings 第一順位系統語言的 ISO-639-1 語言部分；例如 English (Japan) → `en`。
+- `default-language-bcp47` / `device.langb` / System Language and Region Tag：驗 Settings 第一順位系統語言＋地區的完整 BCP 47；例如 English (Japan) → `en-JP`，req/ext 均須完全相同。答案不得由 payload 反推或固定寫死。
 
 共用 `device-context` capture 會保留 Sound、About phone、Date & time、Languages 四個原生頁面，
 並將 OS 精確值、換算式與 decoded bid 組合成各自可翻頁的 Evidence 卡。

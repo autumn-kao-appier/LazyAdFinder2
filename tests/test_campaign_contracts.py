@@ -11,6 +11,7 @@ import qa_aos
 import run_reen_test_suite
 from campaign_profiles import CAMPAIGN_PROFILES
 from campaign_testcases import CAMPAIGN_TESTCASES
+from testcases import android_signal_testcases
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -188,6 +189,22 @@ class CampaignContractTests(unittest.TestCase):
             "standalone", environment={},
             input_fn=lambda _prompt: self.fail("Standalone must not show the Mediation warning"),
         ))
+
+    def test_default_language_uses_primary_android_system_locale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "device-context.json").write_text(json.dumps({
+                "device_locale": "en-JP",
+                "app_locale": "en-US",
+                "lang": "en",
+                "langb_system": "en-JP",
+                "actual": {"lang": "en", "req_langb": "en-US", "langb": "en-US"},
+            }))
+            iso = android_signal_testcases.validate_default_language_iso(folder)
+            bcp47 = android_signal_testcases.validate_default_language_bcp47(folder)
+            self.assertEqual("PASS", iso["status"])
+            self.assertEqual("FAILED", bcp47["status"])
+            self.assertEqual({"langb": "en-JP"}, bcp47["expected"])
 
 
 if __name__ == "__main__":

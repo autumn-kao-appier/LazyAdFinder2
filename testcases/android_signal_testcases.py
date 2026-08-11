@@ -117,8 +117,8 @@ def _comparison_view(key, expected, actual):
         "device-make": ("Android manufacturer", expected.get("make"), "SDK req/ext", f'{actual.get("req_make")} / {actual.get("make")}', "="),
         "device-model": ("Android product model", expected.get("model"), "SDK model / hwv", f'{actual.get("model")} / {actual.get("hwv")}', "="),
         "default-timezone": ("Android UTC offset", expected.get("utcoffset"), "SDK req/ext", f'{actual.get("req_utcoffset")} / {actual.get("utcoffset")}', "="),
-        "default-language-iso": ("Current App language code", expected.get("lang"), "SDK ext", actual.get("lang"), "="),
-        "default-language-bcp47": ("Current App language and region", expected.get("langb"), "SDK req/ext", f'{actual.get("req_langb")} / {actual.get("langb")}', "="),
+        "default-language-iso": ("Primary Android system language code", expected.get("lang"), "SDK ext", actual.get("lang"), "="),
+        "default-language-bcp47": ("Primary Android system language and region", expected.get("langb"), "SDK req/ext", f'{actual.get("req_langb")} / {actual.get("langb")}', "="),
         "keyboard-languages": ("Enabled Gboard languages", expected.get("input_lang"), "SDK Payload", actual.get("input_lang"), "="),
         "root-status": ("Android root probe", expected.get("jailbreak"), "SDK jailbreak", actual.get("jailbreak"), "="),
         "emulator-detection": ("Android hardware probe", expected.get("emulator"), "SDK emulator", actual.get("emulator"), "="),
@@ -148,8 +148,8 @@ def _comparison_view(key, expected, actual):
         "device-make": "Request and extended payload manufacturer must equal Android ro.product.manufacturer.",
         "device-model": "Payload model and hardware version must equal Android ro.product.model.",
         "default-timezone": "Request and extended UTC offset minutes must equal the device timezone at capture time.",
-        "default-language-iso": "The extended ISO-639-1 code must equal the low-precision language component of the current App locale.",
-        "default-language-bcp47": "Request and extended BCP 47 tags must equal the precise language and region of the current App locale.",
+        "default-language-iso": "The extended ISO-639-1 code must equal the language component of the primary Android system locale.",
+        "default-language-bcp47": "Request and extended BCP 47 tags must equal the primary Android system language and region.",
         "keyboard-languages": "Payload list must exactly match the enabled Gboard language tags.",
         "root-status": "Payload jailbreak boolean must match an independent Android root probe.",
         "emulator-detection": "Payload emulator boolean must match Android hardware properties.",
@@ -770,28 +770,28 @@ def validate_default_language_iso(folder):
     info = _context_info(folder); actual = info["actual"]; expected = info["lang"]
     return _verdict(
         "default-language-iso",
-        "App Language Code",
-        "Extended device.lang contains the low-precision ISO-639-1 component of the current App language.",
+        "System Language Code",
+        "Extended device.lang contains the ISO-639-1 component of the primary Android system language.",
         {"lang": expected},
         {"lang": actual.get("lang")},
         "lang-evidence.png",
-        [] if actual.get("lang") == expected else ["lang does not match the current App language code"],
+        [] if actual.get("lang") == expected else ["lang does not match the primary Android system language code"],
     )
 
 
 def validate_default_language_bcp47(folder):
     info = _context_info(folder)
     actual = info["actual"]
-    expected = info["langb_app"]
+    expected = info["langb_system"]
     failures = [name for name in ("req_langb", "langb") if actual.get(name) != expected]
     return _verdict(
         "default-language-bcp47",
-        "App Language and Region Tag",
-        "Request and extended device.langb contain the precise BCP 47 tag of the current App language and region.",
+        "System Language and Region Tag",
+        "Request and extended device.langb contain the complete BCP 47 tag of the primary Android system language and region.",
         {"langb": expected},
         {"req_langb": actual.get("req_langb"), "langb": actual.get("langb")},
         "langb-evidence.png",
-        [f"{', '.join(failures)} do not match the current App language tag"] if failures else [],
+        [f"{', '.join(failures)} do not match the primary Android system language tag"] if failures else [],
     )
 
 
@@ -1248,8 +1248,8 @@ TC_DEFINITIONS = {
     "device-make": TestCase("device-make", "Device Make", "Manufacturer matches Android.", (DEVICE_CONTEXT, BID), validate_device_make),
     "device-model": TestCase("device-model", "Device Model", "Model and hardware version match Android.", (DEVICE_CONTEXT, BID), validate_device_model),
     "default-timezone": TestCase("default-timezone", "Default Timezone", "UTC offset matches Android.", (DEVICE_CONTEXT, BID), validate_default_timezone),
-    "default-language-iso": TestCase("default-language-iso", "App Language Code", "ISO-639-1 language component matches the current App language.", (DEVICE_CONTEXT, BID), validate_default_language_iso),
-    "default-language-bcp47": TestCase("default-language-bcp47", "App Language and Region Tag", "Complete BCP 47 tag matches the current App language and region.", (DEVICE_CONTEXT, BID), validate_default_language_bcp47),
+    "default-language-iso": TestCase("default-language-iso", "System Language Code", "ISO-639-1 language component matches the primary Android system language.", (DEVICE_CONTEXT, BID), validate_default_language_iso),
+    "default-language-bcp47": TestCase("default-language-bcp47", "System Language and Region Tag", "Complete BCP 47 tag matches the primary Android system language and region.", (DEVICE_CONTEXT, BID), validate_default_language_bcp47),
     "keyboard-languages": TestCase("keyboard-languages", "Installed Keyboard Languages", "Enabled keyboard languages match Android.", (DEVICE_CONTEXT, BID), validate_keyboard_languages),
     "root-status": TestCase("root-status", "Root Status", "Root detection matches Android.", (DEVICE_CONTEXT, BID), validate_root_status),
     "emulator-detection": TestCase("emulator-detection", "Emulator Detection", "Emulator detection matches Android.", (DEVICE_CONTEXT, BID), validate_emulator_detection),
