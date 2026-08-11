@@ -1121,6 +1121,17 @@ def resolve_execution_plan(args):
     else:
         available = sorted(set(ROUND_DEFINITIONS) | {"R4", "E2E-STANDALONE", "E2E-ADMOB"})
         raise CaptureError(f"Round {name!r} is not defined; available rounds: {', '.join(available)}")
+    scenarios = tuple(
+        replace(
+            scenario,
+            testcase_keys=tuple(
+                key for key in scenario.testcase_keys
+                if campaign_supports(test_type, key)
+            ),
+        )
+        for scenario in scenarios
+    )
+    scenarios = tuple(scenario for scenario in scenarios if scenario.testcase_keys)
     known_testcases = set(TC_DEFINITIONS) | set(IPV6_TESTCASES) | set(BASELINE_E2E_TESTCASES) | set(ADMOB_E2E_EXTENSIONS)
     unknown = sorted({key for scenario in scenarios for key in scenario.testcase_keys if key not in known_testcases})
     if unknown:
@@ -1659,6 +1670,8 @@ def run_round(config, plan):
         scenario_plans = {scenario.label: scenario for scenario in plan.scenarios}
 
         def run_scenario(label, keys, mutate, restore):
+            if label not in scenario_plans:
+                return
             testcases = [TC_DEFINITIONS[key] for key in keys]
             required = tuple(evidence for testcase in testcases for evidence in testcase.evidence)
             scenario = scenario_plans[label]

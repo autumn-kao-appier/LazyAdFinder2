@@ -19,7 +19,9 @@ Evidence 失敗連帶影響其他 TC；只有同一隱私狀態下的 GAID／LAT
   Location 為 Not allowed，req/ext 均不得包含 `geo_lat` 或 `geo_lon`，即使值是 0/null 也 FAILED。
 
 Runner 必須在每個 Scenario 後還原原狀態；中途失敗仍保存 Evidence、寫明失敗階段並發布報告。
-REEN Static／Dynamic 只將 `PRIVACY-DENIED` 標為 SKIPPED；其餘 Scenario 與 AIBID 共用並照常執行。
+`PRIVACY-DENIED` 的 `advertising-id-opt-out` 與 `tracking-denied` 是 AIBID-only TestCases。
+REEN Static／Dynamic 的執行計畫、結果報告與總 TestCase 目錄不列出這兩條；其餘 R5 Scenario
+與 AIBID 共用並照常執行。
 
 ## E2E campaign continuation
 

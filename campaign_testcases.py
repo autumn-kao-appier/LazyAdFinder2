@@ -7,7 +7,7 @@ their own campaign applicability.
 
 
 SHARED_TESTCASES = frozenset({
-    "advertising-id-opt-out", "tracking-denied", "dark-mode-enabled",
+    "dark-mode-enabled",
     "font-scale-maximum", "screen-brightness-minimum", "output-volume-muted",
     "battery-saver-enabled", "screen-brightness-maximum", "output-volume-maximum",
     "timezone-changed", "location-permission-denied", "advertising-id",
@@ -39,7 +39,10 @@ SHARED_TESTCASES = frozenset({
 
 # Campaign-specific sets are intentionally separate even while empty.  A new
 # TC is assigned here instead of adding flags to Catalog or validator files.
-AIBID_ONLY_TESTCASES = frozenset()
+AIBID_ONLY_TESTCASES = frozenset({
+    "advertising-id-opt-out",
+    "tracking-denied",
+})
 REEN_STATIC_ONLY_TESTCASES = frozenset()
 REEN_DYNAMIC_ONLY_TESTCASES = frozenset()
 

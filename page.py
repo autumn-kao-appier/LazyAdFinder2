@@ -582,6 +582,35 @@ def _fact_list(value):
     return f'<dl class="facts">{"".join(items)}</dl>'
 
 
+def _compact_json_facts(value):
+    """Describe structured Evidence without dumping its payload into the card."""
+    if not isinstance(value, dict):
+        return (("Value", _display(value)),)
+    facts = []
+    for key, item in value.items():
+        label = DISPLAY_LABELS.get(key, key.replace("_", " "))
+        if isinstance(item, list):
+            display = f"{len(item)} records"
+        elif isinstance(item, dict):
+            display = f"{len(item)} fields"
+        elif isinstance(item, bool):
+            display = "PASS" if item else "FAIL"
+        elif item is None:
+            display = "—"
+        else:
+            text = str(item)
+            display = text if len(text) <= 48 else text[:45] + "…"
+        facts.append((label, display))
+    return tuple(facts)
+
+
+def _compact_fact_grid(facts):
+    return '<div class="mediation-facts">' + "".join(
+        f'<div class="mediation-fact"><small>{html.escape(str(label))}</small><b>{html.escape(str(value))}</b></div>'
+        for label, value in facts
+    ) + '</div>'
+
+
 def _evidence_content(row, guidance="", guidance_en=""):
     guidance_html = (
         f'<div class="evidence-guidance"><b>{_bi("Evidence guidance", "Evidence 說明")}</b><p>{_bi(guidance_en or guidance, guidance)}</p></div>'
@@ -640,6 +669,11 @@ def _evidence_content(row, guidance="", guidance_en=""):
         return guidance_html + f'<audio controls preload="metadata" src="{html.escape(asset_url, quote=True)}"></audio>'
     if target.suffix.lower() == ".json":
         document = _load_json(target)
+        if str(row.get("layer", "")).lower() == "e2e":
+            raw = html.escape(json.dumps(document, ensure_ascii=False, indent=2))
+            return guidance_html + f'''<div class="evidence-data compact-evidence e2e-json-evidence"><b>{html.escape(reference)}</b>
+<label>{_bi("Captured data summary", "擷取資料摘要")}</label>{_compact_fact_grid(_compact_json_facts(document))}
+<details class="raw-capture"><summary>{_bi("View complete JSON evidence", "查看完整 JSON Evidence")}</summary><pre><code>{raw}</code></pre></details></div>'''
         expected_html = ""
         if "expected" in document:
             expected_html = f'<label>{_bi("Expected", "預期")}</label>{_fact_list(document.get("expected"))}'
@@ -685,6 +719,15 @@ def _comparison_summary(row, fallback_criterion):
 <p><span>{_bi("Review gate", "人工核對")}</span>{_dynamic_bi(str(view.get("criterion") or fallback_criterion), fallback_criterion)}</p></section>'''
     if row["status"] == Status.BLOCKED.value:
         return f'<section class="comparison-hero blocked-comparison"><b>{_bi("Not executed", "未執行")}</b><span>{_bi("No comparison is claimed.", "未宣稱任何比較結果。")}</span></section>'
+    if str(row.get("layer", "")).lower() == "e2e":
+        expected = row.get("expected") if isinstance(row.get("expected"), dict) else {}
+        actual = row.get("actual") if isinstance(row.get("actual"), dict) else {}
+        checks = _compact_fact_grid(_compact_json_facts(expected))
+        captured = _compact_fact_grid(_compact_json_facts(actual))
+        return f'''<section class="comparison-hero e2e-comparison">
+<div class="e2e-summary-block"><label>{_bi("Pass checks", "通過條件")}</label>{checks}</div>
+<div class="e2e-summary-block"><label>{_bi("Captured overview", "擷取摘要")}</label>{captured}</div>
+<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion)}</p></section>'''
     if not isinstance(view, dict):
         return f'''<section class="comparison-hero rule-comparison">{_comparison_cell({"label": "Decoded Bid Request", "value": row.get("actual")}, "actual-value")}
 <p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion)}</p></section>'''
@@ -1027,7 +1070,7 @@ CSS = r"""
 .comparison-list{max-height:190px;margin:9px 0 0;padding:0;overflow:auto;list-style:none;text-align:left;border-top:1px solid var(--line)}.comparison-list li{padding:6px 3px;border-bottom:1px solid var(--line);font:650 11px/1.35 var(--mono);overflow-wrap:anywhere}.comparison-list li:last-child{border-bottom:0}
 .catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
 .compact-evidence{overflow:visible}.compact-evidence>label{display:block;margin-top:10px;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.raw-capture{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.raw-capture summary{width:max-content;max-width:100%;color:var(--accent);font:750 10px var(--mono);cursor:pointer}.raw-capture pre{max-height:320px;margin:10px 0 0;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.45 var(--mono)}
-.result-card[data-tc="admob-pubsetting"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}
+.result-card[data-layer="e2e"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}.e2e-summary-block+ .e2e-summary-block{margin-top:11px}.e2e-summary-block>label{display:block;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.e2e-json-evidence .raw-capture pre code{font:inherit}
 """
 
 

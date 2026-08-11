@@ -45,27 +45,30 @@ class CampaignContractTests(unittest.TestCase):
         )
         self.assertEqual(tuple(qa_aos.R5_PRIVACY_KEYS), privacy.testcase_keys)
 
-    def test_only_reen_identity_denied_scenario_is_skipped_by_campaign_capability(self):
+    def test_reen_identity_denied_scenario_is_absent_from_execution_plan(self):
         for test_type in ("reen-static", "reen-dynamic"):
-            ready, _reason, checks = qa_aos.privacy_scenario_preflight(
-                types.SimpleNamespace(test_type=test_type)
-            )
-            self.assertFalse(ready)
-            self.assertFalse(checks["privacy_denied_identity"])
-        ready, _reason, _checks = qa_aos.privacy_scenario_preflight(
-            types.SimpleNamespace(test_type="aibid")
-        )
-        self.assertTrue(ready)
+            plan = qa_aos.resolve_execution_plan(round_args("R5", test_type))
+            self.assertNotIn("PRIVACY-DENIED", {scenario.label for scenario in plan.scenarios})
+        aibid = qa_aos.resolve_execution_plan(round_args("R5", "aibid"))
+        self.assertIn("PRIVACY-DENIED", {scenario.label for scenario in aibid.scenarios})
 
-    def test_reen_report_plans_all_shared_signal_cards_including_r5_privacy(self):
-        for test_type in CAMPAIGN_PROFILES:
-            applicable = {
+    def test_reen_report_excludes_aibid_only_r5_privacy(self):
+        for test_type in ("reen-static", "reen-dynamic"):
+            for mode in ("standalone", "admob-mediation"):
+                applicable = {
+                    row["key"] for row in self.catalog
+                    if page._catalog_applicable(row, "aos", mode, test_type)
+                }
+                self.assertNotIn("advertising-id-opt-out", applicable)
+                self.assertNotIn("tracking-denied", applicable)
+                self.assertIn("dark-mode-enabled", applicable)
+        for mode in ("standalone", "admob-mediation"):
+            aibid = {
                 row["key"] for row in self.catalog
-                if page._catalog_applicable(row, "aos", "standalone", test_type)
+                if page._catalog_applicable(row, "aos", mode, "aibid")
             }
-            self.assertIn("advertising-id-opt-out", applicable)
-            self.assertIn("tracking-denied", applicable)
-            self.assertIn("dark-mode-enabled", applicable)
+            self.assertIn("advertising-id-opt-out", aibid)
+            self.assertIn("tracking-denied", aibid)
 
     def test_s14_to_s16_are_shared_by_aibid_and_reen(self):
         expected = {
@@ -138,8 +141,8 @@ class CampaignContractTests(unittest.TestCase):
         if reen_end < 0:
             reen_end = len(document)
         reen_detail = document[reen_start:reen_end]
-        self.assertIn('data-tc="advertising-id-opt-out"', reen_detail)
-        self.assertIn('data-tc="tracking-denied"', reen_detail)
+        self.assertNotIn('data-tc="advertising-id-opt-out"', reen_detail)
+        self.assertNotIn('data-tc="tracking-denied"', reen_detail)
 
     def test_campaign_skip_is_labeled_cannot_run(self):
         card = page._unexecuted_card(
