@@ -172,6 +172,8 @@ class CampaignContractTests(unittest.TestCase):
         self.assertNotIn('data-page="history"', document)
         self.assertIn('" TC・已執行 "+executed+"・未執行 "', document)
         self.assertIn('" TC · Executed "+executed+" · Not run "', document)
+        self.assertIn('data-manual-override-summary', document)
+        self.assertIn('data-manual-summary-reason', document)
         self.assertIn('data-slot="aos:standalone:reen-static"', document)
         reen_start = document.index('<section class="slot-detail" data-slot="aos:standalone:reen-static"')
         reen_end = document.find('<section class="slot-detail"', reen_start + 1)
@@ -180,6 +182,19 @@ class CampaignContractTests(unittest.TestCase):
         reen_detail = document[reen_start:reen_end]
         self.assertNotIn('data-tc="advertising-id-opt-out"', reen_detail)
         self.assertNotIn('data-tc="tracking-denied"', reen_detail)
+
+    def test_current_e2e_result_reasons_have_chinese_translations(self):
+        reasons = (
+            "At least one response-specified creative asset was not captured or failed its transport contract.",
+            "The response-specified creative assets either loaded successfully in traffic or were proven as rendered cached views in the saved screenshot.",
+            "The CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response.",
+            "The traffic lookup key was captured automatically. MMP install-click verification still requires the MMP action query.",
+            "The traffic lookup key was captured automatically. MMP re-engagement-click verification still requires the MMP action query.",
+            "The traffic lookup key was captured automatically. install attribution recognition still requires Spark/MMP reconciliation.",
+            "The traffic lookup key was captured automatically. re-engagement attribution recognition still requires Spark/MMP reconciliation.",
+        )
+        for reason in reasons:
+            self.assertIn(reason, page.DYNAMIC_ZH)
 
     def test_campaign_skip_is_labeled_cannot_run(self):
         card = page._unexecuted_card(

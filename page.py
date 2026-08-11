@@ -551,6 +551,13 @@ DYNAMIC_ZH = {
     "Not executed: backend reconciliation requires completed install attribution and internal-system access": "尚未執行：後台歸因核對需要先完成 install attribution，並取得內部系統查詢權限。",
     "The proxy traffic session proves a POST /v2/sdk/aos/ad transaction and preserves both bodies from the same flow.": "Proxy traffic session 已證明存在 POST /v2/sdk/aos/ad transaction，並保存同一個 flow 的 request 與 response body。",
     "The complete Appier impression callback chain was captured.": "已擷取完整的 Appier impression callback chain。",
+    "At least one response-specified creative asset was not captured or failed its transport contract.": "至少一個 response 指定的廣告素材未被擷取，或未通過傳輸契約檢查。",
+    "The response-specified creative assets either loaded successfully in traffic or were proven as rendered cached views in the saved screenshot.": "Response 指定的廣告素材已在流量中成功載入，或由保存的截圖證明為已渲染的快取畫面。",
+    "The CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response.": "CTA 點擊已送出 xclk，其 correlation IDs 與畫面曝光的廣告一致，並保存了 response。",
+    "The traffic lookup key was captured automatically. MMP install-click verification still requires the MMP action query.": "已自動保存流量查詢鍵；MMP install click 仍需透過 MMP action query 驗證。",
+    "The traffic lookup key was captured automatically. MMP re-engagement-click verification still requires the MMP action query.": "已自動保存流量查詢鍵；MMP re-engagement click 仍需透過 MMP action query 驗證。",
+    "The traffic lookup key was captured automatically. install attribution recognition still requires Spark/MMP reconciliation.": "已自動保存流量查詢鍵；Install 歸因認列仍需完成 Spark／MMP 對帳。",
+    "The traffic lookup key was captured automatically. re-engagement attribution recognition still requires Spark/MMP reconciliation.": "已自動保存流量查詢鍵；Re-engagement 歸因認列仍需完成 Spark／MMP 對帳。",
     "Mediation-only validator is not implemented yet; the shared S baseline is evaluated separately in the same Round": "Mediation-only validator 尚未實作；同一輪仍會另外執行並判定共用的 S baseline。",
     "Sample App limitation: process Locale.getDefault().toLanguageTag() is not exposed; persist.sys.locale is only supporting context and cannot be the expected answer": "Sample App 限制：目前沒有輸出 process 的 Locale.getDefault().toLanguageTag()；persist.sys.locale 只能作為輔助資訊，不能當作 Expected 答案。",
     "Dependency blocked: the specified CID has not been proven by the Appier ad request flow": "相依條件未通過：Appier ad request flow 尚未證明本次廣告來自指定 CID。",
@@ -842,7 +849,7 @@ def _result_card(row, catalog_by_key):
 <div class="result-head"><div><strong>{_tc_title(row)}</strong>
 <span class="tc-id">{html.escape(_tc_label(row["tc"], catalog_by_key))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
 <div class="card-tabs"><button class="on" data-card-tab="summary">{_bi("Result", "結果")}</button><button data-card-tab="evidence">Evidence</button></div>
-<div class="card-page" data-card-page="summary">{coverage_note}{comparison_html}{result_note}</div>
+<div class="card-page" data-card-page="summary"><div class="manual-override-summary" data-manual-override-summary hidden><div><b>{_bi("Manual override", "人工覆寫")}</b><span data-manual-summary-status></span></div><p data-manual-summary-reason></p></div>{coverage_note}{comparison_html}{result_note}</div>
 <div class="card-page" data-card-page="evidence" hidden><section class="evidence-contract captured-block"><label>{_bi("Captured source", "擷取來源")}</label>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""), str(platform_spec.get("evidence_note_en") or ""))}</section>
 {evidence_comparison_html}
 {version_review}
@@ -1146,6 +1153,7 @@ CSS = r"""
 .result-card[data-layer="e2e"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}.e2e-summary-block+ .e2e-summary-block{margin-top:11px}.e2e-summary-block>label{display:block;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.e2e-json-evidence .raw-capture pre code{font:inherit}
 .e2e-run-recording{display:grid;grid-template-columns:minmax(190px,.8fr) minmax(260px,1.2fr);gap:18px;align-items:center;margin:0 0 15px;padding:15px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.e2e-run-recording-copy span{color:var(--accent);font:800 9px var(--mono);letter-spacing:.08em;text-transform:uppercase}.e2e-run-recording-copy h4{margin:5px 0 4px;font-size:16px}.e2e-run-recording-copy p{margin:0;color:var(--soft);font-size:12px}.e2e-run-recording video{display:block;width:100%;max-height:420px;border-radius:9px;background:#000;object-fit:contain}@media(max-width:700px){.e2e-run-recording{grid-template-columns:1fr}}
 .coverage-source{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:9px 11px;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;background:var(--accent2)}.coverage-source span{color:var(--faint);font:750 8px var(--mono);letter-spacing:.07em;text-transform:uppercase}.coverage-source b{font-size:11px}.coverage-source small{color:var(--soft);font-size:10px}
+.manual-override-summary{margin:0 0 11px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--block) 55%,var(--line));border-left:4px solid var(--block);border-radius:0 9px 9px 0;background:color-mix(in srgb,var(--block) 12%,var(--panel))}.manual-override-summary>div{display:flex;align-items:center;gap:7px}.manual-override-summary b{font:850 10px var(--mono);color:var(--block);letter-spacing:.04em;text-transform:uppercase}.manual-override-summary span[data-manual-summary-status]{padding:2px 6px;border-radius:999px;background:var(--block);color:#fff;font:800 9px var(--mono)}.manual-override-summary p{margin:7px 0 0;color:var(--ink);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 """
 
 
@@ -1164,8 +1172,9 @@ SCRIPT = r"""
   var item=overrides[card.dataset.overrideKey],automation=card.dataset.automationStatus,status=item&&item.status?item.status.toLowerCase():automation;
   card.dataset.resultStatus=status;
   var badge=card.querySelector(".result-badges .status");badge.classList.remove("pass","failed","blocked");badge.classList.add(status);badge.textContent=status.toUpperCase();
-  var select=card.querySelector("[data-manual-status]"),reason=card.querySelector("[data-manual-reason]"),indicator=card.querySelector(".manual-indicator"),saved=card.querySelector(".manual-saved");
+  var select=card.querySelector("[data-manual-status]"),reason=card.querySelector("[data-manual-reason]"),indicator=card.querySelector(".manual-indicator"),saved=card.querySelector(".manual-saved"),summary=card.querySelector("[data-manual-override-summary]");
   select.value=item?item.status:"";reason.value=item?item.reason:"";indicator.hidden=!item;saved.hidden=!item;
+  summary.hidden=!item;summary.querySelector("[data-manual-summary-status]").textContent=item?item.status:"";summary.querySelector("[data-manual-summary-reason]").textContent=item?item.reason:"";
   var expectedInput=card.querySelector("[data-version-expected]");if(expectedInput)expectedInput.value=item&&item.expected_version?item.expected_version:"";
   card.querySelectorAll(".manual-expected-comparison").forEach(function(versionSummary){var expectedValue=versionSummary.querySelector(".required-value b"),operator=versionSummary.querySelector(".comparison-operator");expectedValue.textContent=item&&item.expected_version?item.expected_version:"Enter in Evidence";operator.textContent=item&&item.expected_version?(item.status==="PASS"?"=":"≠"):"?"});
   if(item)saved.textContent=item.status+" — "+item.reason+"\nUpdated "+item.updated_at;
