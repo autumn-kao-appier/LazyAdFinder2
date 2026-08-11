@@ -162,9 +162,11 @@ baseline 或任何預設狀態。
   Runner 必須在任何裝置狀態變更前執行 Scenario preflight。必要條件不存在時直接 `SKIPPED`：
   保存 `round-skip.json` 說明條件與原因，但不得抓包、不得產生 `verdicts.json`；Page 以灰底
   「未執行」呈現。只有前置條件成立並開始執行後，才允許產生 PASS／FAILED／BLOCKED。
-  R5 Privacy 是 AIBID 必跑 Scenario；不可因設定頁或 Evidence 入口異常而預先跳過。REEN Static／
-  Dynamic 因 tracking denied 時沒有可驗證的 advertising identifier，R5 Privacy 必須直接 SKIPPED，
-  但 R5 其他裝置狀態 Scenario 仍照常執行。
+  R5 Privacy 是 AIBID-only Scenario。REEN Static／Dynamic 的執行計畫與報告不得列出這兩條，
+  但 R5 其他裝置狀態 Scenario 仍照常執行。AIBID Mediation Automation 不得刪除 GAID：一般 R5
+  先輸出 BLOCKED，完整 Mediation／E2E 結束後才以 Standalone 執行 R5-1 並回填同一輪的共用
+  SDK Signal Evidence；R5-1 後不得再送 Mediation request。`--privacy-verification manual` 則
+  保留 BLOCKED 與人工覆寫入口。
   AIBID、REEN Static、REEN Dynamic 必須共用同一套 R1–R5 與 E2E runner，不得複製成三份流程。
   REEN E2E 必須在執行前提供 `TARGET_APP_PACKAGE`；S14 驗證 tracked click 確實開啟該 App，S15
   查 MMP Click Action，S16 使用同一組 BidObjectId／CID／時間窗口核對歸因認列。AIBID S14–S16

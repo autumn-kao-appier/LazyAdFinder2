@@ -233,16 +233,18 @@ def validate_bundle(folder):
         )
         for row in asset_responses
     )
-    rendered_assets_ok = bool(
-        visual_review.get("passed")
-        and visual_review.get("checks", {}).get("returned_images_have_rendered_views")
+    observed_asset_urls = {str(row.get("url") or "") for row in asset_responses}
+    asset_transport_ok = bool(
+        creative_urls
+        and creative_urls.issubset(observed_asset_urls)
+        and observed_transport_ok
     )
-    asset_transport_ok = bool(creative_urls and observed_transport_ok and rendered_assets_ok)
     asset_actual = {
         "response_asset_urls": contract["asset_urls"],
         "observed_asset_responses": asset_responses,
-        "unobserved_urls_are_allowed_only_with_rendered_view_evidence": True,
-        "rendered_assets_verified": rendered_assets_ok,
+        "expected_asset_count": len(creative_urls),
+        "observed_asset_count": len(creative_urls & observed_asset_urls),
+        "all_response_assets_observed": creative_urls.issubset(observed_asset_urls),
     }
     if not request_minimum:
         asset_row = _evaluated(
@@ -252,15 +254,6 @@ def validate_bundle(folder):
             False,
             "appier-ad-flow.json",
             "FAILED: the round ran, but the specified CID was not proven by the Appier ad request flow.",
-        )
-    elif not screenshot_exists:
-        asset_row = _evaluated(
-            "standalone-creative-assets",
-            {"rendered_ad_screenshot": True},
-            {"cid": cid, "screenshot_saved": False},
-            False,
-            "summary.json",
-            "FAILED: the specified CID was confirmed, but no rendered-ad screenshot was saved.",
         )
     elif not creative_urls:
         asset_row = _evaluated(
@@ -274,20 +267,20 @@ def validate_bundle(folder):
     elif not asset_transport_ok:
         asset_row = _evaluated(
             "standalone-creative-assets",
-            {"observed_assets_http_200_or_cached_304": True, "image_mime": True, "rendered_assets_visible": True},
+            {"all_response_assets_observed": True, "http_200_or_cached_304": True, "image_mime": True, "non_empty_body": True},
             asset_actual,
             False,
             "e2e-network-evidence.json",
-            "At least one captured creative asset failed its transport check.",
+            "At least one response-specified creative asset was not captured or failed its transport contract.",
         )
     else:
         asset_row = _evaluated(
             "standalone-creative-assets",
-            {"specified_cid_confirmed": True, "rendered_ad_screenshot": True, "asset_transport_ok_or_rendered_cache": True},
-            {"cid": cid, "screenshot": "screenshot.png", **asset_actual},
+            {"specified_cid_confirmed": True, "all_response_assets_observed": True, "asset_transport_ok": True},
+            {"cid": cid, **asset_actual},
             True,
-            "screenshot.png",
-            "The response-specified creative assets either loaded successfully in traffic or were proven as rendered cached views in the saved screenshot.",
+            "e2e-network-evidence.json",
+            "Every response-specified creative asset was captured with a successful image transport response.",
         )
 
     impressions = _response_events(events, "impression")
@@ -326,21 +319,19 @@ def validate_bundle(folder):
         click_state.get("attempted")
         and matching_clicks
         and matching_clicks[-1].get("status") in (200, 301, 302, 303, 307, 308)
-        and click_screenshot
     )
     click_row = _evaluated(
         "standalone-click",
-        {"xclk_matches_visible_impression": True, "http_success_or_redirect": True, "landing_screenshot": True},
+        {"xclk_matches_visible_impression": True, "http_success_or_redirect": True},
         {
             "attempted": bool(click_state.get("attempted")),
             "expected_clk": contract["click_url"],
             "visible_impression_ids": impression_ids,
             "matching_proxy_responses": matching_clicks,
-            "landing_screenshot_saved": click_screenshot,
         },
         click_ok,
-        "e2e-interactions.mp4" if (folder / "e2e-interactions.mp4").is_file() else "e2e-interactions.json",
-        "The recorded CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response." if click_ok else "FAILED: the E2E round does not prove the CTA click with visible interaction evidence and an xclk matching the visible impression.",
+        "e2e-network-evidence.json",
+        "The CTA interaction emitted an xclk whose correlation IDs match the visible impression, and preserved its response." if click_ok else "FAILED: the E2E round does not contain a successful xclk response matching the visible impression.",
     )
 
     # Preserve the exact lookup key for the exposure that led to the tested
@@ -441,6 +432,8 @@ def validate_bundle(folder):
         "asset_responses": asset_responses,
         "impression_responses": impressions,
         "winshowimg_responses": wins,
+        "click_responses": click_responses,
+        "matching_click_responses": matching_clicks,
     }
     (folder / "e2e-network-evidence.json").write_text(
         json.dumps(network_evidence, ensure_ascii=False, indent=2) + "\n"

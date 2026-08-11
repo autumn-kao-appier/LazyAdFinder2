@@ -2,6 +2,7 @@
 """Build one human-readable evidence bundle from a capture."""
 
 import json
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -105,6 +106,7 @@ def finalize_bundle(
         "test_round": config.test_round,
         "test_run_id": getattr(config, "test_run_id", ""),
         "test_run_started_at": getattr(config, "test_run_started_at", ""),
+        "coverage_only": os.environ.get("PRIVACY_COVERAGE_ONLY", "") == "1",
         "capture_name": folder.name.rsplit("_", 2)[0],
         "started_at": started_at,
         "finished_at": finished_at,

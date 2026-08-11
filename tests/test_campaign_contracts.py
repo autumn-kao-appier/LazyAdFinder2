@@ -52,6 +52,41 @@ class CampaignContractTests(unittest.TestCase):
         aibid = qa_aos.resolve_execution_plan(round_args("R5", "aibid"))
         self.assertIn("PRIVACY-DENIED", {scenario.label for scenario in aibid.scenarios})
 
+    def test_r5_1_is_aibid_standalone_only(self):
+        plan = qa_aos.resolve_execution_plan(round_args("R5-1", "aibid", "standalone"))
+        self.assertEqual("R5-1", plan.round_name)
+        self.assertEqual(("PRIVACY-DENIED",), tuple(item.label for item in plan.scenarios))
+        with self.assertRaises(qa_aos.CaptureError):
+            qa_aos.resolve_execution_plan(round_args("R5-1", "aibid", "admob-mediation"))
+        with self.assertRaises(qa_aos.CaptureError):
+            qa_aos.resolve_execution_plan(round_args("R5-1", "reen-static", "standalone"))
+
+    def test_mediation_r5_blocks_privacy_without_deleting_gaid(self):
+        plan = qa_aos.resolve_execution_plan(round_args("R5", "aibid", "admob-mediation"))
+        with patch.object(qa_aos, "location_permission_preflight", return_value=(True, "ready", {})):
+            resolved = qa_aos.preflight_execution_plan(plan, types.SimpleNamespace(test_type="aibid"))
+        privacy = next(item for item in resolved.scenarios if item.label == "PRIVACY-DENIED")
+        self.assertEqual("BLOCK", privacy.decision)
+        self.assertIn("TestDevice", privacy.reason)
+
+    def test_same_run_standalone_privacy_can_cover_mediation_block(self):
+        common = {
+            "tc": "tracking-denied", "platform": "aos", "test_type": "aibid",
+            "run_group": "run-1", "captured_at": "2026-08-11T10:00:00+08:00",
+            "expected": None, "actual": None, "comparison_view": None, "evidence": None,
+            "source": ROOT / "blocked-verdicts.json", "coverage_only": False,
+        }
+        mediation = {**common, "mode_group": "mediation", "status": "BLOCKED", "reason": "safe default"}
+        standalone = {
+            **common, "mode_group": "standalone", "status": "PASS", "reason": "matched",
+            "expected": {"lat": 1}, "actual": {"lat": 1}, "evidence": "bid_decoded.json",
+            "source": ROOT / "standalone-verdicts.json", "coverage_only": True,
+        }
+        linked = page._apply_standalone_privacy_coverage([mediation, standalone])
+        result = next(row for row in linked if row["mode_group"] == "mediation")
+        self.assertEqual("PASS", result["status"])
+        self.assertIn("Standalone R5-1", result["coverage_source"])
+
     def test_reen_report_excludes_aibid_only_r5_privacy(self):
         for test_type in ("reen-static", "reen-dynamic"):
             for mode in ("standalone", "admob-mediation"):

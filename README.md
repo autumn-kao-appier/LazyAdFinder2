@@ -1,7 +1,59 @@
 # LazyAdFinder2
 
 LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。TC、正確標準、Evidence 與報告
-由人工逐條定義；目前 AOS R1 已有七條 Signal TC。
+由人工逐條定義；目前只有 AOS 完成可用的 Signal／E2E 自動化閉環。
+
+## 目前覆蓋範圍與使用但書
+
+- **目前僅完成 AOS**：Android 已建立 Round、Evidence、Validator、Verdict 與 Report 的實機閉環。
+  iOS 只保留 runner／capture 與部分框架，尚未完成與 AOS 同等的 TC 覆蓋，不得將目前結果解讀為
+  已完成跨平台驗證。
+- **目前自動化以專案開發者的 Android 實機為主要基準**：TC setup、Android Settings 路徑、
+  UI 文字、元件位置與人眼 Evidence，是依目前測試手機的實際 UI 狀態逐條建立。
+  不同 Android 版本、廠牌 ROM、系統語言、螢幕尺寸或 Settings 版型都可能導致尚未覆蓋的差異。
+- **通過現有 TC 不代表已覆蓋所有裝置與環境**：未納入 Catalog／Round 的欄位、裝置狀態、
+  OEM 差異、系統版本與外部服務失敗，都不在現有自動化保證範圍內。每條 TC 的實際覆蓋以
+  `testcases/testcase_catalog.json` 與 `testcases/testcase_specifications.md` 為準。
+- **尚未設計所有外力干擾的自動防呆**：例如防災／緊急警報、來電、鎖定畫面、系統強制對話框、
+  通知覆蓋、網路被切換，或其他中斷 Appium／ADB／抓包時序的事件，目前不保證能自動關閉、繞過或復原。
+- **遇到上述干擾時需要人工介入**：操作者應確認手機畫面、排除干擾、檢查裝置狀態與 Evidence，
+  必要時重跑受影響的 Scenario。外力干擾造成的擷取失敗不應盲目解讀為 SDK 功能 `FAILED`；
+  應依是否已開始執行與現有 Evidence，正確記錄為未執行、`BLOCKED` 或重新執行。
+- **Sample App 不等於所有 Publisher App**：目前結果驗證的是指定 Sample App、SDK build、Campaign 與
+  QA 實機組合。真實 Publisher App 的生命週期、語言資源、權限、WebView、ProGuard／R8、
+  Mediation 設定與其他 SDK 交互可能產生不同結果，需依實際整合另行驗證。
+- **目前只支援單裝置、單 Run 序列執行**：AOS、mitmdump 與 Evidence 封裝共用固定暫存狀態；
+  尚未對同時執行多台手機、多個 suite 或 AOS／iOS 平行 capture 提供隔離保證。
+  平行執行可能使 request、response、impression、log 或截圖混入其他 Run。
+- **外部環境是必要前提，不是 Automation 能保證的結果**：執行依賴 Appium／UiAutomator2、ADB、
+  Charles、mitmdump、proxy／CA 信任、網路連線、後端服務、Campaign／CID 設定與可用廣告。
+  沒有 bid、CID 未命中或外部服務無回應，不得未經分析就解讀為 SDK 邏輯錯誤。
+- **裝置狀態復原為 best effort**：部分 Scenario 會修改追蹤設定、深色模式、字體、亮度、音量、
+  省電模式、時區或權限。Runner 會嘗試復原，但進程被終止、ADB 斷線、系統 UI 改變或外力干擾時
+  無法保證成功；每次異常中斷後都應人工確認手機已回復預期狀態。
+- **Report 是自動判定與導覽工具，不取代人工 Evidence review**：特別是 `BLOCKED`、中斷擷取、
+  UI 截圖、動態容差與外部服務異常，都應開啟 raw Evidence 確認。Page 主要呈現每個平台／
+  模式／類型／TC 的最新結果；舊結果仍保留在 Evidence，不一定出現在主報告。
+
+### 執行狀態的正確解讀
+
+| 情況 | 報告／處理方式 |
+|---|---|
+| 前置條件不成立，TC 尚未開始 | 不產生 Verdict，以 `SKIPPED`／未執行呈現 |
+| TC 已開始，但環境、外力或缺少獨立真值使比較無法完成 | `BLOCKED`，保留已取得的 Evidence 與原因 |
+| Evidence 完整，SDK 實際值符合已確認標準 | `PASS` |
+| Evidence 完整，SDK 實際值不符合已確認標準 | `FAILED` |
+| Evidence 受防災警報、來電、系統對話框等干擾 | 人工排除後重跑；不得直接將干擾當作 SDK `FAILED` |
+
+### 每次執行的實際基準
+
+README 不固定寫死裝置與工具版本，以免文件過期。每次報告的適用範圍應以當次
+Evidence 中的 `summary.json`、`traffic.log`、截圖與 Test Run metadata 為準，至少確認：
+
+- 裝置型號、Android 版本、SDK level 與系統語言／時區。
+- Sample App package、SDK build／version、Campaign type、CID 與 integration mode。
+- Test Run ID、開始／結束時間、executor 與實際執行的 Round／Scenario。
+- Proxy 與網路路徑，以及當次是否發生人工介入、外力干擾或狀態復原異常。
 
 ## 目前邊界
 
@@ -75,7 +127,7 @@ export TEST_TYPE=reen-static   # 或 reen-dynamic
 export TARGET_APP_PACKAGE='<promoted-app-package>'
 ```
 
-REEN 的 R5 只跳過 Advertising ID opt-out 與 tracking-denied；其他裝置狀態 Scenario 仍會執行。
+REEN 的執行計畫與報告不列 Advertising ID opt-out 與 tracking-denied；其他 R5 裝置狀態 Scenario 仍會執行。
 
 使用任何 Mediation 模式前，runner 會在第一個廣告操作之前強制詢問：這支手機是否已在
 [Google AdMob 登記為 Test Device](https://developers.google.com/admob/android/test-ads)。若尚未登入，請先依
@@ -110,6 +162,11 @@ python3 run_aos_test_suite.py --integration-mode mediation ...
 兩個入口都執行相同 R1–R5 Signal。Standalone 自動追加 E2E-S；Mediation 自動追加
 E2E-S 與現有 E2E-M（AdMob）。完整 suite 預設執行 E2E；只有明確指定 `--signal-only`
 才只執行 R1–R5。
+
+AIBID Mediation 不會在刪除 GAID 後自動送出 AdMob request。一般 R5 會將兩條 tracking-denied
+Privacy TC 記為 BLOCKED；整輪 Mediation／E2E 完成後，預設追加 Standalone `R5-1` 作為共用
+SDK Signal Evidence。若要改由人工處理，加入 `--privacy-verification manual`；報告會維持
+BLOCKED，並保留人工覆寫入口。
 
 擷取一次符合 CID 的廣告：
 
@@ -176,7 +233,7 @@ Evidence 保留原始觀察；`bid_decoded.json` 是獨立的衍生檔，不回�
 本輪 logcat，iOS 使用本輪 syslog，統一落成 `traffic.log`；Charles/mitmdump 仍負責拆出
 原始 bid 與 impression 事件，但不偽造實際未取得的 HAR。
 
-## iOS raw capture
+## iOS raw capture（尚未完成完整 TC 覆蓋）
 
 iOS runner 與 AOS 有相同責任，但以 XCUITest／WebDriverAgent、`idevice_id`、
 `idevicesyslog` 和 accessibility id 獨立實作。

@@ -134,7 +134,7 @@ def current_verdicts(verdicts, catalog, captures=()):
     registered = {str(row["key"]) for row in catalog}
     explicit_runs = {}
     for row in verdicts:
-        if not row.get("test_run_id"):
+        if row.get("coverage_only") or not row.get("test_run_id"):
             continue
         slot = (row["platform"], row["mode_group"], row["test_type"])
         current = explicit_runs.get(slot)
@@ -142,7 +142,7 @@ def current_verdicts(verdicts, catalog, captures=()):
             explicit_runs[slot] = (row["captured_at"], row["run_group"])
     latest = {}
     for row in verdicts:
-        if row["tc"] not in registered:
+        if row.get("coverage_only") or row["tc"] not in registered:
             continue
         slot = (row["platform"], row["mode_group"], row["test_type"])
         selected = explicit_runs.get(slot)
@@ -288,6 +288,7 @@ def _verdict_rows(document, path):
             "run_root": str(path.parent.parent.resolve()),
             "test_run_id": str(metadata.get("test_run_id", "")).strip(),
             "test_run_started_at": str(metadata.get("test_run_started_at", "")).strip(),
+            "coverage_only": bool(metadata.get("coverage_only", False)),
             "run_group": str(metadata.get("test_run_id", "")).strip() or str(path.parent.parent.resolve()),
             "capture_name": str(metadata.get("capture_name", "")),
             "test_round": str(config.get("test_round", "")),
@@ -315,7 +316,51 @@ def discover(evidence_dirs):
             seen.add(resolved)
             verdict_files.append(resolved)
             verdicts.extend(_verdict_rows(_load_json(resolved), resolved))
-    return verdicts, captures, verdict_files
+    return _apply_standalone_privacy_coverage(verdicts), captures, verdict_files
+
+
+def _apply_standalone_privacy_coverage(verdicts):
+    """Reuse same-suite Standalone R5-1 Signal results on AIBID Mediation cards."""
+    privacy_keys = {"advertising-id-opt-out", "tracking-denied"}
+    standalone = {}
+    for row in verdicts:
+        if (
+            row.get("tc") in privacy_keys
+            and row.get("platform") == "aos"
+            and row.get("mode_group") == "standalone"
+            and row.get("test_type") == "aibid"
+            and row.get("status") in {Status.PASS.value, Status.FAILED.value}
+        ):
+            key = (row.get("run_group"), row.get("tc"))
+            previous = standalone.get(key)
+            if previous is None or row.get("captured_at", "") >= previous.get("captured_at", ""):
+                standalone[key] = row
+    linked = []
+    for row in verdicts:
+        candidate = standalone.get((row.get("run_group"), row.get("tc")))
+        if not (
+            candidate
+            and row.get("platform") == "aos"
+            and row.get("mode_group") == "mediation"
+            and row.get("test_type") == "aibid"
+            and row.get("tc") in privacy_keys
+            and row.get("status") == Status.BLOCKED.value
+        ):
+            linked.append(row)
+            continue
+        inherited = dict(row)
+        inherited.update({
+            "status": candidate["status"],
+            "reason": "Verified by the same suite's Standalone R5-1 Android SDK Signal evidence; no GAID-denied AdMob Mediation request was sent.",
+            "expected": candidate.get("expected"),
+            "actual": candidate.get("actual"),
+            "comparison_view": candidate.get("comparison_view"),
+            "evidence": candidate.get("evidence"),
+            "source": candidate.get("source"),
+            "coverage_source": "Standalone R5-1 · Shared Android SDK Signal",
+        })
+        linked.append(inherited)
+    return linked
 
 
 def _display(value):
@@ -492,6 +537,7 @@ DYNAMIC_ZH = {
     "Request and extended BCP 47 tags must equal the precise language and region of the current App locale.": "Request 與 Extended 的 BCP 47 標籤必須等於 App 當前語言與地區的高精度標籤。",
     "lang does not match the primary Android system language code": "device.lang 不符合 Android 設定頁第一順位的系統語言代碼。",
     "Platform definition: Android Ads SDK has no standalone Init endpoint; keep BLOCKED while deciding whether AOS needs an equivalent contract aligned with the iOS Init flow": "平台定義：Android Ads SDK 沒有獨立的 Standalone Init endpoint；此項維持 BLOCKED，等待確認是否需要建立與 iOS Init 流程對齊的 AOS 等效契約。",
+    "Verified by the same suite's Standalone R5-1 Android SDK Signal evidence; no GAID-denied AdMob Mediation request was sent.": "已使用同一輪 Standalone R5-1 的 Android SDK Signal Evidence 完成驗證；沒有在 GAID 拒絕狀態下送出 AdMob Mediation request。",
     "Capture limitation: no preserved proxy transaction proves that POST /v2/sdk/aos/ad request and response belong to the same flow": "擷取限制：目前沒有保存可證明 POST /v2/sdk/aos/ad request 與 response 屬於同一個 flow 的 proxy transaction。",
     "Capture limitation: the proxy flow exists, but its request or response body was not preserved": "擷取限制：已取得 proxy flow，但沒有完整保存 request 或 response body。",
     "Capture limitation: no image response metadata was preserved; asset HTTP and MIME checks could not run": "擷取限制：沒有保存圖片 response metadata，因此無法執行素材 HTTP 與 MIME 檢查。",
@@ -624,6 +670,11 @@ def _evidence_content(row, guidance="", guidance_en=""):
         target = row["source"].parent / target
     if not target.exists():
         return guidance_html + f'<div class="evidence-missing">{_bi("Evidence file not found", "找不到 Evidence 檔案")} · {html.escape(reference)}</div>'
+    if row.get("tc") in {"standalone-creative-assets", "standalone-click"}:
+        network_evidence = target.parent / "e2e-network-evidence.json"
+        if network_evidence.is_file():
+            target = network_evidence
+            reference = network_evidence.name
     if row.get("tc") == "admob-pubsetting" and target.suffix.lower() == ".json":
         document = _load_json(target)
         pubsetting = document.get("pubsetting", {}) if isinstance(document, dict) else {}
@@ -771,6 +822,9 @@ def _result_card(row, catalog_by_key):
     result_note = ""
     if row["reason"]:
         result_note = f'<div class="result-note"><b>{_bi("Result note", "結果說明")}</b><p data-automation-reason="{html.escape(row["reason"], quote=True)}">{_dynamic_bi(row["reason"])}</p></div>'
+    coverage_note = ""
+    if row.get("coverage_source"):
+        coverage_note = f'<div class="coverage-source"><span>{_bi("Evidence source", "驗證來源")}</span><b>{html.escape(str(row["coverage_source"]))}</b><small>{_bi("No GAID-denied Mediation request was sent.", "未在 GAID 刪除狀態下送出 Mediation request。")}</small></div>'
     override_key = ":".join((
         row["platform"], row["mode_group"], row["test_type"], row["captured_at"], row["tc"]
     ))
@@ -788,7 +842,7 @@ def _result_card(row, catalog_by_key):
 <div class="result-head"><div><strong>{_tc_title(row)}</strong>
 <span class="tc-id">{html.escape(_tc_label(row["tc"], catalog_by_key))}</span></div><div class="result-badges"><span class="priority-tag">{html.escape(priority)}</span><span class="status {row["status"].lower()}">{row["status"]}</span></div></div>
 <div class="card-tabs"><button class="on" data-card-tab="summary">{_bi("Result", "結果")}</button><button data-card-tab="evidence">Evidence</button></div>
-<div class="card-page" data-card-page="summary">{comparison_html}{result_note}</div>
+<div class="card-page" data-card-page="summary">{coverage_note}{comparison_html}{result_note}</div>
 <div class="card-page" data-card-page="evidence" hidden><section class="evidence-contract captured-block"><label>{_bi("Captured source", "擷取來源")}</label>{_evidence_content(row, str(platform_spec.get("evidence_note") or ""), str(platform_spec.get("evidence_note_en") or ""))}</section>
 {evidence_comparison_html}
 {version_review}
@@ -907,6 +961,24 @@ def _slot_card(platform, mode, kind, label, description, rows):
 <b class="open">{_bi("View results →", "查看結果 →")}</b></button>'''
 
 
+def _e2e_run_recording(rows):
+    """Render one shared operation recording for the E2E journey, not per TC."""
+    candidates = sorted(
+        (row for row in rows if str(row.get("layer", "")).lower() == "e2e"),
+        key=lambda row: row.get("captured_at", ""),
+        reverse=True,
+    )
+    for row in candidates:
+        video = Path(row["source"]).parent / "e2e-interactions.mp4"
+        if not video.is_file():
+            continue
+        asset_url = _register_report_asset(video)
+        return f'''<section class="e2e-run-recording">
+<div class="e2e-run-recording-copy"><span>{_bi("Shared E2E Evidence", "E2E 共用 Evidence")}</span><h4>{_bi("Complete interaction recording", "完整操作紀錄")}</h4><p>{_bi("Ad display → Privacy interaction → Return to ad → CTA click → Final destination.<br>This recording documents the complete journey.", "廣告顯示 → Privacy 操作 → 返回廣告 → CTA 點擊 → 最終目的地。<br>影片記錄完整流程。")}</p></div>
+<video controls preload="metadata" src="{html.escape(asset_url, quote=True)}"></video></section>'''
+    return ""
+
+
 def _slot_detail(platform, mode, kind, label, rows, catalog_by_key, skip_reasons=None):
     skip_reasons = skip_reasons or {}
     planned = [
@@ -939,13 +1011,14 @@ def _slot_detail(platform, mode, kind, label, rows, catalog_by_key, skip_reasons
         return "".join(groups)
     signal_cards = cards_for("signal") or '<div class="empty"><b>Signal 尚無結果</b><p>加入 Signal TC 並產生 Verdict 後顯示於此。</p></div>'
     e2e_cards = cards_for("e2e") or '<div class="empty"><b>E2E 尚未建立</b><p>位置已保留；Signal 完成後再加入完整鏈路 TC。</p></div>'
+    e2e_recording = _e2e_run_recording(rows)
     platform_label = next(item[1] for item in PLATFORMS if item[0] == platform)
     mode_label = next(item[1] for item in MODES if item[0] == mode)
     return f'''<section class="slot-detail" data-slot="{platform}:{mode}:{kind}" hidden>
 <div class="detail-bar"><button class="back">{_bi("← Back to categories", "← 返回分類")}</button><div><span class="crumb">{platform_label} / {mode_label}</span><h2>{html.escape(label)}</h2></div></div>
 {_status_filters(rows)}
 {_run_information(rows)}
-<div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Config / Route → Appier Ad → Creative / Render → Impression / Fill → Click → Landing / Privacy → Attribution</p></div></div><div class="result-grid">{e2e_cards}</div></div>
+<div class="report-section"><div class="section-title"><span>01</span><div><h3>E2E</h3><p>Init → Config / Route → Appier Ad → Creative / Render → Impression / Fill → Click → Landing / Privacy → Attribution</p></div></div>{e2e_recording}<div class="result-grid">{e2e_cards}</div></div>
 <div class="report-section"><div class="section-title"><span>02</span><div><h3>Signal</h3><p>{_bi("Ordered by execution Round; gray cards were not run.", "依執行 Round 排列；灰色卡片代表未執行。")}</p></div></div>{signal_rounds()}</div></section>'''
 
 
@@ -1060,7 +1133,7 @@ CSS = r"""
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}button,select{font:inherit}.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:10px 18px;background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}.brand{font-weight:800}.brand small{display:block;color:var(--faint);font:10px var(--mono)}.main-nav{display:flex;gap:4px}.main-nav button,.seg button,.back,.theme{border:1px solid transparent;background:transparent;color:var(--soft);padding:7px 12px;border-radius:8px;cursor:pointer}.main-nav button.on,.seg button.on{background:var(--accent2);color:var(--accent);font-weight:750}.theme{margin-left:auto;border-color:var(--line)}main{max-width:1180px;margin:auto;padding:25px 20px 50px}.hero h1{margin:0;font-size:23px}.hero p{color:var(--soft)}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}.seg{display:flex;gap:3px;padding:3px;background:var(--panel);border:1px solid var(--line);border-radius:11px}.seg.platform button[data-value=aos].on{color:var(--aos)}.seg.platform button[data-value=ios].on{color:var(--ios)}.type-grid,.result-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:15px}.type-card{background:var(--panel);color:inherit;text-align:left;border:1px solid var(--line);border-radius:14px;padding:17px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}.type-card:hover{transform:translateY(-2px);border-color:var(--accent)}.type-card>div:first-child,.result-head,footer{display:flex;justify-content:space-between;gap:10px}.type-id,.tc-id,.crumb{font:700 11px var(--mono);color:var(--accent)}.total{color:var(--faint);font-size:11px}.type-card h3{margin:8px 0 2px;font-size:18px}.type-card p{color:var(--soft);min-height:40px}.counts{display:flex;gap:10px;font-size:10px}.pass-text{color:var(--pass)}.failed-text{color:var(--fail)}.blocked-text{color:var(--block)}.open{display:block;color:var(--accent);margin-top:15px;font-size:12px}.detail-bar{display:flex;align-items:center;gap:15px;margin-bottom:18px}.detail-bar h2{margin:2px 0}.back{border-color:var(--line);background:var(--panel)}.result-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px;box-shadow:var(--shadow)}.result-head>div{display:flex;flex-direction:column}.status{font:750 11px var(--mono);padding:4px 9px;border-radius:999px;height:max-content}.status.pass{color:var(--pass);background:#2f7d3a20}.status.failed{color:var(--fail);background:#c0392b20}.status.blocked{color:var(--block);background:#b5761a20}.context{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.context span{background:var(--panel2);padding:4px 7px;border-radius:6px;font-size:11px}.answers{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answers label,.platform-spec>b{font-size:10px;color:var(--faint);text-transform:uppercase}.answers pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel2);padding:9px;border-radius:7px;min-height:50px;font:12px var(--mono)}footer{color:var(--faint);font-size:11px}a{color:var(--accent)}.missing{color:var(--fail);text-decoration:line-through}.empty{padding:45px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:13px;color:var(--soft)}.catalog-head{display:flex;justify-content:space-between;align-items:end;gap:20px}.catalog-head p{color:var(--soft)}.catalog-section{margin-top:28px}.catalog-section>.section-title>b{margin-left:auto;color:var(--faint);font:700 11px var(--mono)}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}table{border-collapse:collapse;width:100%;min-width:1180px}th,td{text-align:left;vertical-align:top;padding:14px;border-bottom:1px solid var(--line)}th{position:sticky;top:0;background:var(--panel2);font-size:11px;color:var(--faint);text-transform:uppercase}td:first-child{width:120px}.catalog-id{display:block;font:750 13px var(--mono);margin:7px 0}.draft,.priority{display:inline-block;padding:2px 6px;border-radius:5px;background:var(--accent2);color:var(--accent);font:700 9px var(--mono)}td code{color:var(--accent)}.priority{margin-left:7px}.platform-spec p,.na p{margin:3px 0 10px;color:var(--soft);min-width:250px}.na{color:var(--faint)}.mode-cell{width:86px;min-width:86px;text-align:center}.mode-cell small{display:block;margin-top:4px;color:var(--faint)}.mode-availability{display:inline-grid;place-items:center;width:25px;height:25px;border-radius:999px;font:800 12px var(--mono)}.mode-availability.yes{color:var(--pass);background:#2f7d3a20}.mode-availability.no{color:var(--faint);background:var(--panel2)}.meta{color:var(--faint);font-size:11px;margin-top:20px}[hidden]{display:none!important}@media(max-width:650px){main{padding:18px 12px}.top{flex-wrap:wrap}.main-nav{order:3;width:100%}.answers{grid-template-columns:1fr}}
 .layer-row{display:grid;grid-template-columns:58px 26px 26px 1fr auto;gap:6px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:10px}.layer-row>b{font-size:11px}.layer-row small{color:var(--faint)}
 .report-section{margin:22px 0 32px}.section-title{display:flex;align-items:center;gap:11px;margin-bottom:12px}.section-title>span{font:800 11px var(--mono);color:var(--accent);background:var(--accent2);padding:6px;border-radius:7px}.section-title h3,.section-title p{margin:0}.section-title p{color:var(--faint);font-size:11px}
-.result-badges{align-items:flex-end;gap:5px}.priority-tag{font:800 11px var(--mono);padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent)}.card-tabs{display:flex;gap:4px;margin:14px 0 11px;border-bottom:1px solid var(--line)}.card-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--faint);padding:6px 9px;cursor:pointer}.card-tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:750}.card-page{min-height:250px}.comparison-hero{background:var(--panel2);border-radius:12px;padding:14px;margin-bottom:10px}.comparison-pair,.comparison-triplet{display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);align-items:center;gap:7px}.comparison-triplet{grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr) 22px minmax(0,1fr)}.comparison-value{min-width:0;text-align:center;padding:13px 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.comparison-value label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.05em;text-transform:uppercase}.comparison-value b{display:block;margin-top:7px;font:800 16px var(--mono);overflow-wrap:anywhere}.captured-value{border-top:3px solid var(--accent)}.actual-value{border-top:3px solid var(--pass)}.required-value{border-top:3px solid var(--block)}.comparison-operator{text-align:center;font:900 19px var(--mono);color:var(--soft)}.comparison-hero>p{margin:11px 1px 0;line-height:1.45;color:var(--soft)}.comparison-hero>p span{display:block;color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.comparison-hero>small{display:block;margin-top:7px;color:var(--faint)}.comparison-rule-value .comparison-value{text-align:left}.blocked-comparison{display:flex;justify-content:space-between;color:var(--block)}.expected-block,.actual-block{background:var(--panel2);border-radius:9px;padding:11px 12px;margin-bottom:10px}.expected-block label,.actual-block label,.captured-block>label,.run-info label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.expected-block p{margin:5px 0 0;color:var(--ink);line-height:1.6}.captured-block{border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:10px}.captured-block>label{margin-bottom:9px}.facts{margin:5px 0 0}.facts>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.facts>div:first-child{border-top:0}.facts dt{color:var(--soft)}.facts dd{margin:0;text-align:right;font:650 11px var(--mono);overflow-wrap:anywhere}.result-note{border-left:3px solid var(--block);padding:7px 10px}.result-note p{margin:3px 0}.evidence-guidance{border-left:3px solid var(--accent);background:var(--accent2);border-radius:0 9px 9px 0;padding:10px 12px;margin-bottom:10px}.evidence-guidance p{margin:4px 0 0;line-height:1.55}.evidence-image{margin:0;display:flex;flex-direction:column;align-items:center}.evidence-image img{display:block;max-width:100%;height:390px;object-fit:contain;border-radius:9px;background:#000}.evidence-image figcaption{color:var(--faint);font:10px var(--mono);margin-top:6px}.evidence-data,.evidence-text{background:var(--panel2);border-radius:9px;padding:12px;overflow:auto}.evidence-data>b{display:block;margin-bottom:8px}.evidence-missing{padding:45px 10px;text-align:center;color:var(--fail)}.run-info{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:24px}.run-info-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.run-info-title span{font:750 10px var(--mono);color:var(--accent)}.run-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}.run-info-grid>div{background:var(--panel2);padding:10px}.run-info-grid b{display:block;margin-top:3px;font-size:12px;overflow-wrap:anywhere}
+.result-badges{align-items:flex-end;gap:5px}.priority-tag{font:800 11px var(--mono);padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent)}.card-tabs{display:flex;gap:4px;margin:14px 0 11px;border-bottom:1px solid var(--line)}.card-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--faint);padding:6px 9px;cursor:pointer}.card-tabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:750}.card-page{min-height:250px}.comparison-hero{background:var(--panel2);border-radius:12px;padding:14px;margin-bottom:10px}.comparison-pair,.comparison-triplet{display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);align-items:center;gap:7px}.comparison-triplet{grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr) 22px minmax(0,1fr)}.comparison-value{min-width:0;text-align:center;padding:13px 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.comparison-value label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.05em;text-transform:uppercase}.comparison-value b{display:block;margin-top:7px;font:800 16px var(--mono);overflow-wrap:anywhere}.captured-value{border-top:3px solid var(--accent)}.actual-value{border-top:3px solid var(--pass)}.required-value{border-top:3px solid var(--block)}.comparison-operator{text-align:center;font:900 19px var(--mono);color:var(--soft)}.comparison-hero>p{margin:11px 1px 0;line-height:1.45;color:var(--soft)}.comparison-hero>p span{display:block;color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.comparison-hero>small{display:block;margin-top:7px;color:var(--faint)}.comparison-rule-value .comparison-value{text-align:left}.blocked-comparison{display:flex;justify-content:space-between;color:var(--block)}.expected-block,.actual-block{background:var(--panel2);border-radius:9px;padding:11px 12px;margin-bottom:10px}.expected-block label,.actual-block label,.captured-block>label,.run-info label{display:block;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.expected-block p{margin:5px 0 0;color:var(--ink);line-height:1.6}.captured-block{border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:10px}.captured-block>label{margin-bottom:9px}.facts{margin:5px 0 0}.facts>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.facts>div:first-child{border-top:0}.facts dt{color:var(--soft)}.facts dd{margin:0;text-align:right;font:650 11px var(--mono);overflow-wrap:anywhere}.result-note{border-left:3px solid var(--block);padding:7px 10px}.result-note p{margin:3px 0}.evidence-guidance{border-left:3px solid var(--accent);background:var(--accent2);border-radius:0 9px 9px 0;padding:10px 12px;margin-bottom:10px}.evidence-guidance p{margin:4px 0 0;line-height:1.55}.evidence-image,.evidence-video{margin:0;display:flex;min-width:0;flex-direction:column;align-items:center}.evidence-image img,.evidence-video video{display:block;width:auto;max-width:100%;height:auto;max-height:390px;object-fit:contain;border-radius:9px;background:#000}.evidence-image figcaption,.evidence-video figcaption{max-width:100%;color:var(--faint);font:10px var(--mono);margin-top:6px;overflow-wrap:anywhere}.evidence-data,.evidence-text{background:var(--panel2);border-radius:9px;padding:12px;overflow:auto}.evidence-data>b{display:block;margin-bottom:8px}.evidence-missing{padding:45px 10px;text-align:center;color:var(--fail)}.run-info{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:24px}.run-info-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.run-info-title span{font:750 10px var(--mono);color:var(--accent)}.run-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}.run-info-grid>div{background:var(--panel2);padding:10px}.run-info-grid b{display:block;margin-top:3px;font-size:12px;overflow-wrap:anywhere}
 .status-filters{display:flex;justify-content:space-between;align-items:center;gap:15px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 15px;box-shadow:var(--shadow);margin-bottom:12px}.status-filters>div:first-child{display:flex;flex-direction:column}.status-filters>div:first-child>span{font-weight:800}.status-filters small{color:var(--faint)}.status-filter-buttons{display:flex;gap:7px;flex-wrap:wrap}.status-filter{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;background:var(--panel2);color:var(--soft);padding:6px 10px;cursor:pointer}.status-filter span{font:750 10px var(--mono)}.status-filter b{min-width:20px;text-align:center;border-radius:999px;background:var(--panel);padding:1px 5px}.status-filter.pass{color:var(--pass)}.status-filter.failed{color:var(--fail)}.status-filter.blocked{color:var(--block)}.status-filter.on{color:#fff;border-color:transparent}.status-filter.pass.on{background:var(--pass)}.status-filter.failed.on{background:var(--fail)}.status-filter.blocked.on{background:var(--block)}.status-filter.on b{color:var(--ink)}.status-filter:disabled{opacity:.4;cursor:not-allowed}@media(max-width:650px){.status-filters{align-items:flex-start;flex-direction:column}.status-filter-buttons{width:100%}.status-filter{flex:1;justify-content:center}}
 .status-filter.unexecuted{color:var(--faint)}.status-filter.unexecuted.on{background:#737982}.result-card.unexecuted-card{background:color-mix(in srgb,var(--panel2) 82%,#888 18%);border-color:color-mix(in srgb,var(--line) 70%,#888 30%);box-shadow:none;color:var(--soft)}.status.unexecuted{color:var(--faint);background:#7772}.unexecuted-body{margin-top:14px;padding:12px;border-radius:9px;background:color-mix(in srgb,var(--panel) 55%,transparent)}.unexecuted-body>b{display:block;margin-bottom:12px}.unexecuted-body label{display:block;margin-top:9px;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.unexecuted-body p{margin:3px 0;color:var(--soft);line-height:1.5}.result-round{margin:0 0 24px}.result-round-head{display:flex;align-items:center;justify-content:space-between;margin:0 0 9px;padding:8px 11px;border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 8px 8px 0}.result-round-head b{font:850 12px var(--mono);color:var(--accent)}.result-round-head span{color:var(--faint);font:700 10px var(--mono)}
 .manual-review{margin-top:10px}.manual-review summary{display:flex;align-items:center;gap:6px;width:max-content;margin-left:auto;color:var(--faint);font:700 9px var(--mono);cursor:pointer;list-style:none}.manual-review summary::-webkit-details-marker{display:none}.manual-review summary:before{content:"＋"}.manual-review[open] summary:before{content:"−"}.manual-form{margin-top:7px;padding:9px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}.manual-form>small{color:var(--faint);font-size:9px}.manual-indicator{font:800 8px var(--mono);color:#fff;background:var(--block);padding:2px 5px;border-radius:999px}.manual-review label{display:block;color:var(--faint);font-size:9px;font-weight:750;margin-top:6px}.manual-review select,.manual-review textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);padding:5px 6px}.manual-review textarea{resize:vertical;font:11px var(--sans)}.manual-actions{display:flex;gap:6px;margin-top:7px}.manual-actions button,.export-overrides{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;padding:5px 8px;cursor:pointer}.manual-actions button:first-child{background:var(--accent);border-color:var(--accent);color:#fff}.manual-saved{margin-top:7px;padding:6px 8px;border-left:3px solid var(--block);background:var(--panel);font-size:10px;white-space:pre-wrap}.export-overrides{margin-left:auto}.theme{margin-left:0}
@@ -1071,6 +1144,8 @@ CSS = r"""
 .catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
 .compact-evidence{overflow:visible}.compact-evidence>label{display:block;margin-top:10px;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.raw-capture{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.raw-capture summary{width:max-content;max-width:100%;color:var(--accent);font:750 10px var(--mono);cursor:pointer}.raw-capture pre{max-height:320px;margin:10px 0 0;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.45 var(--mono)}
 .result-card[data-layer="e2e"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}.e2e-summary-block+ .e2e-summary-block{margin-top:11px}.e2e-summary-block>label{display:block;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.e2e-json-evidence .raw-capture pre code{font:inherit}
+.e2e-run-recording{display:grid;grid-template-columns:minmax(190px,.8fr) minmax(260px,1.2fr);gap:18px;align-items:center;margin:0 0 15px;padding:15px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.e2e-run-recording-copy span{color:var(--accent);font:800 9px var(--mono);letter-spacing:.08em;text-transform:uppercase}.e2e-run-recording-copy h4{margin:5px 0 4px;font-size:16px}.e2e-run-recording-copy p{margin:0;color:var(--soft);font-size:12px}.e2e-run-recording video{display:block;width:100%;max-height:420px;border-radius:9px;background:#000;object-fit:contain}@media(max-width:700px){.e2e-run-recording{grid-template-columns:1fr}}
+.coverage-source{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:9px 11px;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;background:var(--accent2)}.coverage-source span{color:var(--faint);font:750 8px var(--mono);letter-spacing:.07em;text-transform:uppercase}.coverage-source b{font-size:11px}.coverage-source small{color:var(--soft);font-size:10px}
 """
 
 

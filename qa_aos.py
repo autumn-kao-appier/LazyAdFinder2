@@ -857,6 +857,38 @@ def record_skip(config, round_name, scenario, reason, checks=None, testcase_keys
     return folder
 
 
+def record_blocked_scenario(config, round_name, scenario, reason, testcase_keys=()):
+    """Create explicit BLOCKED verdicts for a deliberately disabled scenario."""
+    folder = create_capture_folder(config, f"{round_name}-{scenario}-BLOCKED")
+    recorded_at = datetime.now().astimezone().isoformat()
+    rows = []
+    for key in testcase_keys:
+        testcase = TC_DEFINITIONS[key]
+        row = blocked(key, reason).to_dict()
+        row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+        rows.append(row)
+    (folder / "verdicts.json").write_text(
+        json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+    )
+    (folder / "summary.json").write_text(json.dumps({
+        "result": "BLOCKED",
+        "platform": "aos",
+        "test_mode": config.test_mode,
+        "test_type": config.test_type,
+        "test_cid": config.test_cid,
+        "target_app_package": config.target_app_package,
+        "test_round": round_name,
+        "test_run_id": config.test_run_id,
+        "test_run_started_at": config.test_run_started_at,
+        "capture_name": scenario,
+        "started_at": recorded_at,
+        "finished_at": recorded_at,
+        "device": {},
+    }, ensure_ascii=False, indent=2) + "\n")
+    print(f"[{round_name} {scenario}] BLOCKED: {reason}")
+    return folder
+
+
 def ipv6_preflight(config):
     """Check Android IPv6 prerequisites without relying on ICMP reachability."""
     addresses = adb(
@@ -1101,6 +1133,10 @@ def resolve_execution_plan(args):
             ScenarioPlan("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS),
             ScenarioPlan("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS),
         )
+    elif name == "R5-1":
+        if mode != "standalone" or test_type != "aibid":
+            raise CaptureError("R5-1 is an AIBID Standalone-only privacy round")
+        scenarios = (ScenarioPlan("PRIVACY-DENIED", R5_PRIVACY_KEYS),)
     elif name == "E2E-STANDALONE":
         if mode != "standalone":
             raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
@@ -1119,7 +1155,7 @@ def resolve_execution_plan(args):
             if campaign_supports(test_type, key)
         )),)
     else:
-        available = sorted(set(ROUND_DEFINITIONS) | {"R4", "E2E-STANDALONE", "E2E-ADMOB"})
+        available = sorted(set(ROUND_DEFINITIONS) | {"R4", "R5-1", "E2E-STANDALONE", "E2E-ADMOB"})
         raise CaptureError(f"Round {name!r} is not defined; available rounds: {', '.join(available)}")
     scenarios = tuple(
         replace(
@@ -1149,6 +1185,17 @@ def preflight_execution_plan(plan, config):
         if plan.round_name == "R4" and scenario.label == "IPV6-REFRESH":
             probe = ipv6_preflight
         elif plan.round_name == "R5" and scenario.label == "PRIVACY-DENIED":
+            if plan.test_mode == "admob-mediation":
+                resolved.append(replace(
+                    scenario,
+                    decision="BLOCK",
+                    reason=(
+                        "Mediation automation never deletes GAID because doing so invalidates "
+                        "AdMob TestDevice registration. Use the Standalone R5-1 coverage or "
+                        "enter a reviewed manual Mediation result."
+                    ),
+                ))
+                continue
             probe = privacy_scenario_preflight
         elif plan.round_name == "R5" and scenario.label == "LOCATION-PERMISSION-DENIED":
             probe = location_permission_preflight
@@ -1663,7 +1710,7 @@ def run_round(config, plan):
             "E2E-ADMOB",
             (validate_baseline_e2e, validate_admob_extensions),
         )
-    if name == "R5":
+    if name in {"R5", "R5-1"}:
         folders = []
         round_errors = []
 
@@ -1675,8 +1722,13 @@ def run_round(config, plan):
             testcases = [TC_DEFINITIONS[key] for key in keys]
             required = tuple(evidence for testcase in testcases for evidence in testcase.evidence)
             scenario = scenario_plans[label]
+            if scenario.decision == "BLOCK":
+                folders.append(record_blocked_scenario(
+                    config, name, label, scenario.reason, scenario.testcase_keys,
+                ))
+                return
             if scenario.decision == "SKIP":
-                folders.append(record_skip(config, "R5", label, scenario.reason, scenario.checks, scenario.testcase_keys))
+                folders.append(record_skip(config, name, label, scenario.reason, scenario.checks, scenario.testcase_keys))
                 return
             phase = "state mutation"
             scenario_error = None
@@ -1733,7 +1785,7 @@ def run_round(config, plan):
                 if scenario_folder is not None:
                     rows = []
                     for testcase in testcases:
-                        row = blocked(testcase.key, f"R5 {label} failed at {phase}: {exc}").to_dict()
+                        row = blocked(testcase.key, f"{name} {label} failed at {phase}: {exc}").to_dict()
                         row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                         rows.append(row)
                     (scenario_folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
@@ -1760,7 +1812,7 @@ def run_round(config, plan):
                         )
                         rows = []
                         for testcase in testcases:
-                            row = blocked(testcase.key, f"R5 {label} restore failed: {restore_exc}").to_dict()
+                            row = blocked(testcase.key, f"{name} {label} restore failed: {restore_exc}").to_dict()
                             row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                             rows.append(row)
                         (scenario_folder / "verdicts.json").write_text(
@@ -1902,7 +1954,7 @@ def run_round(config, plan):
         run_scenario("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS, timezone_mutate, timezone_restore)
         run_scenario("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS, location_denied_mutate, location_denied_restore)
         if round_errors:
-            error = CaptureError("R5 completed with errors: " + " | ".join(round_errors))
+            error = CaptureError(f"{name} completed with errors: " + " | ".join(round_errors))
             error.evidence_folders = tuple(folders)
             error.evidence_folder = folders[-1] if folders else None
             raise error
@@ -2148,6 +2200,7 @@ def main(argv=None):
             tc_ids = ", ".join(definition.testcase_keys)
             print(f"{name}: {definition.capture_name} [{tc_ids}]")
         print("R4: IPv6 network refresh [" + ", ".join(IPV6_TESTCASES) + "]")
+        print("R5-1: AIBID Standalone privacy [" + ", ".join(R5_PRIVACY_KEYS) + "]")
         print("E2E-STANDALONE: S baseline [" + ", ".join(BASELINE_E2E_TESTCASES) + "]")
         print("E2E-ADMOB: S baseline + M extensions [" + ", ".join(ADMOB_E2E_EXTENSIONS) + "]")
         return 0

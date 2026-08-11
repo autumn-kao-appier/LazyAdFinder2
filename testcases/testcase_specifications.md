@@ -23,6 +23,12 @@ Runner 必須在每個 Scenario 後還原原狀態；中途失敗仍保存 Evide
 REEN Static／Dynamic 的執行計畫、結果報告與總 TestCase 目錄不列出這兩條；其餘 R5 Scenario
 與 AIBID 共用並照常執行。
 
+在 AIBID Mediation 一般 R5 中，`PRIVACY-DENIED` 固定產生 BLOCKED verdict，Automation 不得
+刪除 GAID。完整 Mediation 與 E2E 結束後，suite 預設以 Standalone 執行獨立 `R5-1`；同一個
+run ID 的結果可作為共用 Android SDK Signal Evidence 回填 Mediation 卡片。`R5-1` Renew GAID
+後整輪必須結束，不得再送 Mediation request。使用 `--privacy-verification manual` 時不執行
+`R5-1`，卡片保持 BLOCKED，等待使用者透過人工覆寫入口填入經覆核的結果。
+
 ## E2E campaign continuation
 
 - `E2E-S14`：完成 tracked click 後驗證 Campaign 指定目的地。AIBID 到合法商店／安裝目的地；
