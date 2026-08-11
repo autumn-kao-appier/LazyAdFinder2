@@ -111,10 +111,15 @@ def _creative_contract(response):
         ad = response["adUnits"][0]["ad"]
         native = ad["native"]
     except (KeyError, IndexError, TypeError):
-        return {"click_url": "", "privacy_url": ""}
+        return {"click_url": "", "privacy_url": "", "asset_urls": {}}
     return {
         "click_url": str(ad.get("clk") or ""),
         "privacy_url": str((native.get("privacyInformationLink") or {}).get("url") or ""),
+        "asset_urls": {
+            key: str((native.get(key) or {}).get("url") or "")
+            for key in ("iconImage", "mainImage", "privacyInformationIcon")
+            if str((native.get(key) or {}).get("url") or "")
+        },
     }
 
 
@@ -135,6 +140,7 @@ def validate_bundle(folder):
     events = _read_events(folder)
     decoded = _read_json(folder / "bid_decoded.json", {}) or {}
     response = _read_json(folder / "bid_response.json")
+    contract = _creative_contract(response)
     interactions = _read_json(folder / "e2e-interactions.json", {}) or {}
     visual_review = _read_json(folder / "visual-review.json", {}) or {}
     bid_request_event, bid_response_event = _bid_flow(events)
@@ -211,9 +217,13 @@ def validate_bundle(folder):
         "Platform definition: Android Ads SDK has no standalone Init endpoint; keep BLOCKED while deciding whether AOS needs an equivalent contract aligned with the iOS Init flow",
     )
 
-    asset_responses = _response_events(events, "asset")
+    creative_urls = set(contract["asset_urls"].values())
+    asset_responses = [
+        row for row in _response_events(events, "asset")
+        if row.get("method") in {"GET", "HEAD"} and str(row.get("url") or "") in creative_urls
+    ]
     screenshot_exists = (folder / "screenshot.png").is_file() and (folder / "screenshot.png").stat().st_size > 0
-    asset_transport_ok = bool(asset_responses) and all(
+    observed_transport_ok = all(
         row.get("status") in (200, 304)
         and str(row.get("content_type", "")).lower().startswith("image/")
         and (
@@ -223,6 +233,17 @@ def validate_bundle(folder):
         )
         for row in asset_responses
     )
+    rendered_assets_ok = bool(
+        visual_review.get("passed")
+        and visual_review.get("checks", {}).get("returned_images_have_rendered_views")
+    )
+    asset_transport_ok = bool(creative_urls and observed_transport_ok and rendered_assets_ok)
+    asset_actual = {
+        "response_asset_urls": contract["asset_urls"],
+        "observed_asset_responses": asset_responses,
+        "unobserved_urls_are_allowed_only_with_rendered_view_evidence": True,
+        "rendered_assets_verified": rendered_assets_ok,
+    }
     if not request_minimum:
         asset_row = _evaluated(
             "standalone-creative-assets",
@@ -241,20 +262,20 @@ def validate_bundle(folder):
             "summary.json",
             "FAILED: the specified CID was confirmed, but no rendered-ad screenshot was saved.",
         )
-    elif not asset_responses:
+    elif not creative_urls:
         asset_row = _evaluated(
             "standalone-creative-assets",
-            {"asset_response_metadata": True},
-            {"asset_responses": 0},
+            {"creative_asset_urls_in_response": True},
+            asset_actual,
             False,
-            "e2e-network-evidence.json",
-            "FAILED: no image response metadata was preserved, so the asset transport checks have no evidence.",
+            "bid_response.json",
+            "FAILED: the captured ad response does not specify any creative asset URL.",
         )
     elif not asset_transport_ok:
         asset_row = _evaluated(
             "standalone-creative-assets",
-            {"all_assets_http_200_or_cached_304": True, "image_mime": True, "GET_200_non_empty": True},
-            asset_responses,
+            {"observed_assets_http_200_or_cached_304": True, "image_mime": True, "rendered_assets_visible": True},
+            asset_actual,
             False,
             "e2e-network-evidence.json",
             "At least one captured creative asset failed its transport check.",
@@ -262,11 +283,11 @@ def validate_bundle(folder):
     else:
         asset_row = _evaluated(
             "standalone-creative-assets",
-            {"specified_cid_confirmed": True, "rendered_ad_screenshot": True, "asset_transport_ok": True},
-            {"cid": cid, "screenshot": "screenshot.png", "asset_responses": len(asset_responses)},
+            {"specified_cid_confirmed": True, "rendered_ad_screenshot": True, "asset_transport_ok_or_rendered_cache": True},
+            {"cid": cid, "screenshot": "screenshot.png", **asset_actual},
             True,
             "screenshot.png",
-            "The specified CID was proven by the preceding traffic flow and the rendered ad was preserved as visible screenshot evidence.",
+            "The response-specified creative assets either loaded successfully in traffic or were proven as rendered cached views in the saved screenshot.",
         )
 
     impressions = _response_events(events, "impression")
@@ -292,7 +313,6 @@ def validate_bundle(folder):
             "FAILED: the round ran, but the proxy evidence does not contain both show_cb and winshowimg responses.",
         )
 
-    contract = _creative_contract(response)
     click_responses = _response_events(events, "click")
     impression_ids = [_tracking_ids(row.get("url")) for row in impressions]
     matching_clicks = []

@@ -1860,6 +1860,14 @@ def run_round(config, plan):
     print(f"\n[round {name}] {round_definition.capture_name}")
     phase = "Evidence capture"
     try:
+        if name == "R1":
+            for permission in (
+                "android.permission.ACCESS_COARSE_LOCATION",
+                "android.permission.ACCESS_FINE_LOCATION",
+            ):
+                result = adb(config.udid, "shell", "pm", "grant", config.app_package, permission, check=False)
+                if "Exception" in result or "Error" in result:
+                    raise CaptureError(f"R1 location permission setup failed for {permission}: {result.strip()}")
         folder = collect_evidence(
             config,
             required_evidence,

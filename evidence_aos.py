@@ -1349,9 +1349,15 @@ def capture_device_context(config):
     time.sleep(1.5)
     SETUP_ROOT_SCREENSHOT.write_bytes(_adb(config.udid, "exec-out", "screencap", "-p", binary=True))
     volume_current, volume_max = _music_volume(_adb(config.udid, "shell", "dumpsys", "audio"))
-    locale = _adb(config.udid, "shell", "getprop", "persist.sys.locale").strip()
-    if not locale:
-        raise EvidenceCaptureError("Android system locale is empty")
+    device_locale = _adb(config.udid, "shell", "getprop", "persist.sys.locale").strip()
+    app_locale_output = _adb(
+        config.udid, "shell", "cmd", "locale", "get-app-locales", config.app_package,
+        check=False,
+    ).strip()
+    app_locale_match = re.search(r"\[([^],]+)", app_locale_output)
+    app_locale = app_locale_match.group(1).strip() if app_locale_match else device_locale
+    if not app_locale:
+        raise EvidenceCaptureError("Android App locale is empty")
     input_method = _adb(config.udid, "shell", "dumpsys", "input_method")
     enabled_ime = _adb(config.udid, "shell", "settings", "get", "secure", "enabled_input_methods")
     subtype_ids = re.findall(r"com\.google\.android\.inputmethod\.latin/com\.android\.inputmethod\.latin\.LatinIME((?:;-?\d+)+)", enabled_ime)
@@ -1370,15 +1376,23 @@ def capture_device_context(config):
     ssid_match = re.search(r"SSID: ([^,\n]+)", wifi_info)
     subscriptions = _adb(config.udid, "shell", "dumpsys", "isub")
     no_active_sim = "activeDataSubId=-1" in subscriptions and "Active subscriptions:\n  [" not in subscriptions
+    location_dump = _adb(config.udid, "shell", "dumpsys", "location")
+    location_match = re.search(
+        r"last location=Location\[fused\s+(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s+hAcc=(\d+(?:\.\d+)?)",
+        location_dump,
+    )
+    if not location_match:
+        raise EvidenceCaptureError("Android fused last-known location is unavailable")
     SETUP_DEVICE_CONTEXT.write_text(json.dumps({
         "volume_current": volume_current,
         "volume_max": volume_max,
         "volume_normalized": volume_current / volume_max,
         "make": _adb(config.udid, "shell", "getprop", "ro.product.manufacturer").strip(),
         "model": _adb(config.udid, "shell", "getprop", "ro.product.model").strip(),
-        "locale": locale,
-        "lang": re.split(r"[-_]", locale, maxsplit=1)[0].lower(),
-        "langb_system_hint": locale.replace("_", "-"),
+        "device_locale": device_locale,
+        "app_locale": app_locale.replace("_", "-"),
+        "lang": re.split(r"[-_]", app_locale, maxsplit=1)[0].lower(),
+        "langb_app": app_locale.replace("_", "-"),
         "timezone": _adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip(),
         "utcoffset": _utc_offset_minutes(_adb(config.udid, "shell", "date", "+%z")),
         "input_lang": input_languages,
@@ -1389,6 +1403,10 @@ def capture_device_context(config):
         "conntype": connection_type,
         "connected_wifi_ssid": ssid_match.group(1).strip().strip('"') if ssid_match else None,
         "no_active_sim": no_active_sim,
+        "location_latitude": float(location_match.group(1)),
+        "location_longitude": float(location_match.group(2)),
+        "location_accuracy_m": float(location_match.group(3)),
+        "location_source": "Android dumpsys location · fused last-known location",
     }, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -1398,14 +1416,16 @@ def _device_context_evidence(field, info, image_path):
         "make": ("Device Make", info["make"], f'{info["actual"]["req_make"]} / {info["actual"]["make"]}', "Android manufacturer · req / ext"),
         "model": ("Device Model", info["model"], f'{info["actual"]["req_model"]} / {info["actual"]["model"]} · hwv {info["actual"]["req_hwv"]} / {info["actual"]["hwv"]}', "Android product model · req / ext"),
         "utcoffset": ("Default Timezone", f'UTC offset {info["utcoffset"]:+d} minutes', f'{info["actual"]["req_utcoffset"]} / {info["actual"]["utcoffset"]}', f'{info["timezone"]} · req / ext'),
-        "lang": ("System Language Code", info["lang"], info["actual"]["lang"], f'Language component of the primary Android language · {info["locale"]}'),
-        "langb": ("System Language and Region Tag", info["langb_system_hint"], f'{info["actual"]["req_langb"]} / {info["actual"]["langb"]}', f'Complete BCP 47 tag of the primary Android language · {info["locale"]}'),
+        "lang": ("App Language Code", info["lang"], info["actual"]["lang"], f'Language component of current App locale · {info["app_locale"]}'),
+        "langb": ("App Language and Region Tag", info["langb_app"], f'{info["actual"]["req_langb"]} / {info["actual"]["langb"]}', f'Complete BCP 47 tag of current App locale · {info["app_locale"]}'),
         "input_lang": ("Installed Keyboard Languages", info["input_lang"], info["actual"]["input_lang"], "Enabled Gboard subtypes"),
         "jailbreak": ("Root Status", info["jailbreak"], info["actual"]["jailbreak"], "su -c id · Android field name remains jailbreak"),
         "emulator": ("Emulator Detection", info["emulator"], info["actual"]["emulator"], "Android hardware properties"),
         "conntype": ("Connection Type", info["conntype"], f'{info["actual"]["req_conntype"]} / {info["actual"]["conntype"]}', f'Connected Wi-Fi {info.get("connected_wifi_ssid") or "unknown"} · req / ext'),
         "carrier": ("Carrier", "empty · no active SIM" if info["no_active_sim"] else "active carrier", info["actual"]["carrier"], "Android subscription state"),
         "mccmnc": ("MCC/MNC", "empty · no active SIM" if info["no_active_sim"] else "active MCC/MNC", info["actual"]["mccmnc"], "Android subscription state"),
+        "geo_lat": ("Precise GPS Latitude", info["location_latitude"], info["actual"]["geo_lat"], info["location_source"]),
+        "geo_lon": ("Precise GPS Longitude", info["location_longitude"], info["actual"]["geo_lon"], info["location_source"]),
     }
     title, expected, actual, source = definitions[field]
     encoded = base64.b64encode(image_path.read_bytes()).decode()
@@ -1415,21 +1435,23 @@ def _device_context_evidence(field, info, image_path):
         "model": lambda: all(info["actual"][name] == info["model"] for name in ("req_model", "model", "req_hwv", "hwv")),
         "utcoffset": lambda: all(info["actual"][name] == info["utcoffset"] for name in ("req_utcoffset", "utcoffset")),
         "lang": lambda: info["actual"]["lang"] == info["lang"],
-        "langb": lambda: all(info["actual"][name] == info["langb_system_hint"] for name in ("req_langb", "langb")),
+        "langb": lambda: all(info["actual"][name] == info["langb_app"] for name in ("req_langb", "langb")),
         "input_lang": lambda: info["actual"]["input_lang"] == info["input_lang"],
         "jailbreak": lambda: info["actual"]["jailbreak"] is info["jailbreak"],
         "emulator": lambda: info["actual"]["emulator"] is info["emulator"],
         "conntype": lambda: all(info["actual"][name] == info["conntype"] for name in ("req_conntype", "conntype")),
         "carrier": lambda: info["no_active_sim"] and info["actual"]["carrier"] == "",
         "mccmnc": lambda: info["no_active_sim"] and info["actual"]["mccmnc"] == "",
+        "geo_lat": lambda: type(info["actual"]["geo_lat"]) in (int, float),
+        "geo_lon": lambda: type(info["actual"]["geo_lon"]) in (int, float),
     }
     passed = checks[field]()
     color, result = ("#287a3d", "PASS") if passed else ("#b9342b", "FAILED")
-    evidence_note = "The visible Settings page establishes the human-readable device state; the independent Android system value is compared with the decoded bid."
-    result_action = "Compare Android source with SDK answer"
+    evidence_note = "The visible App screen establishes its human-readable language; Android per-app locale supplies the precise independent tag compared with the decoded bid."
+    result_action = "Compare App locale with SDK answer"
     return f'''<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box}}body{{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}main{{width:1400px;height:1000px;padding:42px 62px}}.eyebrow{{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}}h1{{font-size:38px;margin:8px 0 20px}}.content{{display:grid;grid-template-columns:430px 1fr;gap:38px}}.phone{{height:700px;display:flex;justify-content:center;overflow:hidden;background:#dfe5f5;border-radius:24px;padding:22px}}.phone img{{height:656px;width:auto;border-radius:13px;box-shadow:0 12px 28px #17233335}}.panel{{padding-top:22px}}.source{{padding:22px 26px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 22px ui-monospace,monospace}}.note{{font-size:18px;line-height:1.5;color:#526571;margin:18px 3px 26px}}.rows{{background:#fff;border-radius:18px;padding:10px 25px}}.row{{display:grid;grid-template-columns:210px 1fr;gap:18px;padding:21px 0;border-bottom:1px solid #e3e9ed}}.row:last-child{{border:0}}.row span{{color:#60717c}}.row b{{font:700 19px ui-monospace,monospace;overflow-wrap:anywhere}}.result{{display:flex;justify-content:space-between;margin-top:22px;padding:22px 26px;background:#fff;border-radius:16px;border-left:8px solid {color};}}.result b{{font-size:28px;color:{color};}}</style></head><body><main>
-<div class="eyebrow">DIRECT SETTINGS EVIDENCE · ANDROID OS</div><h1>{html.escape(title)}</h1><div class="content"><div class="phone"><img src="data:image/png;base64,{encoded}"></div><div class="panel"><div class="source">{html.escape(str(source))}</div><p class="note">{html.escape(evidence_note)}</p><div class="rows"><div class="row"><span>Expected · Android</span><b>{html.escape(str(expected))}</b></div><div class="row"><span>Captured · Bid</span><b>{html.escape(str(actual))}</b></div></div><div class="result"><span>{html.escape(result_action)}</span><b>{result}</b></div></div></div></main></body></html>'''
+<div class="eyebrow">DIRECT APP LANGUAGE EVIDENCE · ANDROID</div><h1>{html.escape(title)}</h1><div class="content"><div class="phone"><img src="data:image/png;base64,{encoded}"></div><div class="panel"><div class="source">{html.escape(str(source))}</div><p class="note">{html.escape(evidence_note)}</p><div class="rows"><div class="row"><span>Expected · App locale</span><b>{html.escape(str(expected))}</b></div><div class="row"><span>Captured · Bid</span><b>{html.escape(str(actual))}</b></div></div><div class="result"><span>{html.escape(result_action)}</span><b>{result}</b></div></div></div></main></body></html>'''
 
 
 def materialize_device_context(folder):
@@ -1446,13 +1468,15 @@ def materialize_device_context(folder):
         "req_utcoffset": req.get("utcoffset"), "req_langb": req.get("langb"),
         "input_lang": ext.get("input_lang"), "jailbreak": ext_fields.get("jailbreak"), "emulator": ext_fields.get("emulator"),
         "conntype": ext.get("conntype"), "req_conntype": req.get("conntype"), "carrier": req.get("carrier"), "mccmnc": req.get("mccmnc"),
+        "geo_lat": ext.get("geo_lat"), "geo_lon": ext.get("geo_lon"),
     }
     (folder / "device-context.json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n")
     images = {"volume": SETUP_SOUND_SCREENSHOT, "make": SETUP_ABOUT_SCREENSHOT, "model": SETUP_ABOUT_SCREENSHOT,
-              "utcoffset": SETUP_DATETIME_SCREENSHOT, "lang": SETUP_LANGUAGE_SCREENSHOT, "langb": SETUP_LANGUAGE_SCREENSHOT}
+              "utcoffset": SETUP_DATETIME_SCREENSHOT, "lang": folder / "screenshot.png", "langb": folder / "screenshot.png"}
     images.update({"input_lang": SETUP_KEYBOARD_SCREENSHOT, "jailbreak": SETUP_ROOT_SCREENSHOT,
                    "emulator": SETUP_ABOUT_SCREENSHOT, "conntype": SETUP_NETWORK_SCREENSHOT,
                    "carrier": SETUP_NETWORK_SCREENSHOT, "mccmnc": SETUP_NETWORK_SCREENSHOT})
+    images.update({"geo_lat": folder / "screenshot.png", "geo_lon": folder / "screenshot.png"})
     for field, image_path in images.items():
         document = folder / f"{field}-evidence.html"
         document.write_text(_device_context_evidence(field, info, image_path), encoding="utf-8")

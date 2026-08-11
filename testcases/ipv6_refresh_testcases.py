@@ -17,6 +17,7 @@ class IPv6TestCase:
 
 TESTCASES = {
     row.key: row for row in (
+        IPv6TestCase("ipv6-address", "IPv6 Address", "P2"),
         IPv6TestCase("ipv6-refresh-launch", "IPv6 on App Launch", "P1"),
         IPv6TestCase("ipv6-refresh-wifi-switch", "IPv6 after Wi-Fi Switch", "P1"),
         IPv6TestCase("ipv6-refresh-recovery", "IPv6 after Network Recovery", "P1"),
@@ -127,6 +128,14 @@ def validate_sequence(folders, context=None):
     rows = []
     first_ok = _valid_step(first, require_probe)
     rows.append(_row(
+        "ipv6-address",
+        {"valid_ipv6": True, "matches_appier_probe": require_probe},
+        first,
+        first_ok,
+        "r4-network-sequence.json",
+        "The decoded IPv6 is valid and matches the Appier probe." if first_ok else "FAILED: the R4 payload IPv6 is invalid or does not match the Appier probe.",
+    ))
+    rows.append(_row(
         "ipv6-refresh-launch",
         {"conntype": "wifi", "valid_ipv6_after_10s": True},
         first,
@@ -137,7 +146,8 @@ def validate_sequence(folders, context=None):
 
     if len(values) < 5:
         executed = len(values)
-        for key in tuple(TESTCASES)[executed:]:
+        transition_keys = tuple(TESTCASES)[1:]
+        for key in transition_keys[executed:]:
             rows.append(_blocked(key, "Operator checkpoint was not completed; this network transition was not executed"))
         return rows
 

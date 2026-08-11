@@ -2,6 +2,7 @@
 
 import json
 import ipaddress
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,8 +117,8 @@ def _comparison_view(key, expected, actual):
         "device-make": ("Android manufacturer", expected.get("make"), "SDK req/ext", f'{actual.get("req_make")} / {actual.get("make")}', "="),
         "device-model": ("Android product model", expected.get("model"), "SDK model / hwv", f'{actual.get("model")} / {actual.get("hwv")}', "="),
         "default-timezone": ("Android UTC offset", expected.get("utcoffset"), "SDK req/ext", f'{actual.get("req_utcoffset")} / {actual.get("utcoffset")}', "="),
-        "default-language-iso": ("Visible system language code", expected.get("lang"), "SDK ext", actual.get("lang"), "="),
-        "default-language-bcp47": ("Visible system language and region", expected.get("langb"), "SDK req/ext", f'{actual.get("req_langb")} / {actual.get("langb")}', "="),
+        "default-language-iso": ("Current App language code", expected.get("lang"), "SDK ext", actual.get("lang"), "="),
+        "default-language-bcp47": ("Current App language and region", expected.get("langb"), "SDK req/ext", f'{actual.get("req_langb")} / {actual.get("langb")}', "="),
         "keyboard-languages": ("Enabled Gboard languages", expected.get("input_lang"), "SDK Payload", actual.get("input_lang"), "="),
         "root-status": ("Android root probe", expected.get("jailbreak"), "SDK jailbreak", actual.get("jailbreak"), "="),
         "emulator-detection": ("Android hardware probe", expected.get("emulator"), "SDK emulator", actual.get("emulator"), "="),
@@ -147,8 +148,8 @@ def _comparison_view(key, expected, actual):
         "device-make": "Request and extended payload manufacturer must equal Android ro.product.manufacturer.",
         "device-model": "Payload model and hardware version must equal Android ro.product.model.",
         "default-timezone": "Request and extended UTC offset minutes must equal the device timezone at capture time.",
-        "default-language-iso": "The extended ISO-639-1 code must equal the language component of the primary language shown in Android Settings.",
-        "default-language-bcp47": "Request and extended BCP 47 tags must equal the primary language and region shown in Android Settings.",
+        "default-language-iso": "The extended ISO-639-1 code must equal the low-precision language component of the current App locale.",
+        "default-language-bcp47": "Request and extended BCP 47 tags must equal the precise language and region of the current App locale.",
         "keyboard-languages": "Payload list must exactly match the enabled Gboard language tags.",
         "root-status": "Payload jailbreak boolean must match an independent Android root probe.",
         "emulator-detection": "Payload emulator boolean must match Android hardware properties.",
@@ -769,28 +770,28 @@ def validate_default_language_iso(folder):
     info = _context_info(folder); actual = info["actual"]; expected = info["lang"]
     return _verdict(
         "default-language-iso",
-        "System Language Code",
-        "Extended device.lang contains only the ISO-639-1 language component of the visible primary Android language.",
+        "App Language Code",
+        "Extended device.lang contains the low-precision ISO-639-1 component of the current App language.",
         {"lang": expected},
         {"lang": actual.get("lang")},
         "lang-evidence.png",
-        [] if actual.get("lang") == expected else ["lang does not match the primary Android system language code"],
+        [] if actual.get("lang") == expected else ["lang does not match the current App language code"],
     )
 
 
 def validate_default_language_bcp47(folder):
     info = _context_info(folder)
     actual = info["actual"]
-    expected = info["langb_system_hint"]
+    expected = info["langb_app"]
     failures = [name for name in ("req_langb", "langb") if actual.get(name) != expected]
     return _verdict(
         "default-language-bcp47",
-        "System Language and Region Tag",
-        "Request and extended device.langb contain the complete BCP 47 tag of the visible primary Android language and region.",
+        "App Language and Region Tag",
+        "Request and extended device.langb contain the precise BCP 47 tag of the current App language and region.",
         {"langb": expected},
         {"req_langb": actual.get("req_langb"), "langb": actual.get("langb")},
         "langb-evidence.png",
-        [f"{', '.join(failures)} do not match the primary Android system language tag"] if failures else [],
+        [f"{', '.join(failures)} do not match the current App language tag"] if failures else [],
     )
 
 
@@ -878,8 +879,46 @@ def validate_ipv6(folder):
         {"probe_events": len(events), "ext_device_ipv6": value},
         "ipv6-net-probe-response.json", failures,
     )
-def validate_precise_latitude(_folder): return _round_blocked("precise-gps-latitude", "Precise GPS Latitude", "Not In Scope: location ground-truth capture is not defined; device.lat is the tracking flag, not latitude")
-def validate_precise_longitude(_folder): return _round_blocked("precise-gps-longitude", "Precise GPS Longitude", "Not In Scope: location ground-truth capture is not defined; the observed payload path is device.geo_lon")
+def _gps_distance_m(expected_lat, expected_lon, actual_lat, actual_lon):
+    radius = 6_371_000
+    lat1, lat2 = math.radians(expected_lat), math.radians(actual_lat)
+    dlat = lat2 - lat1
+    dlon = math.radians(actual_lon - expected_lon)
+    value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(value))
+
+
+def _validate_precise_location(folder, key, title, field):
+    info = _context_info(folder)
+    expected_lat = info.get("location_latitude")
+    expected_lon = info.get("location_longitude")
+    accuracy = info.get("location_accuracy_m")
+    actual_lat = info.get("actual", {}).get("geo_lat")
+    actual_lon = info.get("actual", {}).get("geo_lon")
+    failures = []
+    if not all(type(value) in (int, float) for value in (expected_lat, expected_lon, actual_lat, actual_lon)):
+        failures.append("Android fused location and ext.device geo_lat/geo_lon must all be numeric")
+        distance = None
+    else:
+        distance = _gps_distance_m(expected_lat, expected_lon, actual_lat, actual_lon)
+        tolerance = max(float(accuracy or 0), 200.0)
+        if distance > tolerance:
+            failures.append(f"payload location differs from Android fused location by {distance:.1f} m (tolerance {tolerance:.1f} m)")
+    return _verdict(
+        key, title,
+        "The decoded coordinate must agree with Android fused last-known location within its reviewed accuracy tolerance.",
+        {"geo_lat": expected_lat, "geo_lon": expected_lon, "accuracy_m": accuracy},
+        {"geo_lat": actual_lat, "geo_lon": actual_lon, "distance_m": distance, "checked_field": field},
+        f"{field}-evidence.png", failures,
+    )
+
+
+def validate_precise_latitude(folder):
+    return _validate_precise_location(folder, "precise-gps-latitude", "Precise GPS Latitude", "geo_lat")
+
+
+def validate_precise_longitude(folder):
+    return _validate_precise_location(folder, "precise-gps-longitude", "Precise GPS Longitude", "geo_lon")
 def _session_sequence(folder):
     return json.loads((Path(folder) / "session-duration-sequence.json").read_text())
 
@@ -1060,8 +1099,33 @@ def validate_impression_history(folder):
     )
 
 
-def validate_network_latency(_folder):
-    return _round_blocked("network-latency", "Connection Latency", "Round limitation: the SDK latency probe endpoint timing is not captured independently yet")
+def validate_network_latency(folder):
+    folder = Path(folder)
+    device_ext = _decoded_device_value(_decoded(folder), "ext", "ext")
+    value = device_ext.get("latency") if isinstance(device_ext, dict) else None
+    events = []
+    path = folder / "proxy-events.jsonl"
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("method") == "HEAD" and event.get("url") == "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg":
+                events.append(event)
+    probe_ok = any(event.get("phase") == "response" and event.get("status") == 200 for event in events)
+    failures = []
+    if type(value) is not int or value <= 0:
+        failures.append("ext.device.ext.latency must be a positive integer in milliseconds")
+    if not probe_ok:
+        failures.append("the SDK latency HEAD endpoint must return HTTP 200 in the same capture")
+    return _verdict(
+        "network-latency", "Connection Latency",
+        "The SDK HEAD latency probe must succeed and ext.device.ext.latency must contain its positive millisecond result.",
+        {"endpoint": "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg", "method": "HEAD", "http_status": 200, "positive_ms": True},
+        {"latency_ms": value, "probe_responses": events},
+        "proxy-events.jsonl", failures,
+    )
 
 
 def validate_force_gdpr_override(_folder):
@@ -1184,18 +1248,17 @@ TC_DEFINITIONS = {
     "device-make": TestCase("device-make", "Device Make", "Manufacturer matches Android.", (DEVICE_CONTEXT, BID), validate_device_make),
     "device-model": TestCase("device-model", "Device Model", "Model and hardware version match Android.", (DEVICE_CONTEXT, BID), validate_device_model),
     "default-timezone": TestCase("default-timezone", "Default Timezone", "UTC offset matches Android.", (DEVICE_CONTEXT, BID), validate_default_timezone),
-    "default-language-iso": TestCase("default-language-iso", "System Language Code", "ISO-639-1 language component matches the primary Android language.", (DEVICE_CONTEXT, BID), validate_default_language_iso),
-    "default-language-bcp47": TestCase("default-language-bcp47", "System Language and Region Tag", "Complete BCP 47 tag matches the primary Android language and region.", (DEVICE_CONTEXT, BID), validate_default_language_bcp47),
+    "default-language-iso": TestCase("default-language-iso", "App Language Code", "ISO-639-1 language component matches the current App language.", (DEVICE_CONTEXT, BID), validate_default_language_iso),
+    "default-language-bcp47": TestCase("default-language-bcp47", "App Language and Region Tag", "Complete BCP 47 tag matches the current App language and region.", (DEVICE_CONTEXT, BID), validate_default_language_bcp47),
     "keyboard-languages": TestCase("keyboard-languages", "Installed Keyboard Languages", "Enabled keyboard languages match Android.", (DEVICE_CONTEXT, BID), validate_keyboard_languages),
     "root-status": TestCase("root-status", "Root Status", "Root detection matches Android.", (DEVICE_CONTEXT, BID), validate_root_status),
     "emulator-detection": TestCase("emulator-detection", "Emulator Detection", "Emulator detection matches Android.", (DEVICE_CONTEXT, BID), validate_emulator_detection),
-    "ipv6-address": TestCase("ipv6-address", "IPv6 Address", "IPv6 validation requires a reviewed payload field.", (BID,), validate_ipv6),
     "connection-type": TestCase("connection-type", "Connection Type", "Connection transport matches Android.", (DEVICE_CONTEXT, BID), validate_connection_type),
     "connection-type-cellular": TestCase("connection-type-cellular", "Connection Type (Cellular)", "Cellular transport requires an active SIM.", (BID,), validate_connection_type_cellular),
     "carrier": TestCase("carrier", "Carrier", "Carrier reflects SIM state.", (DEVICE_CONTEXT, BID), validate_carrier),
     "mcc-mnc": TestCase("mcc-mnc", "MCC/MNC", "MCC/MNC reflects SIM state.", (DEVICE_CONTEXT, BID), validate_mcc_mnc),
-    "precise-gps-latitude": TestCase("precise-gps-latitude", "Precise GPS Latitude", "Precise location is outside this round scope.", (BID,), validate_precise_latitude),
-    "precise-gps-longitude": TestCase("precise-gps-longitude", "Precise GPS Longitude", "Precise location is outside this round scope.", (BID,), validate_precise_longitude),
+    "precise-gps-latitude": TestCase("precise-gps-latitude", "Precise GPS Latitude", "Latitude matches Android fused location within accuracy tolerance.", (DEVICE_CONTEXT, BID), validate_precise_latitude),
+    "precise-gps-longitude": TestCase("precise-gps-longitude", "Precise GPS Longitude", "Longitude matches Android fused location within accuracy tolerance.", (DEVICE_CONTEXT, BID), validate_precise_longitude),
     "session-duration-continuous": TestCase("session-duration-continuous", "Session Duration — Continuous App Session", "Session duration increases without leaving the App.", (BID,), validate_session_duration_continuous),
     "session-duration-background": TestCase("session-duration-background", "Session Duration — Resume from Background", "Session duration increases after background and resume.", (BID,), validate_session_duration_background),
     "session-duration-termination": TestCase("session-duration-termination", "Session Duration — Reset after Termination", "Session duration resets after process termination.", (BID,), validate_session_duration_termination),
@@ -1204,7 +1267,7 @@ TC_DEFINITIONS = {
     "last-foreground-times": TestCase("last-foreground-times", "Last Foreground Times", "Foreground history follows the shared Android/iOS contract.", (BID,), validate_last_foreground_times),
     "last-background-times": TestCase("last-background-times", "Last Background Times", "Background history follows the shared Android/iOS contract.", (BID,), validate_last_background_times),
     "impression-history": TestCase("impression-history", "Impression History", "The second ad request carries the first impression history.", (BID,), validate_impression_history),
-    "network-latency": TestCase("network-latency", "Connection Latency", "Latency probe validation requires independent endpoint timing.", (BID,), validate_network_latency),
+    "network-latency": TestCase("network-latency", "Connection Latency", "The SDK latency probe and its positive millisecond result are required in R1.", (BID,), validate_network_latency),
     "force-gdpr-override": TestCase("force-gdpr-override", "Force GDPR Override", "Force GDPR requires a Sample App trigger.", (BID,), validate_force_gdpr_override),
     "coppa-applies": TestCase("coppa-applies", "COPPA Applicability Flag", "COPPA flag reflects the Sample App setter.", (BID,), validate_coppa_applies),
     "vpn-status": TestCase("vpn-status", "VPN Status", "VPN is outside this round scope.", (BID,), validate_vpn_status),
@@ -1252,7 +1315,6 @@ ROUND_DEFINITIONS = {
             "keyboard-languages",
             "root-status",
             "emulator-detection",
-            "ipv6-address",
             "connection-type",
             "connection-type-cellular",
             "carrier",

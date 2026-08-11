@@ -215,8 +215,8 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   `ro.product.model`；About phone 是人眼 Evidence。
 - `default-timezone` / `device.utcoffset`：req/ext 均須等於 capture 當下 `date +%z` 轉換的
   UTC offset 分鐘數。答案隨系統時區改變，不固定為 480。
-- `default-language-iso` / `device.lang` / System Language Code：只驗 Settings 第一順位語言的 ISO-639-1 語言部分；例如 English (Japan) → `en`。
-- `default-language-bcp47` / `device.langb` / System Language and Region Tag：驗 Settings 第一順位語言＋地區的完整 BCP 47；例如 English (Japan) → `en-JP`，req/ext 均須完全相同。
+- `default-language-iso` / `device.lang` / App Language Code：App 當前語言的低精度 ISO-639-1 語言部分；例如 App locale `en-US` → `en`。App 畫面截圖作人眼 Evidence，Android per-app locale 作精確答案來源。
+- `default-language-bcp47` / `device.langb` / App Language and Region Tag：App 當前語言＋地區的高精度 BCP 47；例如 App locale `en-US` → `en-US`，req/ext 均須完全相同。與 ISO TC 共用 App 畫面截圖。
   tag，例如 `en-JP`；答案不得由 payload 反推或固定寫死。
 
 共用 `device-context` capture 會保留 Sound、About phone、Date & time、Languages 四個原生頁面，
@@ -236,14 +236,19 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   同一輪必須保存 endpoint request／HTTP 200 response，並驗證 response `ipv6` 是合法 IPv6、且與
   decoded `ext.device.ipv6` 完全相同。若目前網路無法連到 IPv6-only endpoint，屬環境前提不足而
   BLOCKED；endpoint 已成功回覆但 payload 缺值、格式錯誤或不一致則 FAILED。IPv4 依需求排除。
-- AOS／iOS `R4` 共用五步、同一 App session 的 IPv6 refresh 契約：冷啟動、Wi-Fi A→B、
+- AOS／iOS `R4` 共用六條判定、五步同一 App session 的 IPv6 refresh 契約：IPv6 Address、冷啟動、Wi-Fi A→B、
   斷線恢復、快速 A→B→A→B、slow-network A→B。兩個平台各自以原生 runner 實作；程式負責
   每步等待、送廣告 request、保存 payload 與比較，操作者只負責 Wi-Fi／hotspot／throttle
   checkpoint。AOS 每一步另須保存 Appier adx6 net probe response，並與 ext.device.ipv6 相等。
-- `R4` 第一個 capture 若確認測試網路沒有合法 IPv6，五條全部 BLOCKED（環境前提不足）。一旦
+- `R4` 第一個 capture 若確認測試網路沒有合法 IPv6，六條全部 BLOCKED（環境前提不足）。一旦
   IPv6 環境成立，已執行步驟缺值、格式錯、保留舊 IP、request 被阻擋或 App crash 都是 FAILED。
-- `precise-gps-latitude`、`precise-gps-longitude`：BLOCKED / Not In Scope。正確觀察路徑是
-  `device.geo_lat` / `device.geo_lon`；`device.lat` 已是 tracking flag，不能當緯度。
+- `precise-gps-latitude`、`precise-gps-longitude`：R1 先授予 Sample App 定位權限，再以 Android
+  fused last-known location 與 accuracy 作為獨立答案。正確 payload 路徑是
+  `ext.device.geo_lat` / `ext.device.geo_lon`；兩點距離須在 `max(accuracy, 200m)` 內。
+  `device.lat` 是 tracking flag，不能當緯度。
+- `network-latency`：R1 必須保存 SDK 對
+  `https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg` 的 HEAD 200 response，且解碼後
+  `device.ext.latency` 必須是大於 0 的整數毫秒值。缺 probe 或欄位即 FAILED；不得用 bid RTT 代替。
 - `foreground-session-duration`：BLOCKED。需 SampleApp 提供獨立 session start timestamp，並先
   確認 `user.session_duration` 單位；只檢查 payload 是正數不構成正確性驗證。
 
