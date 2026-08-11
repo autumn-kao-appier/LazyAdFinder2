@@ -77,6 +77,12 @@ export TARGET_APP_PACKAGE='<promoted-app-package>'
 
 REEN 的 R5 只跳過 Advertising ID opt-out 與 tracking-denied；其他裝置狀態 Scenario 仍會執行。
 
+使用任何 Mediation 模式前，runner 會在第一個廣告操作之前強制詢問：這支手機是否已在
+[Google AdMob 登記為 Test Device](https://developers.google.com/admob/android/test-ads)。若尚未登入，請先依
+[Appier Google AdMob 登入指南](https://appier.atlassian.net/wiki/x/l4LbNwE) 完成登入與設定。
+必須明確回答 `y`／`yes` 才會繼續；`--yes` 只略過 Test Scope 確認，不能略過這個安全警告。
+完整 suite 只詢問一次，後續 Round 子程序沿用同一次確認。
+
 REEN 有獨立的一鍵入口；Static／Dynamic 共用完全相同的 TestCase 與 runner，但 Evidence 與 Report slot 依 creative type 分開：
 
 ```bash

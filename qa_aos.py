@@ -68,6 +68,35 @@ MODE_TABS = {
     "admob-mediation": "AdMob Mediation",
     "applovin-mediation": "AppLovin Mediation",
 }
+MEDIATION_TEST_DEVICE_CONFIRMED = "MEDIATION_TEST_DEVICE_CONFIRMED"
+ADMOB_TEST_DEVICE_GUIDE = "https://developers.google.com/admob/android/test-ads"
+APPIER_ADMOB_LOGIN_GUIDE = "https://appier.atlassian.net/wiki/x/l4LbNwE"
+
+
+def confirm_mediation_test_device(test_mode, *, environment=None, input_fn=None):
+    """Require an explicit test-device acknowledgement before Mediation can request ads."""
+    if test_mode not in {"admob-mediation", "applovin-mediation"}:
+        return True
+    environment = os.environ if environment is None else environment
+    if environment.get(MEDIATION_TEST_DEVICE_CONFIRMED) == "1":
+        print("[mediation safety] TestDevice registration confirmed for this suite run")
+        return True
+    if input_fn is None:
+        input_fn = input
+    print("\n⚠️  MEDIATION TEST DEVICE WARNING")
+    print("自動重複請求 Mediation 廣告可能造成測試裝置或帳號被封鎖。")
+    print("請先確認這支手機已在 Google AdMob 登記為 Test Device。")
+    print(f"Google AdMob Test Device 設定：{ADMOB_TEST_DEVICE_GUIDE}")
+    print(f"Appier Google AdMob 登入指南：{APPIER_ADMOB_LOGIN_GUIDE}")
+    try:
+        answer = input_fn("已完成 Google AdMob Test Device 登記並確認可安全測試？[y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in {"y", "yes"}:
+        print("[mediation safety] cancelled before any ad automation")
+        return False
+    environment[MEDIATION_TEST_DEVICE_CONFIRMED] = "1"
+    return True
 
 FLAG_FILE = Path("/tmp/appier_hit")
 BID_FILE = Path("/tmp/appier_bid.json")
@@ -2098,6 +2127,8 @@ def main(argv=None):
     print(f"[cid]    {config.test_cid or '(any request)'}")
     print_execution_plan(plan, config)
     sys.stdout.flush()
+    if not confirm_mediation_test_device(config.test_mode):
+        return 2
     if any(scenario.decision == "RUN" for scenario in plan.scenarios):
         require_device_unlocked(config)
         ensure_proxy_capture_ready(config)

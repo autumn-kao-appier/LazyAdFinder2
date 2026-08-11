@@ -76,6 +76,9 @@ def main(argv=None):
     if args.include_e2e and config["test_mode"] not in {"standalone", "admob-mediation"}:
         raise SystemExit("E2E is currently implemented only for standalone and admob-mediation")
 
+    if not qa_aos.confirm_mediation_test_device(config["test_mode"], environment=environment):
+        return 2
+
     started = datetime.now().astimezone()
     run_id = f"aos-{started.strftime('%Y%m%dT%H%M%S%z')}"
     rounds = ["R1", "R2", "R3", "R4", "R5"]

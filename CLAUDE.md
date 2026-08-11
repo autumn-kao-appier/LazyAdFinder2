@@ -102,6 +102,10 @@ Advertising ID TC 確立以下品質門檻。後續每一條 Signal／E2E TC 在
    平台還要重跑實機 Round。Catalog、TC 文件、runner registry、Verdict 與 Page 必須同步。
 10. **通過後才 commit**：只有上述門檻全部有證據通過，Catalog 才能從 `DRAFT` 改為
     `IMPLEMENTED` 並提交 Code。
+11. **Mediation TestDevice 安全閘門**：任何 AdMob／AppLovin Mediation automation 在第一個
+    廣告操作前，必須明確詢問並確認手機已在 [Google AdMob 登記為 Test Device](https://developers.google.com/admob/android/test-ads)，
+    並提供 [Appier Google AdMob 登入指南](https://appier.atlassian.net/wiki/x/l4LbNwE)。`--yes` 不得略過此警告；
+    完整 suite 確認一次後才可由子 Round 共用確認狀態。
 
 ## Round engine
 

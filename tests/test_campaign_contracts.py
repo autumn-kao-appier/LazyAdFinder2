@@ -166,6 +166,29 @@ class CampaignContractTests(unittest.TestCase):
             errors = json.loads((folder / "evidence-errors.json").read_text())
             self.assertEqual("before_bid", errors["providers"]["broken"]["phase"])
 
+    def test_mediation_requires_explicit_test_device_confirmation(self):
+        environment = {}
+        self.assertFalse(qa_aos.confirm_mediation_test_device(
+            "admob-mediation", environment=environment, input_fn=lambda _prompt: "no",
+        ))
+        self.assertNotIn(qa_aos.MEDIATION_TEST_DEVICE_CONFIRMED, environment)
+        self.assertTrue(qa_aos.confirm_mediation_test_device(
+            "admob-mediation", environment=environment, input_fn=lambda _prompt: "yes",
+        ))
+        self.assertEqual("1", environment[qa_aos.MEDIATION_TEST_DEVICE_CONFIRMED])
+        self.assertIn("developers.google.com/admob", qa_aos.ADMOB_TEST_DEVICE_GUIDE)
+        self.assertEqual("https://appier.atlassian.net/wiki/x/l4LbNwE", qa_aos.APPIER_ADMOB_LOGIN_GUIDE)
+        self.assertTrue(qa_aos.confirm_mediation_test_device(
+            "admob-mediation", environment=environment,
+            input_fn=lambda _prompt: self.fail("suite confirmation must not prompt each child Round"),
+        ))
+
+    def test_standalone_does_not_prompt_for_mediation_confirmation(self):
+        self.assertTrue(qa_aos.confirm_mediation_test_device(
+            "standalone", environment={},
+            input_fn=lambda _prompt: self.fail("Standalone must not show the Mediation warning"),
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
