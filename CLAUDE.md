@@ -105,7 +105,9 @@ Advertising ID TC 確立以下品質門檻。後續每一條 Signal／E2E TC 在
 11. **Mediation TestDevice 安全閘門**：任何 Mediation automation 在第一個
     廣告操作前，必須明確詢問並確認手機已在 [Google AdMob 登記為 Test Device](https://developers.google.com/admob/android/test-ads)，
     並提供 [Appier Google AdMob 登入指南](https://appier.atlassian.net/wiki/x/l4LbNwE)。`--yes` 不得略過此警告；
-    完整 suite 確認一次後才可由子 Round 共用確認狀態。
+    Runner 須讀取 Android Ads 頁的 GAID、輸出該值，並以 Chrome 無痕模式開啟 AdMob Test devices
+    清單。使用者將 GAID 填入並儲存後才可確認繼續；不要求額外人眼比對，也不得用瀏覽器自動化修改
+    登入後的 AdMob 帳號。GAID 抓取失敗時必須停止。完整 suite 確認一次後才可由子 Round 共用狀態。
 12. **單一整合入口**：AOS 完整 suite 只暴露 `standalone`／`mediation` 兩種整合模式；目前
     `mediation` 固定映射 Google AdMob，不建立 AppLovin 分支。兩者共用 R1–R5，Standalone 追加
     E2E-S，Mediation 追加 E2E-S＋E2E-M。完整 suite 預設包含 E2E，只有 `--signal-only` 可略過。

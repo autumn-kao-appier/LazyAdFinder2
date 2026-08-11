@@ -78,6 +78,9 @@ VISIBLE_GAID_RE = re.compile(
     r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})",
     re.IGNORECASE,
 )
+UUID_RE = re.compile(
+    r"\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b"
+)
 
 
 class EvidenceCaptureError(RuntimeError):
@@ -130,7 +133,8 @@ def _visible_ads_state(udid):
     nodes = list(root.iter("node"))
     visible_text = "\n".join(node.attrib.get("text", "") for node in nodes)
     match = VISIBLE_GAID_RE.search(visible_text)
-    gaid = match.group(1) if match else ""
+    candidates = UUID_RE.findall(visible_text)
+    gaid = match.group(1) if match else candidates[0] if len(set(candidates)) == 1 else ""
     title = next(
         (node for node in nodes if node.attrib.get("text") == "Opt out of Ads Personalization"),
         None,
@@ -361,6 +365,22 @@ def capture_ads_settings(config):
         "ui_model": state["ui_model"],
         "visible_action": "Delete advertising ID" if state["delete_visible"] else None,
     }, indent=2) + "\n")
+
+
+def read_visible_advertising_id(udid):
+    """Read the current GAID from Android's reviewed Ads page without changing it."""
+    _wake_and_unlock(udid)
+    _adb(udid, "shell", "input", "keyevent", "4", check=False)
+    _open_ads_settings(udid)
+    time.sleep(1)
+    _position_visible_opt_out(udid)
+    for _ in range(7):
+        state = _visible_ads_state(udid)
+        if state.get("gaid"):
+            return state["gaid"]
+        _adb(udid, "shell", "input", "swipe", "540", "1900", "540", "500", "450")
+        time.sleep(0.4)
+    raise EvidenceCaptureError("Android Ads page did not expose a visible Advertising ID (GAID)")
 
 
 def materialize_ads_settings(folder):

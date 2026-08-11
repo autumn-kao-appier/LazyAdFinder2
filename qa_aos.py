@@ -41,7 +41,7 @@ from appium.options.android.uiautomator2.base import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from campaign_profiles import CAMPAIGN_PROFILES, campaign_profile
 from campaign_testcases import supports as campaign_supports
-from evidence_aos import collect as collect_evidence, capture_ads_settings
+from evidence_aos import collect as collect_evidence, capture_ads_settings, read_visible_advertising_id
 from evidence_bundle import decoded_bid, finalize_bundle
 from testcases.android_signal_testcases import (
     ROUND_DEFINITIONS, TC_DEFINITIONS, R5_PRIVACY_KEYS, R5_DARK_MODE_KEYS,
@@ -70,9 +70,13 @@ MODE_TABS = {
 MEDIATION_TEST_DEVICE_CONFIRMED = "MEDIATION_TEST_DEVICE_CONFIRMED"
 ADMOB_TEST_DEVICE_GUIDE = "https://developers.google.com/admob/android/test-ads"
 APPIER_ADMOB_LOGIN_GUIDE = "https://appier.atlassian.net/wiki/x/l4LbNwE"
+ADMOB_TEST_DEVICE_PAGE = "https://admob.google.com/v2/settings/test-devices/list?_gl=1*n3d3vo*_ga*MTA4OTY4NDY4MC4xNzg0NTE4NjI2*_ga_6R1K8XRD9P*czE3ODQ1MTg2MjUkbzEkZzAkdDE3ODQ1MTg2MjUkajYwJGwwJGgw"
 
 
-def confirm_mediation_test_device(test_mode, *, environment=None, input_fn=None):
+def confirm_mediation_test_device(
+    test_mode, *, environment=None, input_fn=None, udid="", advertising_id=None,
+    open_page=None,
+):
     """Require an explicit test-device acknowledgement before Mediation can request ads."""
     if test_mode != "admob-mediation":
         return True
@@ -82,13 +86,32 @@ def confirm_mediation_test_device(test_mode, *, environment=None, input_fn=None)
         return True
     if input_fn is None:
         input_fn = input
+    if advertising_id is None and udid:
+        try:
+            advertising_id = read_visible_advertising_id(udid)
+        except Exception as exc:
+            print(f"[mediation safety] 無法從 Android Ads 頁取得 GAID：{exc}", file=sys.stderr)
+            return False
+    if not advertising_id:
+        print("[mediation safety] 未取得 GAID，停止於第一個廣告請求之前", file=sys.stderr)
+        return False
+    if open_page is None:
+        def open_page(url):
+            return subprocess.run(
+                ["open", "-na", "Google Chrome", "--args", "--incognito", url],
+                check=False,
+            ).returncode == 0
+    if not open_page(ADMOB_TEST_DEVICE_PAGE):
+        print(f"[mediation safety] 無法自動開啟 Chrome；請手動開啟：{ADMOB_TEST_DEVICE_PAGE}", file=sys.stderr)
     print("\n⚠️  MEDIATION TEST DEVICE WARNING")
     print("自動重複請求 Mediation 廣告可能造成測試裝置或帳號被封鎖。")
-    print("請先確認這支手機已在 Google AdMob 登記為 Test Device。")
+    print(f"這支 Android 手機的 Advertising ID（GAID）：{advertising_id}")
+    print("請將上述 GAID 填入剛開啟的 Google AdMob Test devices 頁面並儲存。")
+    print("如果頁面尚未登入，請先登入 Google AdMob；登入方式請參考 Appier 指南。")
     print(f"Google AdMob Test Device 設定：{ADMOB_TEST_DEVICE_GUIDE}")
     print(f"Appier Google AdMob 登入指南：{APPIER_ADMOB_LOGIN_GUIDE}")
     try:
-        answer = input_fn("已完成 Google AdMob Test Device 登記並確認可安全測試？[y/N] ").strip().lower()
+        answer = input_fn("已將上述 GAID 加入 Google AdMob Test devices 並儲存？[y/N] ").strip().lower()
     except EOFError:
         answer = ""
     if answer not in {"y", "yes"}:
@@ -2126,7 +2149,7 @@ def main(argv=None):
     print(f"[cid]    {config.test_cid or '(any request)'}")
     print_execution_plan(plan, config)
     sys.stdout.flush()
-    if not confirm_mediation_test_device(config.test_mode):
+    if not confirm_mediation_test_device(config.test_mode, udid=config.udid):
         return 2
     if any(scenario.decision == "RUN" for scenario in plan.scenarios):
         require_device_unlocked(config)

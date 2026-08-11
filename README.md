@@ -80,6 +80,10 @@ REEN 的 R5 只跳過 Advertising ID opt-out 與 tracking-denied；其他裝置�
 使用任何 Mediation 模式前，runner 會在第一個廣告操作之前強制詢問：這支手機是否已在
 [Google AdMob 登記為 Test Device](https://developers.google.com/admob/android/test-ads)。若尚未登入，請先依
 [Appier Google AdMob 登入指南](https://appier.atlassian.net/wiki/x/l4LbNwE) 完成登入與設定。
+Runner 會從 Android Ads 設定頁讀取當前 GAID，並以 Chrome 無痕視窗自動開啟
+[AdMob Test devices 清單](https://admob.google.com/v2/settings/test-devices/list)，再將 GAID 清楚輸出至終端。
+使用者將該值填入 Google AdMob 並儲存後，才確認繼續；不要求另外比對清單，也不以瀏覽器自動化
+修改 AdMob 帳號。GAID 無法取得時，runner 必須在第一個廣告請求前停止。
 必須明確回答 `y`／`yes` 才會繼續；`--yes` 只略過 Test Scope 確認，不能略過這個安全警告。
 完整 suite 只詢問一次，後續 Round 子程序沿用同一次確認。
 

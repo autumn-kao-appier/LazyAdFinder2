@@ -88,8 +88,12 @@ def main(argv=None):
         raise SystemExit(f"Unsupported TEST_MODE={config['test_mode']!r}")
     if config["test_type"] not in CAMPAIGN_PROFILES:
         raise SystemExit(f"Unsupported TEST_TYPE={config['test_type']!r}")
-    if not qa_aos.confirm_mediation_test_device(config["test_mode"], environment=environment):
-        return 2
+    if config["test_mode"] == "admob-mediation":
+        safety_udid = qa_aos.detect_udid(config["udid"])
+        if not qa_aos.confirm_mediation_test_device(
+            config["test_mode"], environment=environment, udid=safety_udid,
+        ):
+            return 2
 
     started = datetime.now().astimezone()
     run_id = f"aos-{started.strftime('%Y%m%dT%H%M%S%z')}"

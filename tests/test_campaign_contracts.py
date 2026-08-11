@@ -193,14 +193,17 @@ class CampaignContractTests(unittest.TestCase):
         environment = {}
         self.assertFalse(qa_aos.confirm_mediation_test_device(
             "admob-mediation", environment=environment, input_fn=lambda _prompt: "no",
+            advertising_id="11111111-2222-3333-4444-555555555555", open_page=lambda _url: True,
         ))
         self.assertNotIn(qa_aos.MEDIATION_TEST_DEVICE_CONFIRMED, environment)
         self.assertTrue(qa_aos.confirm_mediation_test_device(
             "admob-mediation", environment=environment, input_fn=lambda _prompt: "yes",
+            advertising_id="11111111-2222-3333-4444-555555555555", open_page=lambda _url: True,
         ))
         self.assertEqual("1", environment[qa_aos.MEDIATION_TEST_DEVICE_CONFIRMED])
         self.assertIn("developers.google.com/admob", qa_aos.ADMOB_TEST_DEVICE_GUIDE)
         self.assertEqual("https://appier.atlassian.net/wiki/x/l4LbNwE", qa_aos.APPIER_ADMOB_LOGIN_GUIDE)
+        self.assertIn("admob.google.com/v2/settings/test-devices/list", qa_aos.ADMOB_TEST_DEVICE_PAGE)
         self.assertTrue(qa_aos.confirm_mediation_test_device(
             "admob-mediation", environment=environment,
             input_fn=lambda _prompt: self.fail("suite confirmation must not prompt each child Round"),
