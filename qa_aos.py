@@ -44,8 +44,10 @@ from campaign_testcases import supports as campaign_supports
 from evidence_aos import collect as collect_evidence, capture_ads_settings
 from evidence_bundle import decoded_bid, finalize_bundle
 from testcases.android_signal_testcases import (
-    ROUND_DEFINITIONS, TC_DEFINITIONS, R5_PRIVACY_KEYS, R5_ALTERNATE_KEYS,
-    R5_DISPLAY_AUDIO_HIGH_KEYS, R5_TIMEZONE_KEYS, R5_LOCATION_DENIED_KEYS,
+    ROUND_DEFINITIONS, TC_DEFINITIONS, R5_PRIVACY_KEYS, R5_DARK_MODE_KEYS,
+    R5_FONT_SCALE_KEYS, R5_BRIGHTNESS_MINIMUM_KEYS, R5_VOLUME_MUTED_KEYS,
+    R5_BATTERY_SAVER_KEYS, R5_BRIGHTNESS_MAXIMUM_KEYS, R5_VOLUME_MAXIMUM_KEYS,
+    R5_TIMEZONE_KEYS, R5_LOCATION_DENIED_KEYS,
 )
 from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
 from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
@@ -1038,8 +1040,13 @@ def resolve_execution_plan(args):
     elif name == "R5":
         scenarios = (
             ScenarioPlan("PRIVACY-DENIED", R5_PRIVACY_KEYS),
-            ScenarioPlan("ALTERNATE-DEVICE-STATE", R5_ALTERNATE_KEYS),
-            ScenarioPlan("DISPLAY-AUDIO-HIGH", R5_DISPLAY_AUDIO_HIGH_KEYS),
+            ScenarioPlan("DARK-MODE-ENABLED", R5_DARK_MODE_KEYS),
+            ScenarioPlan("FONT-SCALE-MAXIMUM", R5_FONT_SCALE_KEYS),
+            ScenarioPlan("BRIGHTNESS-MINIMUM", R5_BRIGHTNESS_MINIMUM_KEYS),
+            ScenarioPlan("VOLUME-MUTED", R5_VOLUME_MUTED_KEYS),
+            ScenarioPlan("BATTERY-SAVER-ENABLED", R5_BATTERY_SAVER_KEYS),
+            ScenarioPlan("BRIGHTNESS-MAXIMUM", R5_BRIGHTNESS_MAXIMUM_KEYS),
+            ScenarioPlan("VOLUME-MAXIMUM", R5_VOLUME_MAXIMUM_KEYS),
             ScenarioPlan("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS),
             ScenarioPlan("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS),
         )
@@ -1603,12 +1610,6 @@ def run_round(config, plan):
         def run_scenario(label, keys, mutate, restore):
             testcases = [TC_DEFINITIONS[key] for key in keys]
             required = tuple(evidence for testcase in testcases for evidence in testcase.evidence)
-            if label == "ALTERNATE-DEVICE-STATE":
-                # Pixel's Battery usage Activity may stay blank after the
-                # Display/Quick Settings capture. All providers observe the
-                # same already-mutated state, so capture Battery first.
-                priority = {"battery-status": 0, "display-status": 1, "volume-status": 2, "bid": 3}
-                required = tuple(sorted(required, key=lambda item: priority.get(item, 10)))
             scenario = scenario_plans[label]
             if scenario.decision == "SKIP":
                 folders.append(record_skip(config, "R5", label, scenario.reason, scenario.checks, scenario.testcase_keys))
@@ -1715,80 +1716,55 @@ def run_round(config, plan):
             print("[R5 Privacy] restoring tracking-allowed baseline")
             capture_ads_settings(config)
 
-        original = {}
-        def alternate_mutate():
-            original.update({
-                "dark": adb(config.udid, "shell", "cmd", "uimode", "night").strip(),
-                "font": adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip(),
-                "brightness": adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip(),
-                "low_power": adb(config.udid, "shell", "settings", "get", "global", "low_power").strip(),
-            })
-            original["volume"] = str(media_volume_state(config)[0])
+        state_originals = {}
+
+        def remember(label, key, value):
+            state_originals.setdefault(label, {})[key] = value
+
+        def restore_setting(label, namespace, key):
+            value = state_originals.get(label, {}).get(key)
+            if value is not None:
+                adb(config.udid, "shell", "settings", "put", namespace, key, value, check=False)
+
+        def dark_mode_mutate():
+            remember("DARK-MODE-ENABLED", "dark", adb(config.udid, "shell", "cmd", "uimode", "night").strip())
             adb(config.udid, "shell", "cmd", "uimode", "night", "yes")
+
+        def dark_mode_restore():
+            original = state_originals.get("DARK-MODE-ENABLED", {}).get("dark")
+            if original is not None:
+                adb(config.udid, "shell", "cmd", "uimode", "night", "yes" if original.lower().endswith("yes") else "no", check=False)
+
+        def font_scale_mutate():
+            remember("FONT-SCALE-MAXIMUM", "font_scale", adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip())
             set_font_scale_to_ui_maximum(config)
-            # Android clamps the minimum effective brightness to raw 1.
-            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "1")
-            set_media_volume(config, 0)
-            adb(config.udid, "shell", "dumpsys", "battery", "unplug")
-            original["battery_simulated"] = True
-            adb(config.udid, "shell", "settings", "put", "global", "low_power", "1")
-            dark = adb(config.udid, "shell", "cmd", "uimode", "night").strip().lower()
-            brightness = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
-            low_power = adb(config.udid, "shell", "settings", "get", "global", "low_power").strip()
-            current_volume, _maximum_volume = media_volume_state(config)
-            if "yes" not in dark:
-                raise CaptureError(f"Dark Mode mutation was not applied: {dark!r}")
-            if brightness != "1":
-                raise CaptureError(f"Minimum brightness mutation was not applied: {brightness!r}")
-            if low_power != "1":
-                raise CaptureError(f"Battery Saver mutation was not applied: {low_power!r}")
-            if current_volume != 0:
-                raise CaptureError(f"Muted media volume mutation was not applied: {current_volume}")
 
-        def alternate_restore():
-            if not original:
-                return
-            if "dark" in original:
-                dark = "yes" if original["dark"].lower().endswith("yes") else "no"
-                adb(config.udid, "shell", "cmd", "uimode", "night", dark, check=False)
-            if "font" in original:
-                adb(config.udid, "shell", "settings", "put", "system", "font_scale", original["font"], check=False)
-            if "brightness" in original:
-                adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", original["brightness"], check=False)
-            if "volume" in original:
-                try:
-                    set_media_volume(config, int(original["volume"]))
-                except Exception as exc:
-                    print(f"[R5 Alternate] volume restore failed: {exc}", file=sys.stderr)
-            if original.get("battery_simulated"):
-                adb(config.udid, "shell", "dumpsys", "battery", "reset", check=False)
-            if "low_power" in original:
-                adb(config.udid, "shell", "settings", "put", "global", "low_power", original["low_power"], check=False)
-            print("[R5 Alternate] restored original display/audio/power state")
+        def font_scale_restore(): restore_setting("FONT-SCALE-MAXIMUM", "system", "font_scale")
 
-        high_original = {}
-        def display_audio_high_mutate():
-            high_original["brightness"] = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
+        def brightness_mutate(label, value):
+            remember(label, "screen_brightness", adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip())
+            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", str(value))
+
+        def brightness_restore(label): restore_setting(label, "system", "screen_brightness")
+
+        def volume_mutate(label, target):
             current, maximum = media_volume_state(config)
-            high_original["volume"] = str(current)
-            adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", "255")
-            set_media_volume(config, maximum)
-            brightness = adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
-            current, confirmed_maximum = media_volume_state(config)
-            if brightness != "255":
-                raise CaptureError(f"Maximum brightness mutation was not applied: {brightness!r}")
-            if current != confirmed_maximum:
-                raise CaptureError(f"Maximum media volume mutation was not applied: {current}/{confirmed_maximum}")
+            remember(label, "volume", current)
+            set_media_volume(config, maximum if target == "maximum" else 0)
 
-        def display_audio_high_restore():
-            if "brightness" in high_original:
-                adb(config.udid, "shell", "settings", "put", "system", "screen_brightness", high_original["brightness"], check=False)
-            if "volume" in high_original:
-                try:
-                    set_media_volume(config, int(high_original["volume"]))
-                except Exception as exc:
-                    print(f"[R5 Display/Audio High] volume restore failed: {exc}", file=sys.stderr)
-            print("[R5 Display/Audio High] restored original brightness and volume")
+        def volume_restore(label):
+            original = state_originals.get(label, {}).get("volume")
+            if original is not None:
+                set_media_volume(config, int(original))
+
+        def battery_saver_mutate():
+            remember("BATTERY-SAVER-ENABLED", "low_power", adb(config.udid, "shell", "settings", "get", "global", "low_power").strip())
+            adb(config.udid, "shell", "dumpsys", "battery", "unplug")
+            adb(config.udid, "shell", "settings", "put", "global", "low_power", "1")
+
+        def battery_saver_restore():
+            adb(config.udid, "shell", "dumpsys", "battery", "reset", check=False)
+            restore_setting("BATTERY-SAVER-ENABLED", "global", "low_power")
 
         timezone_original = {}
         def timezone_mutate():
@@ -1836,8 +1812,29 @@ def run_round(config, plan):
             print("[R5 Location] restored original location permissions")
 
         run_scenario("PRIVACY-DENIED", R5_PRIVACY_KEYS, privacy_mutate, privacy_restore)
-        run_scenario("ALTERNATE-DEVICE-STATE", R5_ALTERNATE_KEYS, alternate_mutate, alternate_restore)
-        run_scenario("DISPLAY-AUDIO-HIGH", R5_DISPLAY_AUDIO_HIGH_KEYS, display_audio_high_mutate, display_audio_high_restore)
+        run_scenario("DARK-MODE-ENABLED", R5_DARK_MODE_KEYS, dark_mode_mutate, dark_mode_restore)
+        run_scenario("FONT-SCALE-MAXIMUM", R5_FONT_SCALE_KEYS, font_scale_mutate, font_scale_restore)
+        run_scenario(
+            "BRIGHTNESS-MINIMUM", R5_BRIGHTNESS_MINIMUM_KEYS,
+            lambda: brightness_mutate("BRIGHTNESS-MINIMUM", 1),
+            lambda: brightness_restore("BRIGHTNESS-MINIMUM"),
+        )
+        run_scenario(
+            "VOLUME-MUTED", R5_VOLUME_MUTED_KEYS,
+            lambda: volume_mutate("VOLUME-MUTED", "muted"),
+            lambda: volume_restore("VOLUME-MUTED"),
+        )
+        run_scenario("BATTERY-SAVER-ENABLED", R5_BATTERY_SAVER_KEYS, battery_saver_mutate, battery_saver_restore)
+        run_scenario(
+            "BRIGHTNESS-MAXIMUM", R5_BRIGHTNESS_MAXIMUM_KEYS,
+            lambda: brightness_mutate("BRIGHTNESS-MAXIMUM", 255),
+            lambda: brightness_restore("BRIGHTNESS-MAXIMUM"),
+        )
+        run_scenario(
+            "VOLUME-MAXIMUM", R5_VOLUME_MAXIMUM_KEYS,
+            lambda: volume_mutate("VOLUME-MAXIMUM", "maximum"),
+            lambda: volume_restore("VOLUME-MAXIMUM"),
+        )
         run_scenario("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS, timezone_mutate, timezone_restore)
         run_scenario("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS, location_denied_mutate, location_denied_restore)
         if round_errors:

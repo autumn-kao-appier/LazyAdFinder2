@@ -1,8 +1,11 @@
 import json
+import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import evidence_aos
 import page
 import qa_aos
 import run_reen_test_suite
@@ -123,6 +126,45 @@ class CampaignContractTests(unittest.TestCase):
         )
         self.assertIn("CANNOT RUN", card)
         self.assertIn("不可執行", card)
+
+    def test_r5_state_testcases_are_independent_scenarios(self):
+        plan = qa_aos.resolve_execution_plan(round_args("R5"))
+        state_keys = {
+            "dark-mode-enabled", "font-scale-maximum", "screen-brightness-minimum",
+            "output-volume-muted", "battery-saver-enabled",
+            "screen-brightness-maximum", "output-volume-maximum",
+        }
+        owners = {
+            key: scenario.label
+            for scenario in plan.scenarios
+            for key in scenario.testcase_keys
+            if key in state_keys
+        }
+        self.assertEqual(state_keys, set(owners))
+        self.assertEqual(len(state_keys), len(set(owners.values())))
+
+    def test_evidence_provider_failure_is_isolated(self):
+        def broken(_config):
+            raise RuntimeError("one screenshot failed")
+
+        def good_after(folder):
+            (Path(folder) / "good.txt").write_text("ok")
+
+        providers = {
+            evidence_aos.BID: evidence_aos.EvidenceProvider(),
+            "broken": evidence_aos.EvidenceProvider(before_bid=broken),
+            "good": evidence_aos.EvidenceProvider(after_bid=good_after),
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            evidence_aos.EVIDENCE_CAPTURES, providers, clear=True,
+        ):
+            folder = evidence_aos.collect(
+                object(), (evidence_aos.BID, "broken", "good"),
+                lambda setup: (setup(), Path(directory))[1],
+            )
+            self.assertEqual("ok", (folder / "good.txt").read_text())
+            errors = json.loads((folder / "evidence-errors.json").read_text())
+            self.assertEqual("before_bid", errors["providers"]["broken"]["phase"])
 
 
 if __name__ == "__main__":

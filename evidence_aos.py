@@ -1520,20 +1520,36 @@ def collect(config, required, capture_bid):
         raise EvidenceCaptureError(f"Unknown AOS Evidence keys: {', '.join(unknown)}")
     if BID not in keys:
         raise EvidenceCaptureError("Current AOS Evidence bundle requires the shared 'bid' capture")
+    provider_errors = {}
+    failed_before_bid = set()
+
+    def record_error(key, phase, exc):
+        provider_errors[key] = {
+            "phase": phase,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
     def before_bid(_capture_config=None):
         for key in keys:
             provider = EVIDENCE_CAPTURES[key]
             if provider.before_bid:
-                provider.before_bid(config)
+                try:
+                    provider.before_bid(config)
+                except Exception as exc:
+                    failed_before_bid.add(key)
+                    record_error(key, "before_bid", exc)
 
     folder = capture_bid(before_bid)
-    try:
-        for key in keys:
-            provider = EVIDENCE_CAPTURES[key]
-            if provider.after_bid:
+    for key in keys:
+        provider = EVIDENCE_CAPTURES[key]
+        if provider.after_bid and key not in failed_before_bid:
+            try:
                 provider.after_bid(folder)
-    except Exception as exc:
-        error = EvidenceCaptureError(str(exc))
-        error.evidence_folder = folder
-        raise error from exc
+            except Exception as exc:
+                record_error(key, "after_bid", exc)
+    if provider_errors:
+        (Path(folder) / "evidence-errors.json").write_text(
+            json.dumps({"providers": provider_errors}, ensure_ascii=False, indent=2) + "\n"
+        )
     return folder

@@ -1350,7 +1350,12 @@ ROUND_DEFINITIONS = {
 }
 
 R5_PRIVACY_KEYS = ("advertising-id-opt-out", "tracking-denied")
-R5_ALTERNATE_KEYS = ("dark-mode-enabled", "font-scale-maximum", "screen-brightness-minimum", "output-volume-muted", "battery-saver-enabled")
-R5_DISPLAY_AUDIO_HIGH_KEYS = ("screen-brightness-maximum", "output-volume-maximum")
+R5_DARK_MODE_KEYS = ("dark-mode-enabled",)
+R5_FONT_SCALE_KEYS = ("font-scale-maximum",)
+R5_BRIGHTNESS_MINIMUM_KEYS = ("screen-brightness-minimum",)
+R5_VOLUME_MUTED_KEYS = ("output-volume-muted",)
+R5_BATTERY_SAVER_KEYS = ("battery-saver-enabled",)
+R5_BRIGHTNESS_MAXIMUM_KEYS = ("screen-brightness-maximum",)
+R5_VOLUME_MAXIMUM_KEYS = ("output-volume-maximum",)
 R5_TIMEZONE_KEYS = ("timezone-changed",)
 R5_LOCATION_DENIED_KEYS = ("location-permission-denied",)
