@@ -797,6 +797,33 @@ def eligible(config, request, status, identity):
     return bool(identity and identity.get("cid") == config.test_cid)
 
 
+def classify_ineligible_bid(request, status, identity, target_cid):
+    """Return a compact operator-facing reason for an ineligible ad attempt."""
+    status_text = str(status or "").strip()
+    if status_text == "204":
+        return "NO_BID"
+    if status_text.startswith("5"):
+        return "SERVER_ERROR"
+    if status_text.startswith("4"):
+        return "REQUEST_REJECTED"
+    if not status_text and request is None:
+        return "NETWORK_ERROR"
+    if status_text == "200":
+        actual_cid = identity.get("cid") if isinstance(identity, dict) else None
+        if actual_cid and actual_cid != target_cid:
+            return "WRONG_CID"
+        return "INVALID_RESPONSE"
+    return "INVALID_RESPONSE"
+
+
+def attempt_limit_message(target_cid, attempts, counts):
+    details = ", ".join(f"{key}={counts[key]}" for key in sorted(counts)) or "no classified response"
+    return (
+        f"No eligible bid for CID {target_cid} after {attempts} attempts "
+        f"({details})"
+    )
+
+
 def round_directory(config):
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     mode = _safe_label(config.test_mode, "mode").upper()
@@ -1414,6 +1441,8 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
     request = status = identity = source = None
     warmup_impression = None
     completed_warmups = 0
+    attempt_counts = {}
+    consecutive_server_errors = 0
     failed_step = "setup"
     started = time.monotonic()
     try:
@@ -1438,8 +1467,6 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
             attempt = 0
             while True:
                 attempt += 1
-                if config.max_attempts and attempt > config.max_attempts:
-                    raise CaptureError(f"No eligible bid after {config.max_attempts} attempts")
                 if config.phase_timeout and time.monotonic() - started > config.phase_timeout:
                     raise CaptureError(f"Capture timed out after {config.phase_timeout:g} seconds")
 
@@ -1504,7 +1531,38 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
                     return folder
 
                 actual_cid = identity.get("cid") if identity else None
-                print(f"[retry] status={status or 'unknown'}, cid={actual_cid or 'unknown'}")
+                category = classify_ineligible_bid(request, status, identity, config.test_cid)
+                attempt_counts[category] = attempt_counts.get(category, 0) + 1
+                consecutive_server_errors = consecutive_server_errors + 1 if category == "SERVER_ERROR" else 0
+                print(
+                    f"[retry] category={category}, status={status or 'unknown'}, "
+                    f"cid={actual_cid or 'unknown'}"
+                )
+                if consecutive_server_errors >= 3:
+                    summary = {
+                        "target_cid": config.test_cid,
+                        "attempts": attempt,
+                        "stop_reason": "SERVER_ERROR",
+                        "counts": attempt_counts,
+                    }
+                    (folder / "capture-attempt-summary.json").write_text(
+                        json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+                    )
+                    raise CaptureError(
+                        "Appier Server error: 3 consecutive 5xx responses; "
+                        + attempt_limit_message(config.test_cid, attempt, attempt_counts)
+                    )
+                if config.max_attempts and attempt >= config.max_attempts:
+                    summary = {
+                        "target_cid": config.test_cid,
+                        "attempts": attempt,
+                        "stop_reason": "ATTEMPT_LIMIT",
+                        "counts": attempt_counts,
+                    }
+                    (folder / "capture-attempt-summary.json").write_text(
+                        json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+                    )
+                    raise CaptureError(attempt_limit_message(config.test_cid, attempt, attempt_counts))
                 time.sleep(config.retry_delay)
     except Exception as exc:
         try:
@@ -2123,7 +2181,7 @@ def build_parser():
         target.add_argument("--evidence-dir", default=_env("EVIDENCE_DIR", str(Path(__file__).parent / "evidence")))
         target.add_argument("--bid-timeout", type=float, default=float(_env("BID_TIMEOUT", "12")))
         target.add_argument("--retry-delay", type=float, default=float(_env("AD_RETRY_DELAY", "2")))
-        target.add_argument("--max-attempts", type=int, default=int(_env("MAX_AD_ATTEMPTS", "0")))
+        target.add_argument("--max-attempts", type=int, default=int(_env("MAX_AD_ATTEMPTS", "20")))
         target.add_argument("--phase-timeout", type=float, default=float(_env("PHASE_TIMEOUT_SEC", "0")))
         target.add_argument("--accept-request", action="store_true", default=_env("SAVE_ON_BID", "0") == "1")
         target.add_argument("--capture-name", default="MANUAL")

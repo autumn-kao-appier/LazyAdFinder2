@@ -145,7 +145,9 @@ python3 qa_aos.py capture --accept-request --max-attempts 1
 - `--udid`：多台 Android 裝置時指定目標。
 - `--trigger-text`：Sample App 的 placement 文字。
 - `--tab-text`：覆蓋 integration mode 對應的 tab 文字。
-- `--max-attempts`：`0` 表示不限制次數。
+- `--max-attempts`：預設 `20`；`0` 僅供人工明確指定為不限制次數。達上限時 Evidence／Report
+  會統計 `NO_BID`、`WRONG_CID`、`SERVER_ERROR`、`REQUEST_REJECTED`、`NETWORK_ERROR`、
+  `INVALID_RESPONSE`，不得靜默結束。連續 3 次 HTTP 5xx 會提前停止並標示 Server error。
 - `--phase-timeout`：整次 capture 的牆鐘上限；`0` 表示不限。
 - `--evidence-dir`：evidence 根目錄。
 

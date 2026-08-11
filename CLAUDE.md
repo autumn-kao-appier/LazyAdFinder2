@@ -159,6 +159,9 @@ baseline 或任何預設狀態。
   只印出 URL。為避免舊快取，開啟的 URL 應附帶本次 publish commit／timestamp cache-buster。
   即使 Round 中途失敗，也要依序保存失敗 Evidence、產生 Report、publish，最後打開公開頁面；
   只有 publish 本身失敗時不得假裝已開啟最新 Report，必須明確報出發布錯誤。
+- 廣告 capture 預設最多嘗試 20 次；達上限必須保存各類結果計數並明確回報 No Bid、錯誤 CID、
+  Server、Request、Network 或 Response 問題。連續 3 次 HTTP 5xx 應提前停止，不得無限重試或
+  靜默死亡。`MAX_AD_ATTEMPTS=0` 只允許人工明確要求無上限時使用。
   Runner 必須在任何裝置狀態變更前執行 Scenario preflight。必要條件不存在時直接 `SKIPPED`：
   保存 `round-skip.json` 說明條件與原因，但不得抓包、不得產生 `verdicts.json`；Page 以灰底
   「未執行」呈現。只有前置條件成立並開始執行後，才允許產生 PASS／FAILED／BLOCKED。

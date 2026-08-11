@@ -286,6 +286,22 @@ class CampaignContractTests(unittest.TestCase):
             self.assertEqual("FAILED", bcp47["status"])
             self.assertEqual({"langb": "en-JP"}, bcp47["expected"])
 
+    def test_ad_capture_defaults_to_twenty_attempts(self):
+        args = qa_aos.build_parser().parse_args(["capture"])
+        self.assertEqual(20, args.max_attempts)
+
+    def test_ineligible_bid_reasons_are_operator_facing(self):
+        target = "target-cid"
+        self.assertEqual("NO_BID", qa_aos.classify_ineligible_bid(None, "204", None, target))
+        self.assertEqual("SERVER_ERROR", qa_aos.classify_ineligible_bid(None, "503", None, target))
+        self.assertEqual("REQUEST_REJECTED", qa_aos.classify_ineligible_bid(None, "401", None, target))
+        self.assertEqual("NETWORK_ERROR", qa_aos.classify_ineligible_bid(None, None, None, target))
+        self.assertEqual(
+            "WRONG_CID",
+            qa_aos.classify_ineligible_bid({}, "200", {"cid": "another-cid"}, target),
+        )
+        self.assertEqual("INVALID_RESPONSE", qa_aos.classify_ineligible_bid({}, "200", None, target))
+
 
 if __name__ == "__main__":
     unittest.main()
