@@ -676,6 +676,8 @@ def validate_screen_brightness_minimum(folder):
     info = _status_info(folder, "display-status.json")
     if info.get("brightness_raw") != 1:
         row["status"] = "FAILED"; row["reason"] = "R5 mutation did not produce Android minimum brightness raw 1"
+    elif not info.get("visual_evidence", {}).get("quick_settings") and not info.get("visual_evidence", {}).get("display_page"):
+        row["status"] = "FAILED"; row["reason"] = "Android minimum brightness matched, but no native visual brightness evidence was captured"
     row["evidence"] = "screen-brightness-evidence.png"
     return row
 
@@ -1281,7 +1283,7 @@ TC_DEFINITIONS = {
     "last-foreground-times": TestCase("last-foreground-times", "Last Foreground Times", "Foreground history follows the shared Android/iOS contract.", (BID,), validate_last_foreground_times),
     "last-background-times": TestCase("last-background-times", "Last Background Times", "Background history follows the shared Android/iOS contract.", (BID,), validate_last_background_times),
     "impression-history": TestCase("impression-history", "Impression History", "The second ad request carries the first impression history.", (BID,), validate_impression_history),
-    "network-latency": TestCase("network-latency", "Connection Latency", "The SDK latency probe and its positive millisecond result are required in R1.", (BID,), validate_network_latency),
+    "network-latency": TestCase("network-latency", "Connection Latency", "The SDK latency probe and its positive millisecond result are required in R2 after the App has had time to initialize.", (BID,), validate_network_latency),
     "force-gdpr-override": TestCase("force-gdpr-override", "Force GDPR Override", "Force GDPR requires a Sample App trigger.", (BID,), validate_force_gdpr_override),
     "coppa-applies": TestCase("coppa-applies", "COPPA Applicability Flag", "COPPA flag reflects the Sample App setter.", (BID,), validate_coppa_applies),
     "vpn-status": TestCase("vpn-status", "VPN Status", "VPN is outside this round scope.", (BID,), validate_vpn_status),
@@ -1338,7 +1340,6 @@ ROUND_DEFINITIONS = {
             "last-foreground-times",
             "last-background-times",
             "vpn-status",
-            "network-latency",
             "force-gdpr-override",
             "coppa-applies",
             "argus-sdk-version",
@@ -1348,7 +1349,7 @@ ROUND_DEFINITIONS = {
     ),
     "R2": Round(
         "SECOND-AD-HISTORY",
-        ("impression-history",),
+        ("impression-history", "network-latency"),
         warmup_ads=1,
     ),
     "R3": Round(

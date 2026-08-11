@@ -240,6 +240,61 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(state_keys, set(owners))
         self.assertEqual(len(state_keys), len(set(owners.values())))
 
+    def test_network_latency_is_evaluated_from_r2_second_request(self):
+        self.assertNotIn(
+            "network-latency",
+            android_signal_testcases.ROUND_DEFINITIONS["R1"].testcase_keys,
+        )
+        self.assertIn(
+            "network-latency",
+            android_signal_testcases.ROUND_DEFINITIONS["R2"].testcase_keys,
+        )
+        self.assertEqual("R2", self.catalog_by_key["network-latency"]["round"])
+
+    def test_display_numeric_status_survives_settings_navigation_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            paths = {
+                "SETUP_DISPLAY_SCREENSHOT": directory / "display.png",
+                "SETUP_FONT_SCALE_SCREENSHOT": directory / "font.png",
+                "SETUP_QUICK_BRIGHTNESS_SCREENSHOT": directory / "quick.png",
+                "SETUP_DISPLAY_STATUS": directory / "status.json",
+            }
+
+            def fake_adb(_udid, *args, binary=False, **_kwargs):
+                command = " ".join(args)
+                if command.endswith("wm size"):
+                    return "Physical size: 1080x2424"
+                if command.endswith("wm density"):
+                    return "Physical density: 420"
+                if "ro.product.model" in command:
+                    return "Pixel 10a"
+                if "screen_brightness" in command:
+                    return "1"
+                if command.endswith("dumpsys display"):
+                    return "mLastUserSetScreenBrightness=0.003921569 mLatestIntBrightness=1 mLatestFloatBrightness=0.003921569"
+                if "font_scale" in command:
+                    return "1.0"
+                if "uimode night" in command:
+                    return "Night mode: no"
+                if binary and "screencap" in command:
+                    return b"x" * 1500
+                return ""
+
+            patches = [patch.object(evidence_aos, name, value) for name, value in paths.items()]
+            with patches[0], patches[1], patches[2], patches[3], \
+                    patch.object(evidence_aos, "_open_settings_screenshot", return_value=""), \
+                    patch.object(evidence_aos, "_adb", side_effect=fake_adb), \
+                    patch.object(evidence_aos.time, "sleep", return_value=None):
+                evidence_aos.capture_display_status(types.SimpleNamespace(udid="device"))
+
+            status = json.loads(paths["SETUP_DISPLAY_STATUS"].read_text())
+            self.assertEqual(1, status["brightness_raw"])
+            self.assertAlmostEqual(1 / 255, status["screen_brightness"])
+            self.assertFalse(status["visual_evidence"]["display_page"])
+            self.assertTrue(status["visual_evidence"]["quick_settings"])
+            self.assertTrue(paths["SETUP_DISPLAY_SCREENSHOT"].is_file())
+
     def test_evidence_provider_failure_is_isolated(self):
         def broken(_config):
             raise RuntimeError("one screenshot failed")

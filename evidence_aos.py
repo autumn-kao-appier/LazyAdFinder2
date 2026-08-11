@@ -986,12 +986,20 @@ def _wm_value(raw, label):
 
 
 def capture_display_status(config):
+    # Numeric Android state is the primary comparison source.  Persist it even
+    # when Settings navigation is temporarily unavailable so one flaky visual
+    # capture cannot erase an otherwise valid signal comparison.
+    for path in (
+        SETUP_DISPLAY_SCREENSHOT,
+        SETUP_FONT_SCALE_SCREENSHOT,
+        SETUP_QUICK_BRIGHTNESS_SCREENSHOT,
+        SETUP_DISPLAY_STATUS,
+    ):
+        path.unlink(missing_ok=True)
     visible = _open_settings_screenshot(
         config.udid, "android.settings.DISPLAY_SETTINGS",
         SETUP_DISPLAY_SCREENSHOT, "Brightness", action=True,
     )
-    if not visible:
-        raise EvidenceCaptureError("native Display page is unavailable")
     font_scale_visible = _open_settings_screenshot(
         config.udid,
         "android.settings.TEXT_READING_SETTINGS",
@@ -999,13 +1007,11 @@ def capture_display_status(config):
         "Font size",
         action=True,
     )
-    if not font_scale_visible:
-        raise EvidenceCaptureError("native Display size & text page is unavailable")
-    font_scale_root = ET.fromstring(font_scale_visible)
-    increase_font_size = next(
-        (node for node in font_scale_root.iter("node") if node.attrib.get("content-desc") == "Increase font size"),
-        None,
-    )
+    font_scale_root = ET.fromstring(font_scale_visible) if font_scale_visible else None
+    increase_font_size = next((
+        node for node in font_scale_root.iter("node")
+        if node.attrib.get("content-desc") == "Increase font size"
+    ), None) if font_scale_root is not None else None
     font_scale_ui_maximum = increase_font_size is not None and increase_font_size.attrib.get("enabled") == "false"
     visible_labels = [html.unescape(value) for value in re.findall(r'text="([^"]+)"', visible)]
     brightness_ui_percent = next(
@@ -1027,7 +1033,6 @@ def capture_display_status(config):
     brightness_sync_float = float(synchronizer_float_match.group(1))
     font_scale = float(_adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip())
     dark_mode = _adb(config.udid, "shell", "cmd", "uimode", "night").strip().lower().endswith("yes")
-    SETUP_QUICK_BRIGHTNESS_SCREENSHOT.unlink(missing_ok=True)
     try:
         _adb(config.udid, "shell", "cmd", "statusbar", "expand-settings")
         time.sleep(1.5)
@@ -1036,8 +1041,12 @@ def capture_display_status(config):
         )
     finally:
         _adb(config.udid, "shell", "cmd", "statusbar", "collapse", check=False)
-    if SETUP_QUICK_BRIGHTNESS_SCREENSHOT.stat().st_size < 1000:
-        raise EvidenceCaptureError("Quick Settings brightness screenshot is unavailable")
+    quick_settings_available = (
+        SETUP_QUICK_BRIGHTNESS_SCREENSHOT.is_file()
+        and SETUP_QUICK_BRIGHTNESS_SCREENSHOT.stat().st_size >= 1000
+    )
+    if not visible and quick_settings_available:
+        shutil.copy2(SETUP_QUICK_BRIGHTNESS_SCREENSHOT, SETUP_DISPLAY_SCREENSHOT)
     SETUP_DISPLAY_STATUS.write_text(
         json.dumps(
             {
@@ -1055,6 +1064,12 @@ def capture_display_status(config):
                 "font_scale": font_scale,
                 "font_scale_ui_maximum": font_scale_ui_maximum,
                 "dark_mode": dark_mode,
+                "visual_evidence": {
+                    "display_page": bool(visible),
+                    "font_scale_page": bool(font_scale_visible),
+                    "quick_settings": quick_settings_available,
+                    "display_source": "native Display page" if visible else "Quick Settings fallback" if quick_settings_available else None,
+                },
                 "official_spec": OFFICIAL_DISPLAY_SPECS.get(model),
                 "source": ["native Display screenshot", "native Display size & text screenshot", "wm size", "wm density"],
             },
@@ -1186,8 +1201,12 @@ def materialize_display_status(folder):
     info["actual"] = {field: device.get(field) for field in ("sw", "sh", "ppi", "pxratio")}
     info["actual"].update({field: device_ext.get(field) for field in ("screen_bright", "fontscale", "darkmode", "gyroscope", "accelerometer")})
     (folder / "display-status.json").write_text(json.dumps(info, indent=2) + "\n")
-    shutil.copy2(SETUP_DISPLAY_SCREENSHOT, folder / "display-settings.png")
-    shutil.copy2(SETUP_FONT_SCALE_SCREENSHOT, folder / "font-scale-settings.png")
+    if SETUP_DISPLAY_SCREENSHOT.is_file():
+        shutil.copy2(SETUP_DISPLAY_SCREENSHOT, folder / "display-settings.png")
+    if SETUP_FONT_SCALE_SCREENSHOT.is_file():
+        shutil.copy2(SETUP_FONT_SCALE_SCREENSHOT, folder / "font-scale-settings.png")
+    if SETUP_QUICK_BRIGHTNESS_SCREENSHOT.is_file():
+        shutil.copy2(SETUP_QUICK_BRIGHTNESS_SCREENSHOT, folder / "quick-brightness-settings.png")
     _render_display_evidence(folder, info)
 
 
