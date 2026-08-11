@@ -3,6 +3,12 @@
 LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。TC、正確標準、Evidence 與報告
 由人工逐條定義；目前只有 AOS 完成可用的 Signal／E2E 自動化閉環。
 
+## 範例報告
+
+完整測試執行後，會產生像這樣的網頁報告：
+
+[查看 LazyAdFinder 範例報告 →](https://autumn-kao-appier.github.io/LazyAdFinder2/)
+
 ## 下載專案
 
 ```bash
