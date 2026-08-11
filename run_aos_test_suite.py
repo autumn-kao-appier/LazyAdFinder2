@@ -13,6 +13,10 @@ from campaign_profiles import CAMPAIGN_PROFILES
 
 
 ROOT = Path(__file__).parent
+INTEGRATION_MODE_ALIASES = {
+    "standalone": "standalone",
+    "mediation": "admob-mediation",
+}
 
 
 def _value(flag, explicit, environment):
@@ -41,12 +45,23 @@ def _round_arguments(round_name, config):
     return arguments
 
 
+def suite_rounds(test_mode, *, signal_only=False):
+    rounds = ["R1", "R2", "R3", "R4", "R5"]
+    if not signal_only:
+        rounds.append("E2E-STANDALONE" if test_mode == "standalone" else "E2E-ADMOB")
+    return rounds
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--include-e2e", action="store_true")
+    parser.add_argument("--signal-only", action="store_true", help="run R1-R5 without E2E")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--yes", action="store_true", help="run the printed scope without an interactive confirmation")
-    parser.add_argument("--test-mode", choices=tuple(qa_aos.MODE_TABS), default=os.environ.get("TEST_MODE", ""))
+    parser.add_argument(
+        "--integration-mode", dest="integration_mode",
+        choices=tuple(INTEGRATION_MODE_ALIASES), default=os.environ.get("TEST_MODE", ""),
+        help="integration entry: standalone or mediation (currently Google AdMob)",
+    )
     parser.add_argument("--test-type", choices=tuple(CAMPAIGN_PROFILES), default=os.environ.get("TEST_TYPE", ""))
     parser.add_argument("--test-cid", default=os.environ.get("TEST_CID", ""))
     parser.add_argument("--target-app-package", default=os.environ.get("TARGET_APP_PACKAGE", ""))
@@ -61,7 +76,7 @@ def main(argv=None):
     config = {
         "app_package": _value("APP_PACKAGE", args.app_package, environment),
         "app_activity": _value("APP_ACTIVITY", args.app_activity, environment),
-        "test_mode": _value("TEST_MODE", args.test_mode, environment).lower(),
+        "test_mode": INTEGRATION_MODE_ALIASES[_value("TEST_MODE", args.integration_mode, environment).lower()],
         "test_type": _value("TEST_TYPE", args.test_type, environment).lower(),
         "test_cid": _value("TEST_CID", args.test_cid, environment),
         "target_app_package": args.target_app_package.strip(),
@@ -73,17 +88,12 @@ def main(argv=None):
         raise SystemExit(f"Unsupported TEST_MODE={config['test_mode']!r}")
     if config["test_type"] not in CAMPAIGN_PROFILES:
         raise SystemExit(f"Unsupported TEST_TYPE={config['test_type']!r}")
-    if args.include_e2e and config["test_mode"] not in {"standalone", "admob-mediation"}:
-        raise SystemExit("E2E is currently implemented only for standalone and admob-mediation")
-
     if not qa_aos.confirm_mediation_test_device(config["test_mode"], environment=environment):
         return 2
 
     started = datetime.now().astimezone()
     run_id = f"aos-{started.strftime('%Y%m%dT%H%M%S%z')}"
-    rounds = ["R1", "R2", "R3", "R4", "R5"]
-    if args.include_e2e:
-        rounds.append("E2E-STANDALONE" if config["test_mode"] == "standalone" else "E2E-ADMOB")
+    rounds = suite_rounds(config["test_mode"], signal_only=args.signal_only)
 
     plans = []
     for round_name in rounds:

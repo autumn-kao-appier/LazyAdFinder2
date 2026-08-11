@@ -88,12 +88,24 @@ REEN 有獨立的一鍵入口；Static／Dynamic 共用完全相同的 TestCase 
 ```bash
 python3 run_reen_test_suite.py static \
   --mode standalone --cid '<cid>' --target-app-package '<package>' \
-  --include-e2e --publish
+  --publish
 
 python3 run_reen_test_suite.py dynamic \
   --mode standalone --cid '<cid>' --target-app-package '<package>' \
-  --include-e2e --publish
+  --publish
 ```
+
+完整 AOS suite 使用同一個 runner，只選整合模式：`standalone` 或 `mediation`。`mediation`
+目前固定為 Google AdMob，不再提供 AppLovin 第二層選項：
+
+```bash
+python3 run_aos_test_suite.py --integration-mode standalone ...
+python3 run_aos_test_suite.py --integration-mode mediation ...
+```
+
+兩個入口都執行相同 R1–R5 Signal。Standalone 自動追加 E2E-S；Mediation 自動追加
+E2E-S 與現有 E2E-M（AdMob）。完整 suite 預設執行 E2E；只有明確指定 `--signal-only`
+才只執行 R1–R5。
 
 擷取一次符合 CID 的廣告：
 

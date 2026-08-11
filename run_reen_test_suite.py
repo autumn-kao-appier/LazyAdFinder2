@@ -13,7 +13,7 @@ DEFAULT_APP_ACTIVITY = ".MainActivity"
 def build_runner_arguments(args):
     command = [
         "--test-type", f"reen-{args.creative}",
-        "--test-mode", args.mode,
+        "--integration-mode", args.mode,
         "--test-cid", args.cid,
         "--target-app-package", args.target_app_package,
         "--app-package", args.app_package,
@@ -25,8 +25,8 @@ def build_runner_arguments(args):
         command += ["--trigger-text", args.trigger_text]
     if args.tab_text:
         command += ["--tab-text", args.tab_text]
-    if args.include_e2e:
-        command.append("--include-e2e")
+    if args.signal_only:
+        command.append("--signal-only")
     if args.publish:
         command.append("--publish")
     if args.yes:
@@ -37,7 +37,10 @@ def build_runner_arguments(args):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("creative", choices=("static", "dynamic"), help="REEN creative type")
-    parser.add_argument("--mode", choices=("standalone", "admob-mediation", "applovin-mediation"), required=True)
+    parser.add_argument(
+        "--mode", choices=("standalone", "mediation"), required=True,
+        help="integration mode; mediation currently means Google AdMob",
+    )
     parser.add_argument("--cid", required=True)
     parser.add_argument("--target-app-package", required=True)
     parser.add_argument("--app-package", default=DEFAULT_APP_PACKAGE)
@@ -45,7 +48,7 @@ def build_parser():
     parser.add_argument("--udid", default="")
     parser.add_argument("--trigger-text", default="")
     parser.add_argument("--tab-text", default="")
-    parser.add_argument("--include-e2e", action="store_true")
+    parser.add_argument("--signal-only", action="store_true")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--yes", action="store_true")
     return parser

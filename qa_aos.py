@@ -66,7 +66,6 @@ DEFAULT_TRIGGER_TEXT = "Native - basic format"
 MODE_TABS = {
     "standalone": "Appier SDK",
     "admob-mediation": "AdMob Mediation",
-    "applovin-mediation": "AppLovin Mediation",
 }
 MEDIATION_TEST_DEVICE_CONFIRMED = "MEDIATION_TEST_DEVICE_CONFIRMED"
 ADMOB_TEST_DEVICE_GUIDE = "https://developers.google.com/admob/android/test-ads"
@@ -75,7 +74,7 @@ APPIER_ADMOB_LOGIN_GUIDE = "https://appier.atlassian.net/wiki/x/l4LbNwE"
 
 def confirm_mediation_test_device(test_mode, *, environment=None, input_fn=None):
     """Require an explicit test-device acknowledgement before Mediation can request ads."""
-    if test_mode not in {"admob-mediation", "applovin-mediation"}:
+    if test_mode != "admob-mediation":
         return True
     environment = os.environ if environment is None else environment
     if environment.get(MEDIATION_TEST_DEVICE_CONFIRMED) == "1":

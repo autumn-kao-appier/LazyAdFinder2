@@ -8,6 +8,7 @@ from unittest.mock import patch
 import evidence_aos
 import page
 import qa_aos
+import run_aos_test_suite
 import run_reen_test_suite
 from campaign_profiles import CAMPAIGN_PROFILES
 from campaign_testcases import CAMPAIGN_TESTCASES
@@ -105,6 +106,27 @@ class CampaignContractTests(unittest.TestCase):
         dynamic = run_reen_test_suite.build_runner_arguments(parser.parse_args(["dynamic", *common]))
         self.assertIn("reen-static", static)
         self.assertIn("reen-dynamic", dynamic)
+
+    def test_single_integration_entry_maps_mediation_to_admob_e2e(self):
+        self.assertEqual(
+            "admob-mediation", run_aos_test_suite.INTEGRATION_MODE_ALIASES["mediation"],
+        )
+        self.assertEqual(
+            ["R1", "R2", "R3", "R4", "R5", "E2E-STANDALONE"],
+            run_aos_test_suite.suite_rounds("standalone"),
+        )
+        self.assertEqual(
+            ["R1", "R2", "R3", "R4", "R5", "E2E-ADMOB"],
+            run_aos_test_suite.suite_rounds("admob-mediation"),
+        )
+        parser = run_reen_test_suite.build_parser()
+        args = parser.parse_args([
+            "static", "--mode", "mediation", "--cid", "cid",
+            "--target-app-package", "target.app",
+        ])
+        command = run_reen_test_suite.build_runner_arguments(args)
+        self.assertIn("--integration-mode", command)
+        self.assertIn("mediation", command)
 
     def test_report_has_latest_and_catalog_only_and_renders_reen_planned_cards(self):
         document = page.render([], [], [], [], self.catalog)
