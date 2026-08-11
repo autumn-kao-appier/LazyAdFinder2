@@ -407,7 +407,7 @@ TC_TITLES_ZH = {
     "gyroscope": "陀螺儀", "accelerometer": "加速度計", "tracking-allowed": "允許廣告追蹤",
     "sdk-version": "SDK 版本", "output-volume": "輸出音量", "device-make": "裝置品牌",
     "device-model": "裝置型號", "default-timezone": "預設時區",
-    "default-language-iso": "App 語言代碼", "default-language-bcp47": "App 語言與地區標籤",
+    "default-language-iso": "系統語言代碼", "default-language-bcp47": "系統語言與地區標籤",
     "keyboard-languages": "已安裝的鍵盤語言", "root-status": "Root 狀態",
     "emulator-detection": "模擬器偵測", "ipv6-address": "IPv6 位址", "connection-type": "連線類型",
     "ipv6-refresh-launch": "App 啟動時取得 IPv6",

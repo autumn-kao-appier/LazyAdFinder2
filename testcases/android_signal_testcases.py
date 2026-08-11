@@ -690,7 +690,21 @@ def validate_screen_brightness_maximum(folder):
 
 
 def _context_info(folder):
-    return _status_info(folder, "device-context.json")
+    info = _status_info(folder, "device-context.json")
+
+    # Evidence captured before the system-locale contract was finalized used
+    # `locale`/`langb_system_hint`; later captures used `device_locale` but did
+    # not yet persist `langb_system`. Normalize those historical schemas so an
+    # archived report is always re-evaluated against the same current rule.
+    device_locale = info.get("device_locale") or info.get("locale")
+    if device_locale:
+        normalized = str(device_locale).replace("_", "-")
+        parts = normalized.split("-", 1)
+        normalized = parts[0].lower() + (f"-{parts[1].upper()}" if len(parts) == 2 else "")
+        info.setdefault("device_locale", normalized)
+        info.setdefault("lang", parts[0].lower())
+        info.setdefault("langb_system", info.get("langb_system_hint") or normalized)
+    return info
 
 
 def validate_output_volume(folder):
