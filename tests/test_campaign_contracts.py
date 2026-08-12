@@ -384,6 +384,31 @@ class CampaignContractTests(unittest.TestCase):
             self.assertEqual("FAILED", bcp47["status"])
             self.assertEqual({"langb": "en-JP"}, bcp47["expected"])
 
+    def test_network_latency_accepts_probe_from_earlier_round_in_same_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory)
+            r1 = evidence / "AOS_STANDALONE_AIBID_CID_x_R1_run-one" / "TRACKING"
+            r2 = evidence / "AOS_STANDALONE_AIBID_CID_x_R2_run-one" / "SECOND"
+            r1.mkdir(parents=True)
+            r2.mkdir(parents=True)
+            for folder, round_name in ((r1, "R1"), (r2, "R2")):
+                (folder / "summary.json").write_text(json.dumps({
+                    "test_run_id": "run-one", "test_round": round_name,
+                }))
+            (r1 / "proxy-events.jsonl").write_text(json.dumps({
+                "phase": "response", "method": "HEAD", "status": 200,
+                "url": "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg",
+            }) + "\n")
+            (r2 / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"latency": 38}}}},
+            }))
+
+            verdict = android_signal_testcases.validate_network_latency(r2)
+
+            self.assertEqual("PASS", verdict["status"])
+            self.assertEqual(38, verdict["actual"]["latency_ms"])
+            self.assertIn("R1_run-one", verdict["actual"]["probe_response"]["evidence_file"])
+
     def test_ad_capture_defaults_to_twenty_attempts(self):
         args = qa_aos.build_parser().parse_args(["capture"])
         self.assertEqual(20, args.max_attempts)

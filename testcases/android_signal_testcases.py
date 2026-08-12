@@ -1120,26 +1120,53 @@ def validate_network_latency(folder):
     device_ext = _decoded_device_value(_decoded(folder), "ext", "ext")
     value = device_ext.get("latency") if isinstance(device_ext, dict) else None
     events = []
-    path = folder / "proxy-events.jsonl"
-    if path.is_file():
+    event_paths = [folder / "proxy-events.jsonl"]
+    summary_path = folder / "summary.json"
+    if summary_path.is_file():
+        try:
+            run_id = json.loads(summary_path.read_text()).get("test_run_id")
+        except json.JSONDecodeError:
+            run_id = None
+        if run_id:
+            # The SDK probe runs asynchronously and may finish in an earlier
+            # Round. Capture retries deliberately clear their local proxy
+            # window, while the measured value remains in later bid requests.
+            # Reuse only evidence carrying the exact same automation run id.
+            evidence_root = folder.parent.parent
+            for sibling_summary in evidence_root.glob("AOS_*/**/summary.json"):
+                try:
+                    sibling = json.loads(sibling_summary.read_text())
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if sibling.get("test_run_id") == run_id:
+                    candidate = sibling_summary.parent / "proxy-events.jsonl"
+                    if candidate not in event_paths:
+                        event_paths.append(candidate)
+    for path in event_paths:
+        if not path.is_file():
+            continue
         for line in path.read_text().splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
             if event.get("method") == "HEAD" and event.get("url") == "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg":
-                events.append(event)
-    probe_ok = any(event.get("phase") == "response" and event.get("status") == 200 for event in events)
+                events.append({**event, "evidence_file": str(path.relative_to(folder.parent.parent))})
+    successful_probe = next(
+        (event for event in events if event.get("phase") == "response" and event.get("status") == 200),
+        None,
+    )
+    probe_ok = successful_probe is not None
     failures = []
     if type(value) is not int or value <= 0:
         failures.append("ext.device.ext.latency must be a positive integer in milliseconds")
     if not probe_ok:
-        failures.append("the SDK latency HEAD endpoint must return HTTP 200 in the same capture")
+        failures.append("the SDK latency HEAD endpoint must return HTTP 200 in the same automation run")
     return _verdict(
         "network-latency", "Connection Latency",
-        "The SDK HEAD latency probe must succeed and ext.device.ext.latency must contain its positive millisecond result.",
-        {"endpoint": "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg", "method": "HEAD", "http_status": 200, "positive_ms": True},
-        {"latency_ms": value, "probe_responses": events},
+        "The SDK HEAD latency probe must succeed during the same automation run and ext.device.ext.latency must contain its positive millisecond result.",
+        {"endpoint": "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg", "method": "HEAD", "http_status": 200, "positive_ms": True, "scope": "same automation run"},
+        {"latency_ms": value, "probe_response": successful_probe},
         "proxy-events.jsonl", failures,
     )
 
