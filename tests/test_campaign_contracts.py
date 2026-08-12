@@ -409,6 +409,26 @@ class CampaignContractTests(unittest.TestCase):
             self.assertEqual(38, verdict["actual"]["latency_ms"])
             self.assertIn("R1_run-one", verdict["actual"]["probe_response"]["evidence_file"])
 
+    def test_report_summarizes_and_translates_missing_evidence_errors(self):
+        rendered = page._dynamic_bi(
+            "Validator error after execution: [Errno 2] No such file or directory: "
+            "'/private/evidence/SYSTEM-ALT/location-permission-status.json'"
+        )
+        self.assertIn("Evidence capture did not produce location-permission-status.json", rendered)
+        self.assertIn("Evidence 擷取未產生 location-permission-status.json", rendered)
+        self.assertNotIn("/private/evidence", rendered)
+
+    def test_report_translates_common_execution_failures(self):
+        appium = page._dynamic_bi(
+            "R5 SYSTEM-ALT failed at Evidence capture: Cannot launch Appium session: connection refused"
+        )
+        self.assertIn("因 Appium 無法使用", appium)
+        self.assertNotIn("connection refused", appium)
+        self.assertIn(
+            "R3 冷啟動後沒有取得可用的 Bid／曝光",
+            page._dynamic_bi("R3 cold-start: no eligible bid/impression"),
+        )
+
     def test_ad_capture_defaults_to_twenty_attempts(self):
         args = qa_aos.build_parser().parse_args(["capture"])
         self.assertEqual(20, args.max_attempts)

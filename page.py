@@ -272,10 +272,20 @@ def _verdict_rows(document, path):
             raise ReportError(f"{path}: evaluated verdict {tc} requires evidence")
         test_mode = str(config.get("test_mode", "")).strip().lower()
         canonical_tc = TC_ALIASES.get(tc.strip(), tc.strip())
+        if evidence == "bid_decoded.json and captured Evidence artifacts":
+            evidence = "evidence-errors.json" if (path.parent / "evidence-errors.json").is_file() else "summary.json"
+        actual = row.get("actual")
+        if isinstance(actual, str):
+            legacy_missing = re.search(r"No such file or directory: ['\"](.+?)['\"]", actual)
+            if legacy_missing:
+                actual = {
+                    "error": "Required Evidence was not produced",
+                    "missing_artifact": Path(legacy_missing.group(1)).name,
+                }
         normalized.append({
             "tc": canonical_tc, "title": str(row.get("title", tc)).strip() or canonical_tc,
             "description": str(row.get("description", "")).strip(), "status": status,
-            "reason": reason, "expected": row.get("expected"), "actual": row.get("actual"),
+            "reason": reason, "expected": row.get("expected"), "actual": actual,
             "comparison_view": row.get("comparison_view") if isinstance(row.get("comparison_view"), dict) else None,
             "evidence": evidence, "source": path, "platform": _platform_of(metadata, path),
             "test_mode": test_mode, "mode_group": _mode_group(test_mode),
@@ -466,6 +476,7 @@ def _bi(en, zh):
 DYNAMIC_ZH = {
     "Actual SDK Payload": "解碼後的 Bid Request",
     "Decoded Bid Request": "解碼後的 Bid Request",
+    "Evidence status": "Evidence 狀態",
     "Active Android network": "Android 目前使用的網路",
     "Android Media volume": "Android 媒體音量",
     "Android SIM state": "Android SIM 狀態",
@@ -585,6 +596,11 @@ DYNAMIC_ZH = {
     "R3 termination setup did not produce a new App process; the termination-dependent comparison was not executed": "R3 終止前置操作沒有建立新的 App process，因此未執行依賴終止狀態的比較。",
     "R5 PRIVACY-DENIED failed at Evidence capture: Delete advertising ID did not produce the expected Advertising ID state": "R5 PRIVACY-DENIED 在擷取 Evidence 時失敗：點擊 Delete advertising ID 後，實機沒有進入預期的 Advertising ID 已刪除狀態。",
     "R5 mutation did not produce Android minimum brightness raw 1": "R5 狀態切換沒有讓 Android 螢幕亮度達到最低有效原始值 1。",
+    "Android Settings does not expose: Security and privacy": "Android 設定頁沒有顯示「安全性與隱私權」入口。",
+    "Android fused location and ext.device geo_lat/geo_lon must all be numeric": "Android fused location 與 Extended device.geo_lat／geo_lon 都必須是數值。",
+    "R3 cold-start: no eligible bid/impression": "R3 冷啟動後沒有取得可用的 Bid／曝光。",
+    "FAILED: the E2E round does not contain a successful xclk response matching the visible impression.": "FAILED：本輪 E2E 沒有取得與畫面曝光廣告相符且成功的 xclk response。",
+    "the SDK latency HEAD endpoint must return HTTP 200 in the same capture": "SDK latency HEAD endpoint 必須在同一份 Capture 回傳 HTTP 200。（舊版判定；新版已改為同一次 Automation。）",
     "The captured pubsetting response succeeded and contains Appier mediation configuration.": "已成功擷取 pubsetting response，且內容包含 Appier mediation 設定。",
     "FAILED: pubsetting transport or raw response evidence does not prove the Appier mediation configuration.": "FAILED：pubsetting transport 或 raw response Evidence 無法證明 Appier mediation 設定。",
     "The captured GMA transaction succeeded and its response contains Appier routing evidence.": "GMA transaction 成功，response 內含 Appier routing Evidence。",
@@ -617,7 +633,34 @@ def _dynamic_bi(text, zh=None):
     stopped_testcase = re.fullmatch(
         r"Stopped by user before this TestCase could be completed: (.+)", text,
     )
-    if stopped:
+    missing_evidence = re.fullmatch(
+        r"Validator error after execution: \[Errno 2\] No such file or directory: ['\"](.+?)['\"]",
+        text,
+    )
+    missing_artifact = re.fullmatch(
+        r"Evidence capture did not produce required artifact: (.+)", text,
+    )
+    r5_appium = re.fullmatch(
+        r"R5 (.+?) failed at Evidence capture: Cannot launch Appium session:.*", text, re.DOTALL,
+    )
+    r5_mutation = re.fullmatch(r"R5 state mutation failed: (.+)", text, re.DOTALL)
+    if missing_evidence:
+        artifact = Path(missing_evidence.group(1)).name
+        text = f"Evidence capture did not produce {artifact}, so this TestCase could not be compared."
+        zh = f"Evidence 擷取未產生 {artifact}，因此這個 TestCase 無法完成比較。"
+    elif missing_artifact:
+        artifact = Path(missing_artifact.group(1)).name
+        text = f"Evidence capture did not produce {artifact}, so this TestCase could not be compared."
+        zh = f"Evidence 擷取未產生 {artifact}，因此這個 TestCase 無法完成比較。"
+    elif r5_appium:
+        scenario = r5_appium.group(1)
+        text = f"R5 {scenario} could not capture Evidence because Appium was unavailable."
+        zh = f"R5 {scenario} 因 Appium 無法使用，未能擷取 Evidence。"
+    elif r5_mutation:
+        detail = r5_mutation.group(1)
+        text = f"R5 could not apply the required device state: {detail}"
+        zh = f"R5 無法完成必要的裝置狀態切換：{detail}"
+    elif stopped:
         attempts, cid = stopped.groups()
         zh = (
             f"Standalone R5-1 嘗試 {attempts} 次後由使用者中止；仍未擷取到指定 CID {cid} "
@@ -801,13 +844,14 @@ def _comparison_cell(item, css_class):
 {rendered_value}</div>'''
 
 
-def _comparison_summary(row, fallback_criterion):
+def _comparison_summary(row, fallback_criterion, fallback_criterion_zh=None):
+    fallback_criterion_zh = fallback_criterion if fallback_criterion_zh is None else fallback_criterion_zh
     view = row.get("comparison_view")
     if isinstance(view, dict) and view.get("kind") == "manual-expected":
         return f'''<section class="comparison-hero manual-expected-comparison"><div class="comparison-pair">
 {_comparison_cell({"label": "Expected version", "value": "Enter in Evidence"}, "required-value")}
 <div class="comparison-operator">?</div>{_comparison_cell(view.get("actual"), "actual-value")}</div>
-<p><span>{_bi("Review gate", "人工核對")}</span>{_dynamic_bi(str(view.get("criterion") or fallback_criterion), fallback_criterion)}</p></section>'''
+<p><span>{_bi("Review gate", "人工核對")}</span>{_dynamic_bi(str(view.get("criterion") or fallback_criterion), fallback_criterion_zh)}</p></section>'''
     if row["status"] == Status.BLOCKED.value:
         return f'<section class="comparison-hero blocked-comparison"><b>{_bi("Not executed", "未執行")}</b><span>{_bi("No comparison is claimed.", "未宣稱任何比較結果。")}</span></section>'
     if str(row.get("layer", "")).lower() == "e2e":
@@ -818,10 +862,12 @@ def _comparison_summary(row, fallback_criterion):
         return f'''<section class="comparison-hero e2e-comparison">
 <div class="e2e-summary-block"><label>{_bi("Pass checks", "通過條件")}</label>{checks}</div>
 <div class="e2e-summary-block"><label>{_bi("Captured overview", "擷取摘要")}</label>{captured}</div>
-<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion)}</p></section>'''
+<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion_zh)}</p></section>'''
     if not isinstance(view, dict):
-        return f'''<section class="comparison-hero rule-comparison">{_comparison_cell({"label": "Decoded Bid Request", "value": row.get("actual")}, "actual-value")}
-<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion)}</p></section>'''
+        actual = row.get("actual")
+        actual_label = "Evidence status" if isinstance(actual, dict) and actual.get("error") else "Decoded Bid Request"
+        return f'''<section class="comparison-hero rule-comparison">{_comparison_cell({"label": actual_label, "value": actual}, "actual-value")}
+<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(fallback_criterion, fallback_criterion_zh)}</p></section>'''
     kind = view.get("kind")
     if row["tc"] == "installed-app-list" and kind == "rule":
         view = dict(view)
@@ -851,24 +897,25 @@ def _comparison_summary(row, fallback_criterion):
         body = f'<div class="comparison-rule-value">{_comparison_cell(view.get("actual"), "actual-value")}</div>'
     supporting = f'<small>{_dynamic_bi(view["supporting"])}</small>' if view.get("supporting") else ""
     return f'''<section class="comparison-hero {html.escape(str(kind or "rule"))}-comparison">{body}
-<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(criterion, fallback_criterion)}</p>{supporting}</section>'''
+<p><span>{_bi("Pass criterion", "通過標準")}</span>{_dynamic_bi(criterion, fallback_criterion_zh)}</p>{supporting}</section>'''
 
 
 def _result_card(row, catalog_by_key):
     spec = catalog_by_key.get(row["tc"], {})
     platform_spec = spec.get(row["platform"], {}) if isinstance(spec, dict) else {}
-    expected_text = str(platform_spec.get("expected") or _display(row["expected"]))
+    expected_text_zh = str(platform_spec.get("expected") or _display(row["expected"]))
+    expected_text = str(platform_spec.get("expected_en") or expected_text_zh)
     priority = str(spec.get("priority") or "—")
     result_note = ""
     if row["reason"]:
-        result_note = f'<div class="result-note"><b>{_bi("Result note", "結果說明")}</b><p data-automation-reason="{html.escape(row["reason"], quote=True)}">{_dynamic_bi(row["reason"])}</p></div>'
+        result_note = f'<div class="result-note"><b>{_bi("Result note", "結果說明")}</b><p>{_dynamic_bi(row["reason"])}</p></div>'
     coverage_note = ""
     if row.get("coverage_source"):
         coverage_note = f'<div class="coverage-source"><span>{_bi("Evidence source", "驗證來源")}</span><b>{html.escape(str(row["coverage_source"]))}</b><small>{_bi("No GAID-denied Mediation request was sent.", "未在 GAID 刪除狀態下送出 Mediation request。")}</small></div>'
     override_key = ":".join((
         row["platform"], row["mode_group"], row["test_type"], row["captured_at"], row["tc"]
     ))
-    comparison_html = _comparison_summary(row, expected_text)
+    comparison_html = _comparison_summary(row, expected_text, expected_text_zh)
     evidence_comparison_html = "" if row["tc"] == "admob-pubsetting" else comparison_html
     version_review = ""
     if row["tc"] in {"sdk-version", "argus-sdk-version"}:
@@ -1187,6 +1234,7 @@ CSS = r"""
 .e2e-run-recording{display:grid;grid-template-columns:minmax(190px,.8fr) minmax(260px,1.2fr);gap:18px;align-items:center;margin:0 0 15px;padding:15px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.e2e-run-recording-copy span{color:var(--accent);font:800 9px var(--mono);letter-spacing:.08em;text-transform:uppercase}.e2e-run-recording-copy h4{margin:5px 0 4px;font-size:16px}.e2e-run-recording-copy p{margin:0;color:var(--soft);font-size:12px}.e2e-run-recording video{display:block;width:100%;max-height:420px;border-radius:9px;background:#000;object-fit:contain}@media(max-width:700px){.e2e-run-recording{grid-template-columns:1fr}}
 .coverage-source{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:9px 11px;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;background:var(--accent2)}.coverage-source span{color:var(--faint);font:750 8px var(--mono);letter-spacing:.07em;text-transform:uppercase}.coverage-source b{font-size:11px}.coverage-source small{color:var(--soft);font-size:10px}
 .manual-override-summary{margin:0 0 11px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--block) 55%,var(--line));border-left:4px solid var(--block);border-radius:0 9px 9px 0;background:color-mix(in srgb,var(--block) 12%,var(--panel))}.manual-override-summary>div{display:flex;align-items:center;gap:7px}.manual-override-summary b{font:850 10px var(--mono);color:var(--block);letter-spacing:.04em;text-transform:uppercase}.manual-override-summary span[data-manual-summary-status]{padding:2px 6px;border-radius:999px;background:var(--block);color:#fff;font:800 9px var(--mono)}.manual-override-summary p{margin:7px 0 0;color:var(--ink);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.result-note p,.plain-value,.evidence-missing{overflow-wrap:anywhere;word-break:break-word}.evidence-missing{border:1px dashed color-mix(in srgb,var(--fail) 45%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--fail) 5%,var(--panel))}
 """
 
 

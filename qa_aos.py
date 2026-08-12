@@ -1952,13 +1952,19 @@ def run_round(config, plan):
                     try:
                         rows.append(testcase.validate(folder))
                     except Exception as exc:
+                        missing_artifact = Path(exc.filename).name if isinstance(exc, FileNotFoundError) and exc.filename else None
+                        operator_reason = (
+                            f"Evidence capture did not produce required artifact: {missing_artifact}"
+                            if missing_artifact else
+                            f"Validator could not compare the captured Evidence: {type(exc).__name__}: {exc}"
+                        )
                         row = {
                             "tc": testcase.key,
                             "status": "FAILED",
-                            "reason": f"Validator error after execution: {exc}",
+                            "reason": operator_reason,
                             "expected": "Validator completes and compares captured Evidence",
-                            "actual": f"{type(exc).__name__}: {exc}",
-                            "evidence": "bid_decoded.json and captured Evidence artifacts",
+                            "actual": {"error_type": type(exc).__name__, "missing_artifact": missing_artifact},
+                            "evidence": "evidence-errors.json" if (Path(folder) / "evidence-errors.json").is_file() else "summary.json",
                         }
                         row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                         rows.append(row)
