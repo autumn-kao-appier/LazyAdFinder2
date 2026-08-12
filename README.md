@@ -1,7 +1,7 @@
 # LazyAdFinder2
 
 LazyAdFinder2 是 Appier Ads SDK 的實機 SSP QA 重建專案。TC、正確標準、Evidence 與報告
-由人工逐條定義；目前只有 AOS 完成可用的 Signal／E2E 自動化閉環。
+由人工逐條定義；AOS 與 iOS 都有獨立的 R1–R5 Signal／E2E 實作，兩平台共用 TC 身分但不共用操作與 validator。
 
 ## 範例報告
 
@@ -203,9 +203,9 @@ Evidence 保留原始觀察；`bid_decoded.json` 是獨立的衍生檔，不回�
 本輪 logcat，iOS 使用本輪 syslog，統一落成 `traffic.log`；Charles/mitmdump 仍負責拆出
 原始 bid 與 impression 事件，但不偽造實際未取得的 HAR。
 
-## iOS raw capture（尚未完成完整 TC 覆蓋）
+## iOS Automation
 
-iOS runner 與 AOS 有相同責任，但以 XCUITest／WebDriverAgent、`idevice_id`、
+iOS runner 與 AOS 有相同責任與 Evidence 品質門檻，但以 XCUITest／WebDriverAgent、`idevice_id`、
 `idevicesyslog` 和 accessibility id 獨立實作。
 
 ```bash
@@ -340,7 +340,7 @@ Phone → Charles :8888 → mitmdump :8081
 | 檔案 | 用途 |
 |---|---|
 | `qa_aos.py` | 執行 Android Round 與裝置自動化 |
-| `qa_ios.py` | iOS runner、Round 框架與 raw evidence capture；TC 尚未完整覆蓋 |
+| `qa_ios.py` | iOS R1–R5、Standalone／Mediation E2E runner 與 raw/visible evidence capture |
 | `testcases/testcase_catalog.json` | Report 與 TC metadata 的共用來源 |
 | `testcases/testcase_specifications.md` | TC 規格、前提與品質限制 |
 | `testcases/android_signal_testcases.py` | AOS Signal 比較邏輯、Evidence requirements 與 Round registry |
@@ -355,7 +355,7 @@ Phone → Charles :8888 → mitmdump :8081
 
 ### 目前支援範圍
 
-- 目前只有 AOS 完成 Signal／E2E 自動化流程；iOS 尚未完成相同的 TC 覆蓋。
+- AOS／iOS 各自擁有 Signal validator、系統操作與 E2E interaction；共用檔案只承載 Catalog、Campaign membership、Evidence bundle 與 Page。
 - Android 操作是依開發時使用的實機 UI 設計。不同 Android 版本、廠牌 ROM、系統語言或設定頁版型，可能找不到相同按鈕或畫面。
 - 現有結果只代表指定 Sample App、SDK build、Campaign、CID 與測試手機的組合，不代表所有 Publisher App 與裝置。
 - 實際覆蓋項目以 `testcases/testcase_catalog.json` 與 `testcases/testcase_specifications.md` 為準。

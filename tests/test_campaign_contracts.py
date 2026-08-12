@@ -35,18 +35,22 @@ class CampaignContractTests(unittest.TestCase):
     def test_ios_registry_is_platform_owned_and_does_not_alias_android(self):
         self.assertIsNot(ios_signal_testcases.TC_DEFINITIONS, android_signal_testcases.TC_DEFINITIONS)
         self.assertIsNot(ios_signal_testcases.ROUND_DEFINITIONS, android_signal_testcases.ROUND_DEFINITIONS)
-        self.assertEqual("BASELINE", ios_signal_testcases.ROUND_DEFINITIONS["R1"].capture_name)
-        self.assertNotIn("advertising-id", ios_signal_testcases.TC_DEFINITIONS)
+        self.assertEqual("HAPPY-PATH", ios_signal_testcases.ROUND_DEFINITIONS["R1"].capture_name)
+        self.assertIn("advertising-id", ios_signal_testcases.TC_DEFINITIONS)
+        self.assertGreaterEqual(len(ios_signal_testcases.ROUND_DEFINITIONS["R1"].testcase_keys), 35)
+        self.assertEqual("IDFA", ios_signal_testcases.TC_DEFINITIONS["advertising-id"].title.rsplit("(", 1)[-1].rstrip(")"))
         self.assertIn(qa_ios.EVENTS_FILE, qa_ios.DETECTOR_FILES)
         self.assertTrue(set(qa_ios.ADMOB_RAW_FILES).issubset(qa_ios.DETECTOR_FILES))
 
-    def test_ios_suite_plan_exposes_unimplemented_platform_work_without_fake_results(self):
+    def test_ios_suite_plan_runs_all_reviewed_platform_rounds(self):
         plan = run_ios_test_suite.execution_plan("aibid", "standalone")
         by_name = {item.name: item for item in plan}
-        self.assertEqual("RUN", by_name["R1"].decision)
-        self.assertEqual("RUN", by_name["R4"].decision)
-        self.assertEqual("NOT_IMPLEMENTED", by_name["R5"].decision)
-        self.assertEqual("NOT_IMPLEMENTED", by_name["E2E-STANDALONE"].decision)
+        for name in ("R1", "R2", "R3", "R4", "R5", "E2E-STANDALONE"):
+            self.assertEqual("RUN", by_name[name].decision)
+            self.assertTrue(by_name[name].testcase_keys)
+        mediation = {item.name: item for item in run_ios_test_suite.execution_plan("aibid", "mediation")}
+        self.assertEqual("RUN", mediation["E2E-ADMOB"].decision)
+        self.assertIn("admob-pubsetting", mediation["E2E-ADMOB"].testcase_keys)
 
     def test_ios_mediation_has_an_independent_test_device_gate(self):
         opened = []

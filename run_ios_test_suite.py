@@ -13,6 +13,8 @@ from pathlib import Path
 from campaign_profiles import campaign_profile
 from campaign_testcases import supports
 from testcases.ios_signal_testcases import ROUND_DEFINITIONS
+from testcases.e2e.ios_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
+from testcases.e2e.ios_admob_mediation_extensions import TESTCASES as ADMOB_E2E_EXTENSIONS
 
 
 ROOT = Path(__file__).resolve().parent
@@ -39,17 +41,17 @@ def execution_plan(test_type, integration_mode, signal_only=False):
         rounds.append(PlannedRound(name, "RUN", keys))
     rounds.append(PlannedRound(
         "R4", "RUN",
-        ("ipv6-refresh-launch", "ipv6-refresh-wifi-switch", "ipv6-refresh-recovery", "ipv6-refresh-debounce", "ipv6-refresh-slow-network"),
+        ("ipv6-address", "ipv6-refresh-launch", "ipv6-refresh-wifi-switch", "ipv6-refresh-recovery", "ipv6-refresh-debounce", "ipv6-refresh-slow-network"),
     ))
-    rounds.append(PlannedRound(
-        "R5", "NOT_IMPLEMENTED", (),
-        "iOS alternate-state automation and platform Evidence providers are not connected yet",
-    ))
+    r5_keys = tuple(key for key in ROUND_DEFINITIONS["R5"].testcase_keys if supports(test_type, key))
+    rounds.append(PlannedRound("R5", "RUN", r5_keys))
     if not signal_only:
+        e2e_keys = tuple(key for key in BASELINE_E2E_TESTCASES if supports(test_type, key))
+        if integration_mode == "mediation":
+            e2e_keys += tuple(key for key in ADMOB_E2E_EXTENSIONS if supports(test_type, key))
         rounds.append(PlannedRound(
             "E2E-ADMOB" if integration_mode == "mediation" else "E2E-STANDALONE",
-            "NOT_IMPLEMENTED", (),
-            "iOS E2E definitions exist, but the independent interaction/video validator is not connected yet",
+            "RUN", e2e_keys,
         ))
     return tuple(rounds)
 

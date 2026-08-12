@@ -148,8 +148,8 @@ baseline 或任何預設狀態。
 
 - AOS：automation 與 evidence engine 已清理；R1 同一次 capture 驗證三十九條已確認的 Signal TC。
 - iOS：使用獨立的 XCUITest/raw evidence engine、Signal registry、Evidence provider 與 suite
-  ExecutionPlan。R1／R2 已接入初始 iOS validator；R3 lifecycle、R5 alternate states 與 E2E interaction
-  仍明確標示未完成，不借用 AOS validator 或製造假結果。
+  ExecutionPlan。R1–R5、Standalone E2E baseline 與 AdMob Mediation extensions 均已接入 iOS-owned validator；
+  R3 使用 causal multi-capture sequence，R5 使用原生 Settings 可見 Evidence 與逐 Scenario restore，E2E 保存完整影片、互動截圖與同輪 proxy flow。
 - mitmdump：只輸出 bid request、bid response、impression callback。
 - AprXorEnc：只提供 `decrypt(encrypted: str) -> str`。
 - Verdict：保留三態契約；answer key/validator 只包含已人工確認的 Signal TC。

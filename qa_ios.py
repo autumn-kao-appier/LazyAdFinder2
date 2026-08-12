@@ -17,6 +17,7 @@ omitted only with --accept-request.
 """
 
 import argparse
+import base64
 import getpass
 import json
 import os
@@ -25,7 +26,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -34,10 +35,15 @@ from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
 from evidence_ios import collect as collect_evidence
 from evidence_bundle import finalize_bundle
-from testcases.ios_signal_testcases import TC_DEFINITIONS, ROUND_DEFINITIONS
+from testcases.ios_signal_testcases import TC_DEFINITIONS, ROUND_DEFINITIONS, R5_SCENARIOS
+from testcases.e2e.ios_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
+from testcases.e2e.ios_e2e_baseline import validate_bundle as validate_baseline_e2e
+from testcases.e2e.ios_admob_mediation_extensions import TESTCASES as ADMOB_E2E_EXTENSIONS
+from testcases.e2e.ios_admob_mediation_extensions import validate_bundle as validate_admob_extensions
 from testcases.ipv6_refresh_testcases import ROUND_DEFINITIONS as IPV6_ROUNDS
 from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
 from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
+from verdict import blocked
 
 
 APPIUM_URL = "http://127.0.0.1:4723"
@@ -97,6 +103,15 @@ class CaptureConfig:
     wda_bundle_id: str
     test_run_id: str
     test_run_started_at: str
+    target_app_bundle_id: str = ""
+
+    @property
+    def app_package(self):
+        return self.bundle_id
+
+    @property
+    def target_app_package(self):
+        return self.target_app_bundle_id
 
 
 @dataclass(frozen=True)
@@ -225,9 +240,9 @@ def clear_syslog_state():
         pass
 
 
-def create_driver(config):
+def create_driver(config, bundle_id=None):
     options = XCUITestOptions()
-    options.bundle_id = config.bundle_id
+    options.bundle_id = bundle_id or config.bundle_id
     options.automation_name = "XCUITest"
     options.no_reset = True
     options.udid = config.udid
@@ -265,6 +280,61 @@ def tap_placement(driver, trigger_label):
         return True
     except Exception:
         return False
+
+
+def capture_tracking_settings(driver, config):
+    """Read and visibly preserve the native iOS Tracking switch without mutating it."""
+    state_path = Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json"))
+    screenshot_path = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
+    state = {"scenario": "TRACKING-ALLOWED", "confirmed_by_operator": False,
+             "screenshot_saved": False, "att": {"authorization": None}, "switches": []}
+    try:
+        driver.activate_app("com.apple.Preferences")
+        time.sleep(1)
+        privacy = _first_element(driver, (
+            ("accessibility id", "Privacy & Security"),
+            ("accessibility id", "Privacy"),
+        ))
+        if privacy is None:
+            for _ in range(5):
+                driver.swipe(180, 650, 180, 250, 500)
+                privacy = _first_element(driver, (("accessibility id", "Privacy & Security"), ("accessibility id", "Privacy")))
+                if privacy is not None:
+                    break
+        if privacy is None:
+            raise CaptureError("native Settings does not expose Privacy & Security")
+        privacy.click()
+        time.sleep(.8)
+        tracking = _first_element(driver, (("accessibility id", "Tracking"),))
+        if tracking is None:
+            raise CaptureError("native Privacy & Security does not expose Tracking")
+        tracking.click()
+        time.sleep(.8)
+        switches = driver.find_elements("class name", "XCUIElementTypeSwitch")
+        for switch in switches:
+            state["switches"].append({
+                "name": switch.get_attribute("name") or switch.get_attribute("label"),
+                "value": switch.get_attribute("value"),
+            })
+        app_switches = [item for item in state["switches"]
+                        if "allow apps to request" not in str(item.get("name") or "").lower()]
+        selected = app_switches[-1] if app_switches else None
+        value = str((selected or {}).get("value") or "").lower()
+        if value in {"1", "true", "on"}:
+            state["att"]["authorization"] = "authorized"
+        elif value in {"0", "false", "off"}:
+            state["att"]["authorization"] = "denied"
+        driver.save_screenshot(str(screenshot_path))
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+        state["confirmed_by_operator"] = bool(selected and state["screenshot_saved"])
+    except Exception as exc:
+        state["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        driver.activate_app(config.bundle_id)
+        time.sleep(1)
+    return state
 
 
 def observe_bid():
@@ -347,7 +417,133 @@ def save_evidence(driver, config, folder, started_at, request, status, identity,
     )
 
 
-def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0):
+def _active_app(driver):
+    try:
+        info = driver.execute_script("mobile: activeAppInfo") or {}
+    except Exception:
+        info = {}
+    return {"bundle_id": info.get("bundleId") or info.get("bundle_id"),
+            "pid": info.get("pid"), "name": info.get("name")}
+
+
+def _first_element(driver, queries):
+    for strategy, value in queries:
+        try:
+            elements = driver.find_elements(strategy, value)
+        except Exception:
+            continue
+        for element in elements:
+            try:
+                if element.is_displayed() and element.is_enabled():
+                    return element
+            except Exception:
+                continue
+    return None
+
+
+def _capture_e2e_interactions(driver, config, folder):
+    """Record one visible iOS journey and preserve every interaction outcome."""
+    folder = Path(folder)
+    result = {
+        "sequence": ["rendered-ad", "privacy", "return-to-ad", "click", "landing"],
+        "privacy": {"attempted": False, "opened": False},
+        "click": {"attempted": False, "opened": False},
+        "errors": [],
+    }
+    recording_started = False
+    try:
+        driver.start_recording_screen(video_type="h264", video_quality="medium")
+        recording_started = True
+    except Exception as exc:
+        result["errors"].append(f"recording-start: {exc}")
+    try:
+        time.sleep(1)
+        driver.save_screenshot(str(folder / "ad-before-interactions.png"))
+        source = driver.page_source or ""
+        (folder / "rendered-page-source.xml").write_text(source)
+        response = _read_json(BID_RESPONSE_FILE) or {}
+        expected_text = []
+        try:
+            native = response["adUnits"][0]["ad"]["native"]
+            for key in ("title", "text", "ctaText"):
+                value = native.get(key)
+                if isinstance(value, dict):
+                    value = value.get("text") or value.get("value")
+                if isinstance(value, str) and value.strip():
+                    expected_text.append(value.strip())
+        except (KeyError, IndexError, TypeError):
+            pass
+        missing_text = [value for value in expected_text if value not in source]
+        visual = {
+            "platform": "ios", "expected_text": expected_text,
+            "missing_text": missing_text,
+            "screenshot_saved": (folder / "ad-before-interactions.png").is_file(),
+            "passed": bool(expected_text and not missing_text),
+            "human_review": "Inspect screenshot for clipping, broken images, Ad label, and privacy icon.",
+        }
+        (folder / "visual-review.json").write_text(json.dumps(visual, ensure_ascii=False, indent=2) + "\n")
+
+        privacy = _first_element(driver, (
+            ("xpath", "//*[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'privacy')]"),
+            ("xpath", "//*[contains(translate(@label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'adchoices')]"),
+        ))
+        if privacy is not None:
+            before = _active_app(driver)
+            result["privacy"]["attempted"] = True
+            privacy.click()
+            time.sleep(2)
+            after = _active_app(driver)
+            result["privacy"].update({"before": before, "destination": after,
+                                      "opened": after != before})
+            driver.save_screenshot(str(folder / "privacy-landing.png"))
+            driver.back()
+            time.sleep(1)
+        else:
+            result["errors"].append("privacy: visible Privacy/AdChoices control not found")
+
+        driver.save_screenshot(str(folder / "ad-before-click.png"))
+        cta = _first_element(driver, (
+            ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'install')]"),
+            ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'open')]"),
+            ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'learn')]"),
+            ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'shop')]"),
+        ))
+        if cta is not None:
+            before = _active_app(driver)
+            result["click"]["attempted"] = True
+            cta.click()
+            time.sleep(3)
+            after = _active_app(driver)
+            result["click"].update({"before": before, "destination": after,
+                                    "opened": after != before})
+            driver.save_screenshot(str(folder / "click-landing.png"))
+        else:
+            result["errors"].append("click: visible CTA control not found")
+    except Exception as exc:
+        result["errors"].append(f"interaction: {type(exc).__name__}: {exc}")
+        try:
+            driver.save_screenshot(str(folder / "interaction-failure.png"))
+        except Exception:
+            pass
+    finally:
+        if recording_started:
+            try:
+                encoded = driver.stop_recording_screen()
+                payload = base64.b64decode(encoded) if encoded else b""
+                if payload:
+                    (folder / "e2e-interactions.mp4").write_bytes(payload)
+                else:
+                    result["errors"].append("recording-stop: empty video")
+            except Exception as exc:
+                result["errors"].append(f"recording-stop: {exc}")
+        result["recording"] = {
+            "saved": (folder / "e2e-interactions.mp4").is_file(),
+            "bytes": (folder / "e2e-interactions.mp4").stat().st_size if (folder / "e2e-interactions.mp4").is_file() else 0,
+        }
+        (folder / "e2e-interactions.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+
+
+def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="standard"):
     started_at = datetime.now().astimezone().isoformat()
     folder = create_capture_folder(config, capture_name)
     clear_detector_state()
@@ -364,6 +560,9 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0):
             driver = create_driver(config)
             time.sleep(2)
             dismiss_system_alert(driver)
+            if config.test_round == "R1":
+                print("[evidence] capture native iOS Settings → Privacy & Security → Tracking")
+                capture_tracking_settings(driver, config)
             failed_step = "select-placement"
             select_tab(driver, config.tab_name)
 
@@ -400,6 +599,14 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0):
                         print(f"[warmup] completed {completed_warmups}/{warmup_ads}")
                         time.sleep(config.retry_delay)
                         continue
+                    if strategy == "e2e":
+                        print("[e2e] record ad → Privacy → return → CTA → destination")
+                        _capture_e2e_interactions(driver, config, folder)
+                        time.sleep(2)
+                    try:
+                        (folder / "app-page-source.xml").write_text(driver.page_source or "")
+                    except Exception as exc:
+                        print(f"[warn] iOS App-language UI Evidence was not saved: {exc}", file=sys.stderr)
                     save_evidence(
                         driver, config, folder, started_at, request, status, identity, source
                     )
@@ -432,7 +639,9 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0):
             )
         except Exception as bundle_exc:
             print(f"[warn] failed to finalize interrupted evidence: {bundle_exc}", file=sys.stderr)
-        raise
+        error = exc if isinstance(exc, CaptureError) else CaptureError(str(exc))
+        error.evidence_folder = folder
+        raise error from exc
     finally:
         if driver is not None:
             try:
@@ -552,9 +761,276 @@ def run_ipv6_refresh_round(config):
     return folders
 
 
+def _decoded_user(folder):
+    decoded = _read_json(Path(folder) / "bid_decoded.json") or {}
+    return (((decoded.get("ext") or {}).get("plaintext") or {}).get("user") or {})
+
+
+def _write_failed_verdicts(folder, keys, reason, layer="Signal"):
+    folder = Path(folder)
+    rows = []
+    for key in keys:
+        testcase = TC_DEFINITIONS.get(key) or BASELINE_E2E_TESTCASES.get(key) or ADMOB_E2E_EXTENSIONS.get(key)
+        rows.append({
+            "tc": key, "status": "FAILED", "reason": reason,
+            "expected": "The declared iOS operation completes and produces comparable Evidence",
+            "actual": {"error": reason},
+            "evidence": "summary.json", "layer": layer,
+            "title": testcase.title if testcase else key,
+            "description": reason,
+        })
+    (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+
+
+def _perform_background_resume(config, seconds=5):
+    driver = create_driver(config)
+    try:
+        driver.activate_app(config.bundle_id)
+        driver.execute_script("mobile: pressButton", {"name": "home"})
+        time.sleep(seconds)
+        driver.activate_app(config.bundle_id)
+        time.sleep(1)
+    finally:
+        driver.quit()
+
+
+def _terminate_app(config):
+    _run(["xcrun", "devicectl", "device", "process", "terminate",
+          "--device", config.udid, config.bundle_id], check=False)
+    time.sleep(2)
+
+
+def run_lifecycle_round(config):
+    """Execute R3 as one causal sequence and compare values across captures."""
+    folders = []
+    try:
+        first = capture(config, "LIFECYCLE-START")
+        folders.append(first)
+        time.sleep(10)
+        continuous = capture(config, "LIFECYCLE-CONTINUOUS")
+        folders.append(continuous)
+        _perform_background_resume(config)
+        background = capture(config, "LIFECYCLE-BACKGROUND")
+        folders.append(background)
+        _terminate_app(config)
+        cold = capture(config, "LIFECYCLE-TERMINATED")
+        folders.append(cold)
+    except Exception as exc:
+        failed_folder = getattr(exc, "evidence_folder", None)
+        if failed_folder:
+            folders.append(Path(failed_folder))
+            _write_failed_verdicts(
+                failed_folder, ROUND_DEFINITIONS["R3"].testcase_keys,
+                f"iOS R3 lifecycle sequence stopped at an executed step: {type(exc).__name__}: {exc}",
+            )
+        raise
+
+    users = [_decoded_user(folder) for folder in folders]
+    def number(index, key):
+        value = users[index].get(key)
+        return value if type(value) in (int, float) else None
+    first_session, continuous_session = number(0, "session_duration"), number(1, "session_duration")
+    background_session, cold_session = number(2, "session_duration"), number(3, "session_duration")
+    init_values = [number(index, "app_init_time") for index in range(4)]
+    duration_values = [number(index, "app_duration") for index in range(4)]
+    checks = {
+        "session-duration-continuous": {
+            "executed": True, "values": [first_session, continuous_session],
+            "passed": first_session is not None and continuous_session is not None and continuous_session > first_session,
+            "reason": "Continuous foreground session_duration must increase.",
+        },
+        "session-duration-background": {
+            "executed": True, "values": [continuous_session, background_session],
+            "passed": continuous_session is not None and background_session is not None and background_session > continuous_session,
+            "reason": "session_duration must continue after Home and resume.",
+        },
+        "session-duration-termination": {
+            "executed": True, "values": [background_session, cold_session],
+            "passed": background_session is not None and cold_session is not None and cold_session < background_session,
+            "reason": "session_duration must reset after process termination.",
+        },
+        "app-initialization-time": {
+            "executed": True, "values": init_values,
+            "passed": all(value is not None for value in init_values) and len(set(init_values[:3])) == 1 and init_values[3] != init_values[2],
+            "reason": "app_init_time must remain stable in one process and renew after termination.",
+        },
+        "app-duration-today": {
+            "executed": True, "values": duration_values,
+            "passed": all(value is not None for value in duration_values) and duration_values == sorted(duration_values),
+            "reason": "app_duration must be monotonic across foreground, background and process restart.",
+        },
+    }
+    sequence = {"platform": "ios", "captures": [str(folder) for folder in folders], **checks}
+    result_folder = Path(folders[-1])
+    (result_folder / "ios-lifecycle-sequence.json").write_text(json.dumps(sequence, ensure_ascii=False, indent=2) + "\n")
+    rows = [TC_DEFINITIONS[key].validate(result_folder) for key in ROUND_DEFINITIONS["R3"].testcase_keys]
+    (result_folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    return folders
+
+
+def _settings_screenshot(config):
+    target = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
+    try:
+        target.unlink()
+    except FileNotFoundError:
+        pass
+    driver = None
+    detail = ""
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences")
+        time.sleep(1)
+        driver.save_screenshot(str(target))
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception as exc:
+                detail = detail or f"cleanup: {exc}"
+    return target.is_file() and target.stat().st_size > 0, detail
+
+
+def _settings_checkpoint(config, label):
+    instructions = {
+        "DISPLAY-DARK": "開啟 iOS 深色模式，停在 Appearance 設定頁。",
+        "TEXT-MAX": "將 Larger Text／Dynamic Type 調到最右端，停在該設定頁。",
+        "DISPLAY-LOW": "將螢幕亮度調到最低，停在 Brightness 設定頁。",
+        "AUDIO-MUTED": "將媒體輸出音量調為靜音，停在音量控制畫面。",
+        "LOW-POWER": "開啟 Low Power Mode，停在 Battery 設定頁。",
+        "DISPLAY-HIGH": "將螢幕亮度調到最高，停在 Brightness 設定頁。",
+        "AUDIO-HIGH": "將媒體輸出音量調到最高，停在音量控制畫面。",
+        "TIMEZONE-ALT": "關閉自動時區並切換到另一時區，停在 Date & Time 頁。",
+        "LOCATION-DENIED": "將 Sample App Location 權限設為 Never，停在 App 權限頁。",
+        "PRIVACY-DENIED": "將 Sample App 的 Tracking 權限設為關閉，停在 Tracking 頁。",
+    }
+    print(f"\n[R5 {label}] {instructions[label]}")
+    if not sys.stdin.isatty():
+        return False, "Non-interactive execution cannot prove the requested visible iOS Settings state"
+    answer = input("完成並停在正確設定頁後按 Enter；輸入 skip 跳過：").strip().lower()
+    if answer in {"skip", "s", "q", "quit"}:
+        return False, "Operator skipped this iOS alternate-state Scenario"
+    saved, detail = _settings_screenshot(config)
+    state = {
+        "scenario": label, "confirmed_by_operator": True,
+        "screenshot_saved": saved, "capture_detail": detail,
+        "att": {"authorization": "denied" if label == "PRIVACY-DENIED" else None},
+        "captured_at": datetime.now().astimezone().isoformat(),
+    }
+    Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json")).write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    )
+    return saved, "" if saved else "Could not capture the visible iOS Settings page"
+
+
+def _record_blocked(config, round_name, label, keys, reason):
+    folder = create_capture_folder(config, label)
+    now = datetime.now().astimezone().isoformat()
+    summary = {
+        "result": "BLOCKED", "platform": "ios", "app_package": config.bundle_id,
+        "test_mode": config.test_mode, "test_type": config.test_type,
+        "test_cid": config.test_cid, "target_app_package": config.target_app_bundle_id,
+        "test_round": round_name, "test_run_id": config.test_run_id,
+        "test_run_started_at": config.test_run_started_at, "capture_name": label,
+        "started_at": now, "finished_at": now, "device": device_evidence(config),
+    }
+    (folder / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    rows = []
+    for key in keys:
+        row = blocked(key, reason).to_dict()
+        testcase = TC_DEFINITIONS[key]
+        row.update({"layer": "Signal", "title": testcase.title, "description": reason})
+        rows.append(row)
+    (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    return folder
+
+
+def run_r5_round(config):
+    """Run independent iOS alternate-state Scenarios; one failure never cancels another."""
+    folders = []
+    restore_failed = False
+    for index, (label, keys) in enumerate(R5_SCENARIOS):
+        # REEN does not require the privacy-denied identity contract.
+        if label == "PRIVACY-DENIED" and config.test_type != "aibid":
+            continue
+        if restore_failed:
+            folders.append(_record_blocked(
+                config, "R5", label, keys,
+                "Not executed because the previous iOS Scenario was not restored to baseline.",
+            ))
+            continue
+        ok, reason = _settings_checkpoint(config, label)
+        if not ok:
+            folders.append(_record_blocked(config, "R5", label, keys, reason))
+            continue
+        scenario_config = config
+        if label == "PRIVACY-DENIED" and config.test_mode == "admob-mediation":
+            scenario_config = replace(
+                config, test_mode="standalone",
+                tab_name=MODE_TABS["standalone"], trigger_label=MODE_TRIGGERS["standalone"],
+            )
+            print("[R5 PRIVACY-DENIED] safety override: capture exactly one Standalone request; no Mediation request is allowed after ATT denial")
+        testcases = [TC_DEFINITIONS[key] for key in keys]
+        required = tuple(item for testcase in testcases for item in testcase.evidence)
+        try:
+            folder = collect_evidence(scenario_config, required, lambda setup: capture(scenario_config, label, setup=setup))
+            rows = [testcase.validate(folder) for testcase in testcases]
+            (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+            folders.append(Path(folder))
+        except Exception as exc:
+            evidence_folder = getattr(exc, "evidence_folder", None)
+            if evidence_folder:
+                folders.append(Path(evidence_folder))
+                _write_failed_verdicts(
+                    evidence_folder, keys,
+                    f"iOS R5 {label} failed after execution began: {type(exc).__name__}: {exc}",
+                )
+            print(f"[warn] R5 {label} failed independently: {exc}", file=sys.stderr)
+        finally:
+            if sys.stdin.isatty():
+                answer = input(
+                    f"請將 {label} 還原到本輪開始前狀態；完成後按 Enter，輸入 fail 表示無法還原："
+                ).strip().lower()
+                restore_failed = answer in {"fail", "f", "skip", "s", "q", "quit"}
+            else:
+                restore_failed = True
+            if restore_failed:
+                print(f"[warn] R5 {label} restore was not confirmed; later Scenarios will be BLOCKED", file=sys.stderr)
+    return folders
+
+
+def _run_e2e_round(config, name, validators):
+    folder = None
+    try:
+        folder = collect_evidence(config, ("bid",), lambda setup: capture(
+            config, name, setup=setup, strategy="e2e",
+        ))
+    except Exception as exc:
+        folder = getattr(exc, "evidence_folder", None)
+        if folder and (Path(folder) / "summary.json").is_file():
+            rows = [row for validator in validators for row in validator(folder)]
+            (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+        raise
+    rows = [row for validator in validators for row in validator(folder)]
+    (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    return [Path(folder)]
+
+
 def run_round(config, name):
     if name == "R4":
         return run_ipv6_refresh_round(config)
+    if name == "R3":
+        return run_lifecycle_round(config)
+    if name == "R5":
+        return run_r5_round(config)
+    if name == "E2E-STANDALONE":
+        if config.test_mode != "standalone":
+            raise CaptureError("E2E-STANDALONE requires TEST_MODE=standalone")
+        return _run_e2e_round(config, name, (validate_baseline_e2e,))
+    if name == "E2E-ADMOB":
+        if config.test_mode != "admob-mediation":
+            raise CaptureError("E2E-ADMOB requires TEST_MODE=admob-mediation")
+        return _run_e2e_round(config, name, (validate_baseline_e2e, validate_admob_extensions))
     definition = ROUND_DEFINITIONS.get(name)
     if not definition:
         available = ", ".join(sorted(ROUND_DEFINITIONS)) or "none"
@@ -581,7 +1057,7 @@ def run_round(config, name):
             reason = str(exc)
             if "No eligible bid" in reason:
                 reason = (
-                    f"iOS R1 reached the {config.max_attempts}-attempt limit without the target CID "
+                    f"iOS {name} reached the {config.max_attempts}-attempt limit without the target CID "
                     f"{config.test_cid}; the last captured CID was {actual_cid or 'unknown'}"
                 )
             rows = []
@@ -647,6 +1123,7 @@ def build_parser():
         target.add_argument("--test-mode", default=_env("TEST_MODE"))
         target.add_argument("--test-type", default=_env("TEST_TYPE"))
         target.add_argument("--test-cid", default=_env("TEST_CID"))
+        target.add_argument("--target-app-bundle-id", default=_env("TARGET_APP_BUNDLE_ID"))
         target.add_argument("--trigger-label", default=_env("TRIGGER_LABEL", _env("AD_LABEL")))
         target.add_argument("--tab-name", default=_env("TAB"))
         target.add_argument("--udid", default=_env("UDID"))
@@ -707,6 +1184,7 @@ def config_from_args(args):
         wda_bundle_id=args.wda_bundle_id.strip(),
         test_run_id=_env("TEST_RUN_ID", f"ios-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}").strip(),
         test_run_started_at=_env("TEST_RUN_STARTED_AT", datetime.now().astimezone().isoformat()).strip(),
+        target_app_bundle_id=args.target_app_bundle_id.strip(),
     )
 
 
@@ -722,6 +1200,8 @@ def main(argv=None):
                 print(f"{name}: {definition.capture_name} [{', '.join(definition.testcase_keys)}]")
             else:
                 print(f"{name}: {', '.join(IPV6_TESTCASES[key].title for key in definition)}")
+        print("E2E-STANDALONE: " + ", ".join(BASELINE_E2E_TESTCASES))
+        print("E2E-ADMOB: " + ", ".join((*BASELINE_E2E_TESTCASES, *ADMOB_E2E_EXTENSIONS)))
         return 0
 
     config = config_from_args(args)

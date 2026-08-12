@@ -1,10 +1,14 @@
 """iOS-only Evidence provider registry and capture orchestration."""
 
 import json
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from testcases.ios_signal_testcases import BID, IOS_DEVICE_CONTEXT, IOS_LIFECYCLE_SEQUENCE
+from testcases.ios_signal_testcases import (
+    BID, IOS_DEVICE_CONTEXT, IOS_LIFECYCLE_SEQUENCE, IOS_SETTINGS_STATE,
+)
 
 
 @dataclass(frozen=True)
@@ -22,18 +26,27 @@ def materialize_ios_device_context(folder):
     }, ensure_ascii=False, indent=2) + "\n")
 
 
-def mark_lifecycle_sequence_pending(folder):
+def materialize_ios_settings_state(folder):
     folder = Path(folder)
-    (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
-        "status": "NOT_IMPLEMENTED",
-        "reason": "The independent iOS foreground/background/termination sequence is not connected yet.",
-    }, ensure_ascii=False, indent=2) + "\n")
+    source = Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json"))
+    screenshot = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
+    if source.is_file():
+        shutil.copy2(source, folder / "ios-settings-state.json")
+    else:
+        (folder / "ios-settings-state.json").write_text(json.dumps({
+            "status": "MISSING",
+            "reason": "No independent Settings/ATT state was captured before the bid.",
+        }, ensure_ascii=False, indent=2) + "\n")
+    if screenshot.is_file() and screenshot.stat().st_size:
+        shutil.copy2(screenshot, folder / "ios-settings-state.png")
 
 
 EVIDENCE_CAPTURES = {
     BID: EvidenceProvider(),
     IOS_DEVICE_CONTEXT: EvidenceProvider(after_bid=materialize_ios_device_context),
-    IOS_LIFECYCLE_SEQUENCE: EvidenceProvider(after_bid=mark_lifecycle_sequence_pending),
+    IOS_SETTINGS_STATE: EvidenceProvider(after_bid=materialize_ios_settings_state),
+    # R3 writes the real multi-capture comparison after all lifecycle actions.
+    IOS_LIFECYCLE_SEQUENCE: EvidenceProvider(),
 }
 
 
@@ -66,4 +79,3 @@ def collect(config, required, capture_bid):
     if errors:
         (folder / "evidence-errors.json").write_text(json.dumps({"providers": errors}, ensure_ascii=False, indent=2) + "\n")
     return folder
-

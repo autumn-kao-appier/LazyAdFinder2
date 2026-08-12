@@ -1,17 +1,322 @@
 {
   "schema_version": 1,
   "testcases": [
-    {"key":"advertising-id-opt-out","display_id":null,"order":500,"layer":"Signal","round":"R5","category":"A. Privacy Alternate State","title":"Advertising ID — Tracking Denied","field":"device.ia","priority":"P0","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用正向 GAID TC 的路徑：Settings → Security and privacy → Privacy controls → Ads。現代 UI 選擇 Delete advertising ID；舊版 UI 開啟 Opt out。動作後重新走同一路徑回 Ads 頁確認停用狀態，再冷啟動 App 抓包；完成後以同一路徑還原。","setup_en":"Use the same path as the positive GAID testcase: Settings → Security and privacy → Privacy controls → Ads. Select Delete advertising ID on the modern UI or enable Opt out on the legacy UI. Reopen the Ads page through the same path to prove the disabled state, cold-launch the App for capture, and restore it through the same path afterward.","expected":"Ads 頁清楚顯示 Advertising ID 已停用（現代 UI 顯示 Renew/Get new，或舊版 Opt out ON）；req/ext device.ia 必須不存在、為空字串或全零 UUID，不得是可用 GAID。","expected_en":"The Ads page visibly shows that the Advertising ID is disabled (Renew/Get new on the modern UI, or Opt out ON on the legacy UI). req/ext device.ia must be absent, empty, or the zero UUID and must not contain a usable GAID.","evidence":"advertising-id-opt-out.png、tracking-denied-state.json、bid_decoded.json、verdicts.json","evidence_note":"截圖必須直接來自與正向 GAID 相同的 Ads 頁，並看見 Renew/Get new 或完整 Opt out ON 控制；只有 payload 不是合格的人眼 Evidence。","evidence_note_en":"The screenshot must come from the same Ads page as the positive GAID testcase and visibly show Renew/Get new or the complete Opt out ON control. Payload alone is not valid human-visible evidence."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS ATT denied 另立 TC。","evidence":"N/A"}},
-    {"key":"tracking-denied","display_id":null,"order":501,"layer":"Signal","round":"R5","category":"A. Privacy Alternate State","title":"Advertising Tracking Denied","field":"device.lat","priority":"P0","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用正向 GAID TC 的 Settings → Security and privacy → Privacy controls → Ads 路徑，確認 Advertising ID 已停用，並使用同一次 Privacy capture 檢查 LAT。","setup_en":"Use the same Settings → Security and privacy → Privacy controls → Ads path as the positive GAID testcase, visibly confirm that the Advertising ID is disabled, and validate LAT from the same Privacy capture.","expected":"Advertising ID 已停用；req/ext device.lat 必須為 integer 1。","expected_en":"With the Advertising ID disabled, req/ext device.lat must both be integer 1.","evidence":"tracking-denied.png、tracking-denied-state.json、bid_decoded.json、verdicts.json","evidence_note":"人眼 Evidence 必須是同一個 Ads 頁的停用狀態；LAT=1 則由同輪 decoded Request／Extended 直接對照。","evidence_note_en":"Human-visible evidence must show the disabled state on the same Ads page. LAT=1 is verified from the decoded Request and Extended payloads in the same capture."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS ATT denied 另立 TC。","evidence":"N/A"}},
-    {"key":"dark-mode-enabled","display_id":null,"order":510,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Dark Mode — Enabled","field":"device.ext.darkmode","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Dark Mode ON，與其他可共存狀態共用一包。","setup_en":"Enable Dark Mode and share one capture with other compatible states.","expected":"Android 與 payload 均為 true。","expected_en":"Both the Android state and payload must be true.","evidence":"dark-mode-evidence.png、display-status.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"font-scale-maximum","display_id":null,"order":511,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Font Scale — Maximum","field":"device.ext.fontscale","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟原生 Display size & text，操作 Font size 到最右端，再讀取該裝置實際 font_scale。","setup_en":"Open native Display size & text, move Font size to the rightmost position, then read that device's actual font_scale.","expected":"原生 Increase font size 按鈕已 disabled，證明滑桿在最右端；device.ext.fontscale 必須精確等於當時 Android font_scale。最大數值依裝置決定，不寫死 1.5。","expected_en":"The native Increase font size button is disabled, proving the slider is at its rightmost position. device.ext.fontscale must exactly equal Android font_scale at that moment. The numeric maximum is device-specific and is not hard-coded to 1.5.","evidence":"font-scale-evidence.png、font-scale-settings.png、display-status.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"screen-brightness-minimum","display_id":null,"order":512,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Screen Brightness — Minimum","field":"device.ext.screen_bright","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"將 Android 螢幕亮度設為系統最低有效值 raw 1。","setup_en":"Set Android screen brightness to its minimum effective value, raw 1.","expected":"Android raw=1；device.ext.screen_bright 必須等於 1÷255（0.0039215686），容許 1/255 的擷取誤差。","expected_en":"Android raw equals 1. device.ext.screen_bright must equal 1/255 (0.0039215686), allowing a 1/255 capture tolerance.","evidence":"screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"Android 會把最低有效亮度 clamp 為 raw 1；raw 0 不是本裝置可用的實際顯示狀態。","evidence_note_en":"Android clamps the minimum effective brightness to raw 1; raw 0 is not an effective display state on this device."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"output-volume-muted","display_id":null,"order":513,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Output Volume — Muted","field":"device.ext.volume","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Media volume 設為 0。","setup_en":"Set Android Media volume to 0.","expected":"Android current=0 且 payload=0。","expected_en":"Android current volume and the payload value must both equal 0.","evidence":"volume-evidence.png、device-context.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"battery-saver-enabled","display_id":null,"order":514,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Battery Saver — Enabled","field":"device.ext.battery_saver","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Battery Saver 設為 ON。","setup_en":"Enable Android Battery Saver.","expected":"設定頁 ON 且 payload=true。","expected_en":"Android Settings must show Battery Saver ON and the payload must equal true.","evidence":"battery-saver-settings.png、battery-status.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"screen-brightness-maximum","display_id":null,"order":515,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Screen Brightness — Maximum","field":"device.ext.screen_bright","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"將 Android Display 亮度設為 100%，再冷啟動 App 抓包。","setup_en":"Set Android Display brightness to 100% and cold-launch the App for capture.","expected":"原生 Display 頁顯示 100%；保存同時刻的系統 float/raw 對照，device.ext.screen_bright 必須等於 raw ÷ 255，容許 1/255 誤差。","expected_en":"The native Display page shows 100%. Preserve the matching system float/raw values; device.ext.screen_bright must equal raw / 255 within a 1/255 tolerance.","evidence":"screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"output-volume-maximum","display_id":null,"order":516,"layer":"Signal","round":"R5","category":"B. Alternate Device State","title":"Output Volume — Maximum","field":"device.ext.volume","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"將 Android 媒體音量設為系統最大級距，再冷啟動 App 抓包。","setup_en":"Set Android Media volume to the system maximum and cold-launch the App for capture.","expected":"Android current=max；device.ext.volume 必須等於 1。","expected_en":"Android current equals max and device.ext.volume equals 1.","evidence":"volume-evidence.png、volume-status.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"timezone-changed","display_id":null,"order":520,"layer":"Signal","round":"R5","category":"C. Alternate Locale State","title":"Timezone — Changed","field":"device.utcoffset","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"將 Android 時區切換為 America/New_York，抓包後自動還原原時區。","setup_en":"Change Android timezone to America/New_York and restore the original timezone after capture.","expected":"Request／Extended utcoffset 必須等於抓包當下 Android 的實際 offset；依 DST 動態判定，不寫死 -240。","expected_en":"Request and Extended utcoffset must equal Android's actual offset at capture time. DST is evaluated dynamically and -240 is not hard-coded.","evidence":"timezone-changed.png、timezone-status.json、bid_decoded.json、verdicts.json"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS 另立 TC。","evidence":"N/A"}},
-    {"key":"location-permission-denied","display_id":null,"order":530,"layer":"Signal","round":"R5","category":"A. Privacy Alternate State","title":"Location Permission — Denied","field":"device.geo_lat / device.geo_lon","priority":"P0","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"收回 Sample App 的精確與概略位置權限，確認 Android Permissions 頁將 Location 顯示於 Not allowed，再冷啟動 App 抓包。","setup_en":"Revoke precise and approximate location permissions, verify that Android lists Location under Not allowed, and cold-launch the App for capture.","expected":"Request／Extended device 都不得傳送 geo_lat 或 geo_lon；欄位即使為 0 或 null 仍視為 FAILED。","expected_en":"Neither Request nor Extended device may send geo_lat or geo_lon. Explicit 0 or null values are still FAILED.","evidence":"location-permission-denied.png、location-permission-status.json、bid_decoded.json、verdicts.json","evidence_note":"Android Permissions 頁是人眼 Evidence；同輪 decoded payload 用欄位存在性判定，不能只看數值。","evidence_note_en":"The Android Permissions page is the human-visible evidence. The decoded payload is checked for field presence, not merely its value."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS Location denied 另立 TC。","evidence":"N/A"}},
+    {
+      "key": "advertising-id-opt-out",
+      "display_id": null,
+      "order": 500,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "A. Privacy Alternate State",
+      "title": "Advertising ID — Tracking Denied",
+      "field": "device.ia",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用正向 GAID TC 的路徑：Settings → Security and privacy → Privacy controls → Ads。現代 UI 選擇 Delete advertising ID；舊版 UI 開啟 Opt out。動作後重新走同一路徑回 Ads 頁確認停用狀態，再冷啟動 App 抓包；完成後以同一路徑還原。",
+        "setup_en": "Use the same path as the positive GAID testcase: Settings → Security and privacy → Privacy controls → Ads. Select Delete advertising ID on the modern UI or enable Opt out on the legacy UI. Reopen the Ads page through the same path to prove the disabled state, cold-launch the App for capture, and restore it through the same path afterward.",
+        "expected": "Ads 頁清楚顯示 Advertising ID 已停用（現代 UI 顯示 Renew/Get new，或舊版 Opt out ON）；req/ext device.ia 必須不存在、為空字串或全零 UUID，不得是可用 GAID。",
+        "expected_en": "The Ads page visibly shows that the Advertising ID is disabled (Renew/Get new on the modern UI, or Opt out ON on the legacy UI). req/ext device.ia must be absent, empty, or the zero UUID and must not contain a usable GAID.",
+        "evidence": "advertising-id-opt-out.png、tracking-denied-state.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "截圖必須直接來自與正向 GAID 相同的 Ads 頁，並看見 Renew/Get new 或完整 Opt out ON 控制；只有 payload 不是合格的人眼 Evidence。",
+        "evidence_note_en": "The screenshot must come from the same Ads page as the positive GAID testcase and visibly show Renew/Get new or the complete Opt out ON control. Payload alone is not valid human-visible evidence."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ia 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ia must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "tracking-denied",
+      "display_id": null,
+      "order": 501,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "A. Privacy Alternate State",
+      "title": "Advertising Tracking Denied",
+      "field": "device.lat",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用正向 GAID TC 的 Settings → Security and privacy → Privacy controls → Ads 路徑，確認 Advertising ID 已停用，並使用同一次 Privacy capture 檢查 LAT。",
+        "setup_en": "Use the same Settings → Security and privacy → Privacy controls → Ads path as the positive GAID testcase, visibly confirm that the Advertising ID is disabled, and validate LAT from the same Privacy capture.",
+        "expected": "Advertising ID 已停用；req/ext device.lat 必須為 integer 1。",
+        "expected_en": "With the Advertising ID disabled, req/ext device.lat must both be integer 1.",
+        "evidence": "tracking-denied.png、tracking-denied-state.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "人眼 Evidence 必須是同一個 Ads 頁的停用狀態；LAT=1 則由同輪 decoded Request／Extended 直接對照。",
+        "evidence_note_en": "Human-visible evidence must show the disabled state on the same Ads page. LAT=1 is verified from the decoded Request and Extended payloads in the same capture."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.lat 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.lat must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "dark-mode-enabled",
+      "display_id": null,
+      "order": 510,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Dark Mode — Enabled",
+      "field": "device.ext.darkmode",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Dark Mode ON，與其他可共存狀態共用一包。",
+        "setup_en": "Enable Dark Mode and share one capture with other compatible states.",
+        "expected": "Android 與 payload 均為 true。",
+        "expected_en": "Both the Android state and payload must be true.",
+        "evidence": "dark-mode-evidence.png、display-status.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.darkmode 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.darkmode must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "font-scale-maximum",
+      "display_id": null,
+      "order": 511,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Font Scale — Maximum",
+      "field": "device.ext.fontscale",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟原生 Display size & text，操作 Font size 到最右端，再讀取該裝置實際 font_scale。",
+        "setup_en": "Open native Display size & text, move Font size to the rightmost position, then read that device's actual font_scale.",
+        "expected": "原生 Increase font size 按鈕已 disabled，證明滑桿在最右端；device.ext.fontscale 必須精確等於當時 Android font_scale。最大數值依裝置決定，不寫死 1.5。",
+        "expected_en": "The native Increase font size button is disabled, proving the slider is at its rightmost position. device.ext.fontscale must exactly equal Android font_scale at that moment. The numeric maximum is device-specific and is not hard-coded to 1.5.",
+        "evidence": "font-scale-evidence.png、font-scale-settings.png、display-status.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.fontscale 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.fontscale must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "screen-brightness-minimum",
+      "display_id": null,
+      "order": 512,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Screen Brightness — Minimum",
+      "field": "device.ext.screen_bright",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "將 Android 螢幕亮度設為系統最低有效值 raw 1。",
+        "setup_en": "Set Android screen brightness to its minimum effective value, raw 1.",
+        "expected": "Android raw=1；device.ext.screen_bright 必須等於 1÷255（0.0039215686），容許 1/255 的擷取誤差。",
+        "expected_en": "Android raw equals 1. device.ext.screen_bright must equal 1/255 (0.0039215686), allowing a 1/255 capture tolerance.",
+        "evidence": "screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Android 會把最低有效亮度 clamp 為 raw 1；raw 0 不是本裝置可用的實際顯示狀態。",
+        "evidence_note_en": "Android clamps the minimum effective brightness to raw 1; raw 0 is not an effective display state on this device."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.screen_bright 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.screen_bright must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "output-volume-muted",
+      "display_id": null,
+      "order": 513,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Output Volume — Muted",
+      "field": "device.ext.volume",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Media volume 設為 0。",
+        "setup_en": "Set Android Media volume to 0.",
+        "expected": "Android current=0 且 payload=0。",
+        "expected_en": "Android current volume and the payload value must both equal 0.",
+        "evidence": "volume-evidence.png、device-context.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.volume 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.volume must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "battery-saver-enabled",
+      "display_id": null,
+      "order": 514,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Battery Saver — Enabled",
+      "field": "device.ext.battery_saver",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Battery Saver 設為 ON。",
+        "setup_en": "Enable Android Battery Saver.",
+        "expected": "設定頁 ON 且 payload=true。",
+        "expected_en": "Android Settings must show Battery Saver ON and the payload must equal true.",
+        "evidence": "battery-saver-settings.png、battery-status.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.battery_saver 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.battery_saver must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "screen-brightness-maximum",
+      "display_id": null,
+      "order": 515,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Screen Brightness — Maximum",
+      "field": "device.ext.screen_bright",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "將 Android Display 亮度設為 100%，再冷啟動 App 抓包。",
+        "setup_en": "Set Android Display brightness to 100% and cold-launch the App for capture.",
+        "expected": "原生 Display 頁顯示 100%；保存同時刻的系統 float/raw 對照，device.ext.screen_bright 必須等於 raw ÷ 255，容許 1/255 誤差。",
+        "expected_en": "The native Display page shows 100%. Preserve the matching system float/raw values; device.ext.screen_bright must equal raw / 255 within a 1/255 tolerance.",
+        "evidence": "screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.screen_bright 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.screen_bright must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "output-volume-maximum",
+      "display_id": null,
+      "order": 516,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "B. Alternate Device State",
+      "title": "Output Volume — Maximum",
+      "field": "device.ext.volume",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "將 Android 媒體音量設為系統最大級距，再冷啟動 App 抓包。",
+        "setup_en": "Set Android Media volume to the system maximum and cold-launch the App for capture.",
+        "expected": "Android current=max；device.ext.volume 必須等於 1。",
+        "expected_en": "Android current equals max and device.ext.volume equals 1.",
+        "evidence": "volume-evidence.png、volume-status.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.ext.volume 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.ext.volume must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "timezone-changed",
+      "display_id": null,
+      "order": 520,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "C. Alternate Locale State",
+      "title": "Timezone — Changed",
+      "field": "device.utcoffset",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "將 Android 時區切換為 America/New_York，抓包後自動還原原時區。",
+        "setup_en": "Change Android timezone to America/New_York and restore the original timezone after capture.",
+        "expected": "Request／Extended utcoffset 必須等於抓包當下 Android 的實際 offset；依 DST 動態判定，不寫死 -240。",
+        "expected_en": "Request and Extended utcoffset must equal Android's actual offset at capture time. DST is evaluated dynamically and -240 is not hard-coded.",
+        "evidence": "timezone-changed.png、timezone-status.json、bid_decoded.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.utcoffset 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.utcoffset must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "location-permission-denied",
+      "display_id": null,
+      "order": 530,
+      "layer": "Signal",
+      "round": "R5",
+      "category": "A. Privacy Alternate State",
+      "title": "Location Permission — Denied",
+      "field": "device.geo_lat / device.geo_lon",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "收回 Sample App 的精確與概略位置權限，確認 Android Permissions 頁將 Location 顯示於 Not allowed，再冷啟動 App 抓包。",
+        "setup_en": "Revoke precise and approximate location permissions, verify that Android lists Location under Not allowed, and cold-launch the App for capture.",
+        "expected": "Request／Extended device 都不得傳送 geo_lat 或 geo_lon；欄位即使為 0 或 null 仍視為 FAILED。",
+        "expected_en": "Neither Request nor Extended device may send geo_lat or geo_lon. Explicit 0 or null values are still FAILED.",
+        "evidence": "location-permission-denied.png、location-permission-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Android Permissions 頁是人眼 Evidence；同輪 decoded payload 用欄位存在性判定，不能只看數值。",
+        "evidence_note_en": "The Android Permissions page is the human-visible evidence. The decoded payload is checked for field presence, not merely its value."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先在原生 iOS Settings 完成指定狀態並保存可見截圖，再冷啟動 Sample App 擷取 Bid；每個 Scenario 獨立執行。",
+        "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
+        "expected": "Settings 可見狀態與 Bid 的 device.geo_lat / device.geo_lon 必須一致；缺少可見 Evidence 不得 PASS。",
+        "expected_en": "The visible Settings state and Bid device.geo_lat / device.geo_lon must agree. Missing visible Evidence cannot PASS.",
+        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+      }
+    },
     {
       "key": "advertising-id",
       "display_id": null,
@@ -30,10 +335,12 @@
         "evidence": "設定頁截圖、bid_decoded.json、summary.json"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS 對應識別為 IDFA，另立 iOS TestCase。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Advertising ID (GAID) 的 device.ia 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Advertising ID (GAID) (device.ia) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -55,10 +362,12 @@
         "evidence_note": "目前 Evidence 是單純抓包並解密 device.ifv。若需要可截圖、可由人眼獨立核對的證據，需請 RD 在 Sample App 增加顯示 App Set ID 的測試入口，再保存該畫面截圖。"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS 的 device.ifv 是 IDFV，來源與生命週期不同，另立 iOS TestCase。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Vendor ID (App Set ID) 的 device.ifv 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Vendor ID (App Set ID) (device.ifv) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -80,10 +389,12 @@
         "evidence_note": "設定頁 App 清單截圖提供人眼可見的裝置狀態；payload 清單來自抓包解密。兩者因 Android package visibility 與顯示名稱不同，不進行完整一對一比對。"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS 不適用 Android Installed App List。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
       }
     },
     {
@@ -105,10 +416,12 @@
         "evidence_note": "目前 Sample App 無購買入口，也沒有獨立 expected product IDs，因此無法驗證陣列內容正確性，結果為 BLOCKED。需請 RD 增加測試商品、購買入口與可核對答案。"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS StoreKit 購買訊號需另立 iOS TestCase。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
       }
     },
     {
@@ -130,10 +443,12 @@
         "evidence_note": "Evidence 圖上半部是 About phone 的 Uptime 原生畫面隱私裁切，下半部列出目前時間減 Uptime 的算式，再與最新 pot 對答案；不保存含 IP／MAC 的完整原圖。"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS boot／uptime 訊號需另立 iOS TestCase。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "System Boot Timestamps 的 device.ext.pot 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "System Boot Timestamps (device.ext.pot) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -154,10 +469,12 @@
         "evidence": "sdk-build-info.json、bid_decoded.json、verdicts.json"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS SDK version 另立 iOS TestCase。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "SDK Version (sdk_version) 的 app.sdk_version 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "SDK Version (sdk_version) (app.sdk_version) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -178,7 +495,14 @@
         "evidence": "mem-total-evidence.png、resource-status.json、bid_decoded.json、verdicts.json",
         "evidence_note": "Pixel Settings 不顯示即時 Total RAM；Evidence 直接保留 Android kernel 的 MemTotal 原始行，再列 ×1024 算式與 SDK 對答案。"
       },
-      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS memory signal 另立 iOS TestCase。", "evidence": "N/A"}
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "RAM Status (Total) 的 device.ext.mem_total 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "RAM Status (Total) (device.ext.mem_total) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
     },
     {
       "key": "ram-available",
@@ -198,7 +522,14 @@
         "evidence": "mem-available-evidence.png、resource-status.json、bid_decoded.json、verdicts.json",
         "evidence_note": "Evidence 直接保留 Android kernel 的 MemAvailable 原始行，再列 ×1024 算式與 SDK 對答案；動態值不要求逐 byte 相等。"
       },
-      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS memory signal 另立 iOS TestCase。", "evidence": "N/A"}
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "RAM Status (Available) 的 device.ext.mem_available 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "RAM Status (Available) (device.ext.mem_available) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
     },
     {
       "key": "disk-total",
@@ -218,7 +549,14 @@
         "evidence": "disk-total-evidence.png、storage-settings.png、resource-status.json、bid_decoded.json、verdicts.json",
         "evidence_note": "Evidence 上半部直接顯示 Android Storage 的 Total／Used 原生畫面；下半部以同一 /data filesystem 的精確 bytes 與 SDK 對答案。"
       },
-      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS storage signal 另立 iOS TestCase。", "evidence": "N/A"}
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+      }
     },
     {
       "key": "disk-free",
@@ -238,20 +576,339 @@
         "evidence": "disk-free-evidence.png、storage-settings.png、resource-status.json、bid_decoded.json、verdicts.json",
         "evidence_note": "Evidence 上半部直接顯示 Android Storage 原生畫面，下半部列 Total − Used ≈ Free，再用 /data 精確 bytes 與 SDK 對答案。"
       },
-      "ios": {"applicable": false, "setup": "N/A", "expected": "iOS storage signal 另立 iOS TestCase。", "evidence": "N/A"}
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+      }
     },
-    {"key":"battery-level","display_id":null,"order":55,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Battery Level","field":"device.batterylevel","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture；開啟 Android Battery 原生頁。","expected":"整數 0～100，與同時間系統電量差異不超過 2%。","evidence":"battery-settings.png、battery-status.json、bid_decoded.json、verdicts.json","evidence_note":"Battery 原生頁直接顯示電量百分比，作為主要肉眼 Evidence。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS battery signal 另立 TC。","evidence":"N/A"}},
-    {"key":"charging-status","display_id":null,"order":56,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Charging Status","field":"device.charging","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 Battery 頁與同輪 capture。","expected":"整數 0/1；AC、USB、Wireless 或 Dock powered 時為 1，否則為 0。100% Full 但仍接電源也允許為 1。","evidence":"battery-settings.png、battery-status.json、bid_decoded.json、verdicts.json","evidence_note":"Battery 頁的 Charged／Charging 與狀態列充電符號是主要肉眼 Evidence。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS charging signal 另立 TC。","evidence":"N/A"}},
-    {"key":"battery-saver","display_id":null,"order":57,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Battery Saver","field":"device.ext.battery_saver","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟 Android Battery Saver 原生頁。","expected":"JSON boolean，必須與 Use Battery Saver 開關完全一致。","evidence":"battery-saver-settings.png、battery-status.json、bid_decoded.json、verdicts.json","evidence_note":"以 Battery Saver 原生開關畫面為主要肉眼 Evidence；disk.ext.batterysaver 是舊表錯誤路徑。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS Low Power Mode 另立 TC。","evidence":"N/A"}},
-    {"key":"screen-width","display_id":null,"order":58,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Screen Width","field":"device.sw","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"保持直向，沿用本輪 Display 原生畫面。","expected":"正整數 pixels，等於 Android 當下 display width。","evidence":"screen-width-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"Evidence 卡保留真實手機截圖並直接標出原圖尺寸，讓 width 的 1080 px 肉眼可讀。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS screen size 另立 TC。","evidence":"N/A"}},
-    {"key":"screen-height","display_id":null,"order":59,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Screen Height","field":"device.sh","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"保持直向，沿用本輪 Display 原生畫面。","expected":"正整數 pixels，等於 Android 當下 display height。","evidence":"screen-height-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"Evidence 卡保留真實手機截圖並直接標出原圖尺寸，讓 height 的 2424 px 肉眼可讀。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS screen size 另立 TC。","evidence":"N/A"}},
-    {"key":"screen-ppi","display_id":null,"order":60,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Screen PPI","field":"device.ppi","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture，以 wm density 取得直接 OS 值；若型號已收錄，再查官方面板規格。","expected":"等於 Android logical density DPI；收錄型號另須與官方 physical PPI 差異在 ±5%。","evidence":"screen-ppi-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"Pixel 10a：wm density 420；Google 官方 422.2 PPI。兩者語意不同但應合理接近，Evidence 卡同時列出。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS scale/PPI 另立 TC。","evidence":"N/A"}},
-    {"key":"pixel-ratio","display_id":null,"order":61,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Pixel Ratio","field":"device.pxratio","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 Display capture 與 wm density。","expected":"等於 Android logical density DPI ÷ 160；允許 0.000001 浮點誤差。","evidence":"pixel-ratio-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"Evidence 明列 Pixel 10a 的 420 ÷ 160 = 2.625，與解密後欄位直接比對。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS scale 另立 TC。","evidence":"N/A"}},
-    {"key":"screen-brightness","display_id":null,"order":62,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Screen Brightness","field":"device.ext.screen_bright","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟 Android Display 原生頁；同一時刻保存 dumpsys display 與 system screen_brightness。","expected":"Display 顯示的感知百分比須由同一份 display-service 狀態連到 float brightness，再由 BrightnessSynchronizer 連到 integer；SDK 值等於 integer ÷ 255，容許 1/255 誤差。","evidence":"screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"Evidence 不是宣稱 70%=38÷255；它直接保存 Android 的 70% ↔ float ↔ int 38 對照，再驗 SDK 的 38÷255。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS brightness 另立 TC。","evidence":"N/A"}},
-    {"key":"font-scale","display_id":null,"order":63,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Font Scale","field":"device.ext.fontscale","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 Display size & text 狀態，讀取 system font_scale。","expected":"正數，與 Android system font_scale 相等。","evidence":"font-scale-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"設定頁是肉眼來源，精確數字由 Android system font_scale 提供。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS font scale 另立 TC。","evidence":"N/A"}},
-    {"key":"dark-mode","display_id":null,"order":64,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Dark Mode","field":"device.ext.darkmode","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 Display 原生頁的 Dark theme 開關，並讀取 cmd uimode night。","expected":"JSON boolean，必須與 Android 當下 Dark theme 狀態一致。","evidence":"dark-mode-evidence.png、display-status.json、bid_decoded.json、verdicts.json","evidence_note":"優先以肉眼可見的 Dark theme 開關為 Evidence，OS UI mode 保存精確 boolean。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS dark mode 另立 TC。","evidence":"N/A"}},
-    {"key":"gyroscope","display_id":null,"order":65,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Gyroscope","field":"device.ext.gyroscope","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Not In Scope；本輪不建立感測器動作。","expected":"BLOCKED；即使欄位存在且為 []，也不宣稱內容正確。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"本輪沒有獨立動作與正確樣本，因此不把空陣列判成 PASS。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS sensor TC 另立。","evidence":"N/A"}},
-    {"key":"accelerometer","display_id":null,"order":66,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Accelerometer","field":"device.ext.accelerometer","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Not In Scope；本輪不建立感測器動作。","expected":"BLOCKED；即使欄位存在且為 []，也不宣稱內容正確。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"本輪沒有獨立動作與正確樣本，因此不把空陣列判成 PASS。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS sensor TC 另立。","evidence":"N/A"}},
+    {
+      "key": "battery-level",
+      "display_id": null,
+      "order": 55,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Battery Level",
+      "field": "device.batterylevel",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；開啟 Android Battery 原生頁。",
+        "expected": "整數 0～100，與同時間系統電量差異不超過 2%。",
+        "evidence": "battery-settings.png、battery-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Battery 原生頁直接顯示電量百分比，作為主要肉眼 Evidence。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Battery Level 的 device.batterylevel 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Battery Level (device.batterylevel) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "charging-status",
+      "display_id": null,
+      "order": 56,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Charging Status",
+      "field": "device.charging",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 Battery 頁與同輪 capture。",
+        "expected": "整數 0/1；AC、USB、Wireless 或 Dock powered 時為 1，否則為 0。100% Full 但仍接電源也允許為 1。",
+        "evidence": "battery-settings.png、battery-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Battery 頁的 Charged／Charging 與狀態列充電符號是主要肉眼 Evidence。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Charging Status 的 device.charging 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Charging Status (device.charging) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "battery-saver",
+      "display_id": null,
+      "order": 57,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Battery Saver",
+      "field": "device.ext.battery_saver",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟 Android Battery Saver 原生頁。",
+        "expected": "JSON boolean，必須與 Use Battery Saver 開關完全一致。",
+        "evidence": "battery-saver-settings.png、battery-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "以 Battery Saver 原生開關畫面為主要肉眼 Evidence；disk.ext.batterysaver 是舊表錯誤路徑。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Battery Saver 的 device.ext.battery_saver 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Battery Saver (device.ext.battery_saver) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "screen-width",
+      "display_id": null,
+      "order": 58,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Screen Width",
+      "field": "device.sw",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "保持直向，沿用本輪 Display 原生畫面。",
+        "expected": "正整數 pixels，等於 Android 當下 display width。",
+        "evidence": "screen-width-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 卡保留真實手機截圖並直接標出原圖尺寸，讓 width 的 1080 px 肉眼可讀。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Screen Width 的 device.sw 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Screen Width (device.sw) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "screen-height",
+      "display_id": null,
+      "order": 59,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Screen Height",
+      "field": "device.sh",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "保持直向，沿用本輪 Display 原生畫面。",
+        "expected": "正整數 pixels，等於 Android 當下 display height。",
+        "evidence": "screen-height-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 卡保留真實手機截圖並直接標出原圖尺寸，讓 height 的 2424 px 肉眼可讀。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Screen Height 的 device.sh 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Screen Height (device.sh) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "screen-ppi",
+      "display_id": null,
+      "order": 60,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Screen PPI",
+      "field": "device.ppi",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture，以 wm density 取得直接 OS 值；若型號已收錄，再查官方面板規格。",
+        "expected": "等於 Android logical density DPI；收錄型號另須與官方 physical PPI 差異在 ±5%。",
+        "evidence": "screen-ppi-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Pixel 10a：wm density 420；Google 官方 422.2 PPI。兩者語意不同但應合理接近，Evidence 卡同時列出。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Screen PPI 的 device.ppi 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Screen PPI (device.ppi) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "pixel-ratio",
+      "display_id": null,
+      "order": 61,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Pixel Ratio",
+      "field": "device.pxratio",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 Display capture 與 wm density。",
+        "expected": "等於 Android logical density DPI ÷ 160；允許 0.000001 浮點誤差。",
+        "evidence": "pixel-ratio-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 明列 Pixel 10a 的 420 ÷ 160 = 2.625，與解密後欄位直接比對。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Pixel Ratio 的 device.pxratio 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Pixel Ratio (device.pxratio) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "screen-brightness",
+      "display_id": null,
+      "order": 62,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Screen Brightness",
+      "field": "device.ext.screen_bright",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟 Android Display 原生頁；同一時刻保存 dumpsys display 與 system screen_brightness。",
+        "expected": "Display 顯示的感知百分比須由同一份 display-service 狀態連到 float brightness，再由 BrightnessSynchronizer 連到 integer；SDK 值等於 integer ÷ 255，容許 1/255 誤差。",
+        "evidence": "screen-brightness-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Evidence 不是宣稱 70%=38÷255；它直接保存 Android 的 70% ↔ float ↔ int 38 對照，再驗 SDK 的 38÷255。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Screen Brightness 的 device.ext.screen_bright 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Screen Brightness (device.ext.screen_bright) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "font-scale",
+      "display_id": null,
+      "order": 63,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Font Scale",
+      "field": "device.ext.fontscale",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 Display size & text 狀態，讀取 system font_scale。",
+        "expected": "正數，與 Android system font_scale 相等。",
+        "evidence": "font-scale-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "設定頁是肉眼來源，精確數字由 Android system font_scale 提供。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Font Scale 的 device.ext.fontscale 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Font Scale (device.ext.fontscale) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "dark-mode",
+      "display_id": null,
+      "order": 64,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Dark Mode",
+      "field": "device.ext.darkmode",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 Display 原生頁的 Dark theme 開關，並讀取 cmd uimode night。",
+        "expected": "JSON boolean，必須與 Android 當下 Dark theme 狀態一致。",
+        "evidence": "dark-mode-evidence.png、display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "優先以肉眼可見的 Dark theme 開關為 Evidence，OS UI mode 保存精確 boolean。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Dark Mode 的 device.ext.darkmode 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Dark Mode (device.ext.darkmode) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "gyroscope",
+      "display_id": null,
+      "order": 65,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Gyroscope",
+      "field": "device.ext.gyroscope",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Not In Scope；本輪不建立感測器動作。",
+        "expected": "BLOCKED；即使欄位存在且為 []，也不宣稱內容正確。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "本輪沒有獨立動作與正確樣本，因此不把空陣列判成 PASS。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+      }
+    },
+    {
+      "key": "accelerometer",
+      "display_id": null,
+      "order": 66,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Accelerometer",
+      "field": "device.ext.accelerometer",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Not In Scope；本輪不建立感測器動作。",
+        "expected": "BLOCKED；即使欄位存在且為 []，也不宣稱內容正確。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "本輪沒有獨立動作與正確樣本，因此不把空陣列判成 PASS。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+      }
+    },
     {
       "key": "tracking-allowed",
       "display_id": null,
@@ -270,63 +927,1432 @@
         "evidence": "tracking-allowed.png、ads-settings-state.json、bid_decoded.json、verdicts.json"
       },
       "ios": {
-        "applicable": false,
-        "setup": "N/A",
-        "expected": "iOS 對應行為另立 iOS TestCase。",
-        "evidence": "N/A"
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Advertising Tracking Allowed 的 device.lat（Limit Ad Tracking，反向旗標） 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Advertising Tracking Allowed (device.lat（Limit Ad Tracking，反向旗標）) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
-    {"key":"output-volume","display_id":null,"order":68,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Output Volume","field":"device.ext.volume","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟 Android「音效與震動」，查看媒體音量滑桿；同時讀取系統的目前音量與最大音量。","setup_en":"Open Android Sound & vibration and view the Media volume slider. Read the system's current and maximum media-volume levels at the same time.","expected":"Payload 必須介於 0～1，並等於「目前媒體音量 ÷ 最大媒體音量」；容許一個音量級距的誤差。","expected_en":"The payload must be between 0 and 1 and equal current Media volume divided by maximum Media volume, with a tolerance of one volume step.","evidence":"volume-evidence.png、volume-status.json、bid_decoded.json、verdicts.json","evidence_en":"Sound & vibration screenshot, volume-status.json, decoded bid, and verdicts.json","evidence_note":"「音效與震動」頁的媒體音量滑桿提供人眼 Evidence；volume-status.json 記錄 current/max 與正規化算式。","evidence_note_en":"The Media volume slider is the human-readable evidence. volume-status.json records current/max and the normalization formula."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS output volume 另立 TC。","expected_en":"iOS output volume requires a separate TestCase.","evidence":"N/A"}},
-    {"key":"device-make","display_id":null,"order":69,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Device Make","field":"device.make","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture；開啟 About phone。","expected":"req/ext device.make 均須等於 Android ro.product.manufacturer。","evidence":"make-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"About phone 提供人眼裝置背景，ro.product.manufacturer 是精確 OS 答案。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS make 另立 TC。","evidence":"N/A"}},
-    {"key":"device-model","display_id":null,"order":70,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Device Model","field":"device.model / device.hwv","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture；開啟 About phone。","expected":"req/ext 的 model 與 hwv 均須等於 Android ro.product.model。","evidence":"model-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"同時檢查 device.model 與 stakeholder 指定的 device.hwv，不只檢查其中一份 payload。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS model/hwv 另立 TC。","evidence":"N/A"}},
-    {"key":"default-timezone","display_id":null,"order":71,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Default Timezone","field":"device.utcoffset","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture；開啟 Date & time 原生頁。","expected":"req/ext utcoffset 均須等於 capture 當下 Android UTC offset，單位為分鐘；不可固定寫 480。","evidence":"utcoffset-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"設定頁顯示時區名稱；device date +%z 轉成分鐘後才是欄位的精確答案。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS timezone 另立 TC。","evidence":"N/A"}},
-    {"key":"default-language-iso","display_id":null,"order":72,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"System Language Code","field":"device.lang","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟 Settings → System → Languages & region，擷取第一順位的系統語言。","setup_en":"Open Settings → System → Languages & region and capture the primary system language.","expected":"ext device.lang 必須等於第一順位系統語言的 ISO-639-1 語言代碼；例如 English (Japan) → en。","expected_en":"Extended device.lang must equal the ISO-639-1 language component of the primary Android system language; for example, en-JP becomes en.","evidence":"Languages & region 頁、lang-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"這條只驗語言部分，不驗地區；en-JP 與 en-US 在這條都會得到 en。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS language 另立 TC。","evidence":"N/A"}},
-    {"key":"default-language-bcp47","display_id":null,"order":73,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"System Language and Region Tag","field":"device.langb","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟 Settings → System → Languages & region，擷取第一順位的系統語言與地區，例如 English (Japan)。","setup_en":"Open Settings → System → Languages & region and capture the primary system language and region, such as English (Japan).","expected":"將設定頁的語言與地區正規化為完整 BCP 47，例如 English (Japan) → en-JP；req/ext device.langb 必須都與它完全相同。","expected_en":"Request and extended device.langb must equal the complete BCP 47 tag of the primary Android system language and region; for example, English (Japan) becomes en-JP.","evidence":"Languages & region 頁、langb-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"這條驗完整的語言＋地區標籤，因此能分辨 en-JP 與 en-US。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS BCP 47 language 另立 TC。","evidence":"N/A"}},
-    {"key":"keyboard-languages","display_id":null,"order":74,"layer":"Signal","round":"R1","category":"B. Device Signals","title":"Installed Keyboard Languages","field":"device.input_lang","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"開啟 Gboard Languages，讀取 enabled input-method subtypes。","expected":"字串陣列，順序與啟用的 Gboard BCP 47 language tags 完全一致。","evidence":"input_lang-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"Gboard Languages 是直接人眼 Evidence；dumpsys input_method 提供精確 tag。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS keyboard languages 另立 TC。","evidence":"N/A"}},
-    {"key":"root-status","display_id":null,"order":75,"layer":"Signal","round":"R1","category":"C. Device Integrity","title":"Root Status","field":"device.ext.jailbreak","priority":"P0","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 rooted QA device；開啟 Magisk 並執行 su -c id。","expected":"JSON boolean，必須與獨立 root probe 一致；Android 欄位名稱仍為 jailbreak。","evidence":"jailbreak-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"Magisk 畫面是人眼 Evidence，uid=0(root) 是精確 OS 證據。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS jailbreak 另立 TC。","evidence":"N/A"}},
-    {"key":"emulator-detection","display_id":null,"order":76,"layer":"Signal","round":"R1","category":"C. Device Integrity","title":"Emulator Detection","field":"device.ext.emulator","priority":"P0","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用實體 Pixel；讀取 qemu/product hardware properties。","expected":"JSON boolean，實體 Pixel 應為 false；模擬器另建正向 round。","evidence":"emulator-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"About phone 顯示實體型號，hardware properties 提供精確判定。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS simulator detection 另立 TC。","evidence":"N/A"}},
-    {"key":"ipv6-address","display_id":null,"order":77,"layer":"Signal","round":"R4","category":"D. Network","title":"IPv6 Address","field":"ext.device.ipv6","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"使用可連線至 Appier IPv6 endpoint 的網路；冷啟動 App，等待 SDK 完成 net probe 後觸發廣告。","setup_en":"Use a network that can reach the Appier IPv6 endpoint. Cold-launch the App, wait for the SDK net probe, and then request an ad.","expected":"同一輪須看到 adx6.apx.appier.net/v2/sdk/net HTTP 200；response 的合法 IPv6 必須與 decoded ext.device.ipv6 完全相同。","expected_en":"The same capture must show an HTTP 200 response from adx6.apx.appier.net/v2/sdk/net. Its valid IPv6 must exactly match decoded ext.device.ipv6.","evidence":"proxy-events.jsonl、ipv6-net-probe-response.json、bid_decoded.json、verdicts.json","evidence_en":"Proxy events, Appier net-probe response, decoded bid, and verdicts.json","evidence_note":"AOS 從 Appier 自有 endpoint 取得公網 IPv6，不需要 SIM，也不是手機 local IP。網路無法連到 IPv6-only endpoint 時 BLOCKED；endpoint 成功但 payload 缺值或不一致則 FAILED。","evidence_note_en":"AOS obtains public IPv6 from Appier's endpoint; no SIM is required and this is not the phone's local IP. An unreachable IPv6-only endpoint is BLOCKED; a successful probe with a missing or mismatched payload value is FAILED."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS IPv6 另立 TC。","expected_en":"iOS IPv6 is covered by separate TestCases.","evidence":"N/A"}},
-    {"key":"ipv6-refresh-launch","display_id":"NET-01","order":77.1,"layer":"Signal","round":"R4","category":"D. Network - Refresh","title":"IPv6 on App Launch","field":"device.ipv6","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"在 network A 冷啟動 App，等待 10 秒讓 Appier adx6 net probe 完成，再觸發廣告。","setup_en":"Cold-launch the App on network A, wait 10 seconds for the Appier adx6 net probe, and then request an ad.","expected":"conntype=wifi；Appier probe response 與 ext.device.ipv6 都是合法 IPv6 且完全相同。若網路無法連到 IPv6-only endpoint，整輪 BLOCKED。","expected_en":"Connection type is Wi-Fi; the Appier probe response and ext.device.ipv6 are the same valid IPv6. The Round is BLOCKED when the network cannot reach the IPv6-only endpoint.","evidence":"AOS-NET-01 bundle、IPv6 probe response、bid_decoded.json、r4-network-sequence.json、verdicts.json"},"ios":{"applicable":true,"setup":"公司 Wi-Fi；冷啟動 App，在同一 session 等待 10 秒後觸發廣告。","expected":"conntype=wifi 且 device.ipv6 是合法、非 unspecified IPv6。若測試網路不提供 IPv6，整個 R4 BLOCKED；若環境有 IPv6而缺值則 FAILED。","evidence":"IOS-NET-01 bundle、bid_decoded.json、r4-network-sequence.json、verdicts.json"}},
-    {"key":"ipv6-refresh-wifi-switch","display_id":"NET-02","order":77.2,"layer":"Signal","round":"R4","category":"D. Network - Refresh","title":"IPv6 after Wi-Fi Switch","field":"device.ipv6","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"不重開 App，從 network A 切到 network B；確認連線後等待 10 秒再觸發廣告。","setup_en":"Keep the App open, switch from network A to network B, wait 10 seconds after reconnection, and request another ad.","expected":"同一 Appium／App session；新的 Appier probe response 等於 ext.device.ipv6，且不同於 network A。","expected_en":"The same Appium/App session is preserved. The new Appier probe response equals ext.device.ipv6 and differs from network A.","evidence":"AOS-NET-01/02 bundles、IPv6 probe responses、r4-network-sequence.json、verdicts.json"},"ios":{"applicable":true,"setup":"不重開 App，從 network A 切到 network B，確認連線後等待 10 秒再觸發廣告。","expected":"同一 Appium/App session；conntype=wifi，IPv6 合法且不同於 network A。","evidence":"IOS-NET-01/02 bundles、r4-network-sequence.json、verdicts.json"}},
-    {"key":"ipv6-refresh-recovery","display_id":"NET-03","order":77.3,"layer":"Signal","round":"R4","category":"D. Network - Recovery","title":"IPv6 after Network Recovery","field":"device.ipv6","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"App 保持開啟；Wi-Fi 關閉 10 秒後恢復，確認可上網，再等待 10 秒觸發廣告。","setup_en":"Keep the App open, disable Wi-Fi for 10 seconds, reconnect, confirm Internet access, wait another 10 seconds, and request an ad.","expected":"App 不 crash；恢復後 Appier probe 成功，response 等於目前 ext.device.ipv6。","expected_en":"The App does not crash. After recovery, the Appier probe succeeds and its response equals the current ext.device.ipv6.","evidence":"AOS-NET-03 bundle、IPv6 probe response、r4-network-sequence.json、verdicts.json"},"ios":{"applicable":true,"setup":"App 保持開啟；Wi-Fi 關閉 10 秒後恢復，確認上網，再等待 10 秒觸發廣告。","expected":"App session 存活、request 可送出、conntype=wifi 且取得當前合法 IPv6。","evidence":"IOS-NET-03 bundle、r4-network-sequence.json、verdicts.json"}},
-    {"key":"ipv6-refresh-debounce","display_id":"NET-04","order":77.4,"layer":"Signal","round":"R4","category":"D. Network - Debounce","title":"IPv6 after Rapid Wi-Fi Switching","field":"device.ipv6","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"同一 App session 快速執行 A→B→A→B，最後停在 B，等待 10 秒觸發廣告。","setup_en":"In the same App session, rapidly switch A→B→A→B, remain on B, wait 10 seconds, and request an ad.","expected":"App 不 crash／卡住；最終 probe response 與 ext.device.ipv6 都等於 network B 的 IPv6，不得保留 A。","expected_en":"The App does not crash or hang. The final probe response and ext.device.ipv6 both equal network B and do not retain network A.","evidence":"AOS-NET-02/04 bundles、IPv6 probe responses、r4-network-sequence.json、verdicts.json"},"ios":{"applicable":true,"setup":"同一 App session 快速執行 A→B→A→B，最後停在 B，等待 10 秒觸發廣告。","expected":"App 不 crash/卡住，最終 device.ipv6 等於 IOS-NET-02 記錄的 network B IPv6。","evidence":"IOS-NET-02/04 bundles、r4-network-sequence.json、verdicts.json"}},
-    {"key":"ipv6-refresh-slow-network","display_id":"NET-05","order":77.5,"layer":"Signal","round":"R4","category":"D. Network - Slow Network","title":"IPv6 Refresh on Slow Network","field":"device.ipv6","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"確認 Charles 已套用 1～2 秒延遲；App 保持開啟並切換 Wi-Fi，等待 15 秒後觸發廣告。","setup_en":"Confirm a 1–2 second Charles throttle, keep the App open while switching Wi-Fi, wait 15 seconds, and request an ad.","expected":"App 不 crash／卡住，ad request 不被 probe 阻擋；probe response 與 ext.device.ipv6 是目前網路的合法 IPv6。","expected_en":"The App does not crash or hang and the probe does not block the ad request. The probe response and ext.device.ipv6 are the current network's valid IPv6.","evidence":"AOS-NET-05 bundle、throttle checkpoint、IPv6 probe response、r4-network-sequence.json、verdicts.json"},"ios":{"applicable":true,"setup":"操作者確認已啟用 1～2 秒延遲；同一 App session 切換 Wi-Fi，等待 15 秒後觸發廣告。","expected":"App 不 crash/卡住、ad request 不被 IPv6 流程阻擋，且取得新網路合法 IPv6。沒有 throttle 證明時不得 PASS。","evidence":"IOS-NET-05 bundle、throttle checkpoint、r4-network-sequence.json、verdicts.json"}},
-    {"key":"connection-type","display_id":null,"order":78,"layer":"Signal","round":"R1","category":"D. Network","title":"Connection Type","field":"device.conntype","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture；進入 Internet／Wi-Fi 詳細頁，讓目前連線 SSID 可見。","expected":"req/ext conntype 均須等於 Android active network；本輪為 wifi。","evidence":"conntype-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"Wi-Fi 詳細頁提供已連線 SSID 的人眼證據；dumpsys connectivity 提供精確 active transport。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS connection type 另立 TC。","evidence":"N/A"}},
-    {"key":"carrier","display_id":null,"order":79,"layer":"Signal","round":"R1","category":"D. Network","title":"Carrier","field":"device.carrier","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"QA device 無 active SIM；保留 Network & internet／SIM 狀態作為硬體限制證明。","expected":"BLOCKED：沒有 active SIM 時無法取得並驗證 Carrier 正確值；空字串只記為觀察結果，不視為 PASS。","evidence":"carrier-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"未來須插入有效 SIM 並建立 cellular Round，以 Android subscription/operator name 對照 payload。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS carrier 另立 TC。","evidence":"N/A"}},
-    {"key":"mcc-mnc","display_id":null,"order":80,"layer":"Signal","round":"R1","category":"D. Network","title":"MCC/MNC","field":"device.mccmnc","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"QA device 無 active SIM；保留 Network & internet／SIM 狀態作為硬體限制證明。","expected":"BLOCKED：沒有 active SIM 時無法取得並驗證 MCC/MNC 正確值；空字串只記為觀察結果，不視為 PASS。","evidence":"mccmnc-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"未來須插入有效 SIM 並建立 cellular Round，以 Android SIM／network operator 的 MCC + MNC 對照 payload。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS MCC/MNC 另立 TC。","evidence":"N/A"}},
-    {"key":"precise-gps-latitude","display_id":null,"order":81,"layer":"Signal","round":"R1","category":"E. Location","title":"Precise GPS Latitude","field":"ext.device.geo_lat","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"R1 前授予 Sample App 精確與約略位置權限；讀取 Android fused last-known location 作為獨立答案。","expected":"ext.device.geo_lat 必須是數字，且經緯度與 Android fused location 的距離須在 max(location accuracy, 200m) 內。","evidence":"App 畫面、geo_lat-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"device.lat 是廣告追蹤 flag；GPS 緯度的正確路徑是 ext.device.geo_lat。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS precise location 另立 TC。","evidence":"N/A"}},
-    {"key":"precise-gps-longitude","display_id":null,"order":82,"layer":"Signal","round":"R1","category":"E. Location","title":"Precise GPS Longitude","field":"ext.device.geo_lon","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"與緯度共用 R1 定位權限、Android fused last-known location 與同一份 capture。","expected":"ext.device.geo_lon 必須是數字，且經緯度與 Android fused location 的距離須在 max(location accuracy, 200m) 內。","evidence":"App 畫面、geo_lon-evidence.png、device-context.json、bid_decoded.json、verdicts.json","evidence_note":"經緯度成對判定；不得只因非零就 PASS。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS precise location 另立 TC。","evidence":"N/A"}},
-    {"key":"session-duration-continuous","display_id":null,"order":90,"layer":"Signal","round":"R3","category":"G. In-Session","title":"Session Duration — Continuous App Session","field":"user.session_duration","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"冷啟動後抓 Request 1；關閉廣告但不離開 App，等待後抓 Request 2。","expected":"Request 1 與 2 的 App PID 相同，且 Request 2 session_duration > Request 1。","evidence":"01-cold-start.png、02-continuous.png、session-duration-sequence.json、verdicts.json","evidence_note":"同一 App process 內的兩次 request；只看單一 payload 無法驗證遞增。"},"ios":{"applicable":true,"setup":"iOS 使用相同四段連續流程。","expected":"同一 process 的第二次值必須大於第一次。","evidence":"iOS R3 sequence 待接入。"}},
-    {"key":"session-duration-background","display_id":null,"order":91,"layer":"Signal","round":"R3","category":"G. In-Session","title":"Session Duration — Resume from Background","field":"user.session_duration","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Request 2 後按 Home 保留 App process；再次開啟 App 並抓 Request 3。","expected":"Request 2 與 3 的 PID 相同，且 Request 3 session_duration > Request 2；若系統殺掉 process 則 BLOCKED。","evidence":"02-continuous.png、03-after-background.png、session-duration-sequence.json、verdicts.json","evidence_note":"PID 證明只是 background/resume，而不是意外冷啟動。"},"ios":{"applicable":true,"setup":"iOS 進背景但保留 process，再回前景抓下一次 request。","expected":"PID／process identity 不變，session_duration 增加。","evidence":"iOS R3 sequence 待接入。"}},
-    {"key":"session-duration-termination","display_id":null,"order":92,"layer":"Signal","round":"R3","category":"G. In-Session","title":"Session Duration — Reset after Termination","field":"user.session_duration","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Request 3 後從 Recent Apps 向上滑掉 App，確認舊 PID 消失；重開後抓 Request 4。","expected":"Request 4 使用新 PID，且 session_duration < Request 3，證明終止後 reset。","evidence":"03-after-background.png、04-after-termination.png、session-duration-sequence.json、verdicts.json","evidence_note":"若滑掉後舊 PID 仍存在，前提不成立，整個 termination scenario 應 BLOCKED 而不是 FAILED。"},"ios":{"applicable":true,"setup":"終止 App process 後重開並抓下一次 request。","expected":"新 process 的 session_duration 必須小於終止前。","evidence":"iOS R3 sequence 待接入。"}},
-    {"key":"last-foreground-times","display_id":null,"order":84,"layer":"Signal","round":"R1","category":"F. User Session","title":"Last Foreground Times","field":"user.last_foreground_time","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪第一個廣告 capture。","expected":"非空陣列；每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"目前驗證跨平台欄位契約；若要逐筆證明 lifecycle 時間正確，Sample App 需另輸出 foreground callback log。"},"ios":{"applicable":true,"setup":"沿用對應 iOS capture。","expected":"與 AOS 相同：非空、正整數 epoch milliseconds、嚴格遞增。","evidence":"iOS lifecycle evidence 待接入。"}},
-    {"key":"last-background-times","display_id":null,"order":85,"layer":"Signal","round":"R1","category":"F. User Session","title":"Last Background Times","field":"user.last_background_time","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪 capture；沒有 background 事件時允許空陣列。","expected":"陣列可為空；有值時每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"空陣列表示尚無 background history，不等同欄位缺失。逐筆 lifecycle 對時需 Sample App log。"},"ios":{"applicable":true,"setup":"沿用對應 iOS capture。","expected":"與 AOS 相同：允許空陣列；有值時為正整數 epoch milliseconds 且嚴格遞增。","evidence":"iOS lifecycle evidence 待接入。"}},
-    {"key":"impression-history","display_id":null,"order":86,"layer":"Signal","round":"R2","category":"F. User Session","title":"Impression History","field":"user.impression_history","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"同一個 App session 先讓第一個廣告成功曝光，再抓第二個廣告 request。","expected":"第二個 request 的 impression_history 必須為非空陣列；第一個廣告的 impression callback 必須已被獨立保存。","evidence":"previous-impression.json、bid_decoded.json、verdicts.json","evidence_note":"R2 不可 force-stop 或重啟 App；否則第二次會退化成新的第一個廣告，歷史仍為空。"},"ios":{"applicable":true,"setup":"同一個 iOS App session 完成第一個曝光後抓第二個 request。","expected":"與 AOS 相同：有第一個 impression 證據，第二個 request history 非空。","evidence":"iOS second-ad evidence 待接入。"}},
-    {"key":"vpn-status","display_id":null,"order":87,"layer":"Signal","round":"R1","category":"D. Network","title":"VPN Status","field":"device.ext.vpn","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"Not In Scope；本輪不建立 VPN 狀態。","expected":"BLOCKED：目前 AOS payload 沒有已確認的 device.ext.vpn 欄位。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"待確認 Android SDK 已實作並接入 payload 後，再建立 VPN ON／OFF rounds。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS VPN 另行定義。","evidence":"N/A"}},
-    {"key":"argus-sdk-version","display_id":null,"order":88,"layer":"Signal","round":"R1","category":"A. Core Identifiers","title":"Argus SDK Version","field":"device.argus_ver","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用本輪第二段 Argus payload，自動擷取 Actual；到報告人工輸入 Expected。","expected":"未輸入 Expected 時 BLOCKED；人工輸入後與 device.argus_ver 精確相等為 PASS，不等為 FAILED。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"Expected 不得由 payload 反推；必須由 reviewer 依本次整合版本獨立填入。"},"ios":{"applicable":true,"setup":"沿用對應 iOS Argus payload並由 reviewer 輸入 Expected。","expected":"未輸入 Expected 時 BLOCKED；輸入後精確比對。","evidence":"iOS payload evidence 待接入。"}},
-    {"key":"network-latency","display_id":null,"order":89,"layer":"Signal","round":"R2","category":"K. Network Latency","title":"Connection Latency","field":"device.ext.latency","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"App 啟動後先完成第一則廣告，再沿用 R2 的第二個 request；保存同一次 Automation 中 SDK 對 cr.adsappier.com 固定資源送出的 HEAD latency probe。","setup_en":"After App launch, complete the first ad and reuse the second request captured in R2; preserve the SDK HEAD latency probe to the fixed cr.adsappier.com resource from the same automation run.","expected":"同一次 Automation（可在 R1 或 R2）必須有 HTTP 200 的 HEAD probe，且 R2 第二個 request 的 device.ext.latency 必須是大於 0 的整數毫秒值；缺任一項即 FAILED。","expected_en":"The same automation run (R1 or R2) must contain an HTTP 200 HEAD probe, and device.ext.latency in R2's second request must be a positive integer in milliseconds; either missing is FAILED.","evidence":"同次執行的 proxy-events.jsonl、R2 bid_decoded.json、verdicts.json","evidence_note":"SDK 啟動後會非同步完成 latency probe，結果可沿用到後續 request；因此以同一次 Automation 為證據邊界，不強迫 HEAD 與 R2 第二包發生在同一個 capture。","evidence_note_en":"The SDK completes its latency probe asynchronously and may reuse the result in later requests. Evidence is therefore scoped to the same automation run rather than requiring the HEAD and R2 second request in one capture."},"ios":{"applicable":false,"setup":"N/A","expected":"iOS latency probe 需對照 iOS 實作。","evidence":"N/A"}},
-    {"key":"app-initialization-time","display_id":null,"order":93,"layer":"Signal","round":"R3","category":"G. In-Session","title":"App Initialization Time","field":"user.app_init_time","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 R3 四份 request；Request 1～3 保持同一 process，Request 4 終止後重新啟動。","expected":"Request 1～3 必須使用同一 PID，且 app_init_time 完全相同；Request 4 必須使用新 PID，且 app_init_time 大於前三次。","evidence":"04-after-termination.png、session-duration-sequence.json、verdicts.json","evidence_note":"Code 定義為 AppLifecycleTracker 建立時的 System.currentTimeMillis；SignalManager 為 process singleton，因此只在新 process 更新。不將手機 timestamp 與執行機的 capture timestamp 直接比較，避免兩台設備時鐘差導致誤判。"},"ios":{"applicable":true,"setup":"沿用 iOS R3 的四份 request。","expected":"同一 process 固定，process 重建後更新；iOS 起算點需以 iOS 實作確認。","evidence":"iOS R3 sequence 待接入。"}},
-    {"key":"app-duration-today","display_id":null,"order":94,"layer":"Signal","round":"R3","category":"G. In-Session","title":"Total App Usage Time Today","field":"user.app_duration","priority":"P1","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"沿用 R3 四份 request；包含持續前景、背景恢復與 process 終止重開。","expected":"四個 app_duration 都是非負整數 milliseconds 且單調不減；Request 4 換 PID 後仍不得小於 Request 3。","evidence":"04-after-termination.png、session-duration-sequence.json、verdicts.json","evidence_note":"app_duration 是今日前景使用累積並跨 process 保存；與會在新 process reset 的 session_duration 不同。跨日歸零另立未來 Round。"},"ios":{"applicable":true,"setup":"沿用 iOS R3 四份 request。","expected":"同一天內單調不減且 process 重啟後保留；iOS 持久化語意需對照 iOS 實作。","evidence":"iOS R3 sequence 待接入。"}},
-    {"key":"connection-type-cellular","display_id":null,"order":95,"layer":"Signal","round":"R1","category":"D. Network - Format","title":"Connection Type (Cellular)","field":"device.conntype","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"先跳過；目前 QA 裝置沒有 active SIM，無法建立 cellular transport。","expected":"BLOCKED：需要有 SIM 的裝置；未來 4G 應為 6、5G 應為 7。","evidence":"verdicts.json","evidence_note":"這是硬體限制；不能用目前 WiFi=2 的 capture 驗證 Cellular。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS Cellular 另立 TC。","evidence":"N/A"}},
-    {"key":"force-gdpr-override","display_id":null,"order":96,"layer":"Signal","round":"R1","category":"L. Privacy Compliance","title":"Force GDPR Override","field":"compliance.force_gdpr_applies","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"先跳過；SDK API 是 Appier.setForceGDPRApplies(true)，但 Sample App 目前沒有呼叫或測試入口。","expected":"BLOCKED：待 Sample App 暴露 true/false 觸發方式後，再比較 request compliance.force_gdpr_applies。","evidence":"bid_decoded.json、verdicts.json","evidence_note":"觸發方式已從 SDK Code 確認；目前缺的是 Sample App 可控入口。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS Force GDPR 需對照 iOS API。","evidence":"N/A"}},
-    {"key":"coppa-applies","display_id":null,"order":97,"layer":"Signal","round":"R1","category":"L. Privacy Compliance","title":"COPPA Applicability Flag","field":"compliance.coppa_applies","priority":"P2","status":"IMPLEMENTED","aos":{"applicable":true,"setup":"免設定；Sample App 已呼叫 Appier.setCoppaApplies(true)，沿用 R1 capture。","expected":"req compliance.coppa_applies 必須存在、型別為整數且等於 1。","evidence":"Sample App AppierAdHelper.java、bid_decoded.json、verdicts.json","evidence_note":"Sample App source 是獨立 expected；payload 由抓包解碼取得。"},"ios":{"applicable":false,"setup":"N/A","expected":"iOS COPPA 需對照 iOS Sample App 設定。","evidence":"N/A"}},
-
-    {"key":"standalone-sdk-init","display_id":"E2E-S01","order":1000,"layer":"E2E","round":"E2E-BASELINE","category":"A. Ad Serving","title":"SDK Initialization","field":"platform init endpoint","priority":"P0","status":"DRAFT","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"不執行；Android Ads SDK 沒有獨立 Init endpoint。","expected":"BLOCKED：等待確認是否需要建立與 iOS Init 流程對齊的 AOS 等效契約；不得以 ad request 取代 Init 並判為 PASS。","evidence":"Android SDK Code、verdicts.json","evidence_note":"目前保留卡片以維持跨平台 E2E 流程對照，但 AOS 固定為 BLOCKED。"},"ios":{"applicable":true,"setup":"啟動 iOS Sample App；ATT 與 HTTPS proxy 前置完成。","expected":"GET /v1/sdk/ios/init 成功，bundle 與 SDK version 正確，response 可用。","evidence":"serving video、init request/response、traffic session"}},
-    {"key":"standalone-appier-ad-request","display_id":"E2E-S04","order":1040,"layer":"E2E","round":"E2E-BASELINE","category":"A. Ad Serving","title":"Appier Direct Ad Request","field":"POST /v2/sdk/{platform}/ad","priority":"P0","status":"DRAFT","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"在所選整合模式觸發 Appier 廣告，並保存可追溯的 proxy/Charles traffic session。","expected":"同一 traffic flow 必須證明 POST /v2/sdk/aos/ad 與 HTTP 200 response；request/response body 均保存，bundle、zone、SDK version、CID 正確，response 含有效 adUnits[0].ad。只有抽出的 JSON、Logcat 或 onAdLoaded 不足以 PASS。","evidence":"traffic flow 摘要、完整 proxy/Charles session、request/response body、decoded payload"},"ios":{"applicable":true,"setup":"在所選整合模式觸發 Appier 廣告，並保存可追溯的 proxy/Charles traffic session。","expected":"同一 traffic flow 必須證明 POST /v2/sdk/ios/ad 與 HTTP 200 response；request/response body 均保存且 response 含有效 ad unit。","evidence":"traffic flow 摘要、完整 proxy/Charles session、request/response body、decoded payload"}},
-    {"key":"standalone-creative-assets","display_id":"E2E-S06","order":1050,"layer":"E2E","round":"E2E-BASELINE","category":"A. Ad Serving","title":"Creative Asset Loading","field":"icon/main/privacy asset URLs","priority":"P1","status":"IMPLEMENTED","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"沿用 S04／M05 的 ad response，擷取 response 指定的每個 icon、main image 與 privacy icon URL request／response。","setup_en":"Reuse the S04/M05 ad response and capture the request and response for every icon, main-image, and privacy-icon URL it specifies.","expected":"Response 指定的每個素材 URL 都必須在同一輪 traffic 中出現；HTTP 200 或有效 304、MIME 為 image/*，且非 304 response body 必須非空。素材是否正確顯示由 S07 驗證。","expected_en":"Every asset URL specified by the response must appear in the same traffic session, return HTTP 200 or a valid 304, use an image/* MIME type, and have a non-empty body unless it is a 304. Visual rendering is validated by S07.","evidence":"e2e-network-evidence.json（素材 URL、HTTP status、MIME、bytes）"},"ios":{"applicable":true,"setup":"保存 response 指定的每個素材 URL request／response。","setup_en":"Preserve the request and response for every asset URL specified by the ad response.","expected":"每個素材 URL 都有成功的圖片 transport response；畫面渲染另由 S07 驗證。","expected_en":"Every asset URL has a successful image transport response. Visual rendering is validated separately by S07.","evidence":"asset traffic JSON（URL、status、MIME、bytes）"}},
-    {"key":"standalone-native-render","display_id":"E2E-S07","order":1051,"layer":"E2E","round":"E2E-BASELINE","category":"A. Ad Serving","title":"Native Ad Rendering","field":"visible native elements","priority":"P0","status":"DRAFT","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"等待 Native ad 完整顯示並保存 response 與畫面。","expected":"response 實際回傳的文字與素材必須在畫面有對應，且有廣告標示；破圖、裁切與版面由人眼覆核截圖。","evidence":"visual-review.json、render screenshot、serving video、ad response"},"ios":{"applicable":true,"setup":"等待 Native ad 完整顯示並保存 response 與畫面。","expected":"response 實際回傳的文字與素材必須在畫面有對應，且有廣告標示；破圖、裁切與版面由人眼覆核截圖。","evidence":"render screenshot、serving video、ad response"}},
-    {"key":"standalone-impression","display_id":"E2E-S08","order":1060,"layer":"E2E","round":"E2E-BASELINE","category":"B. Tracking","title":"Appier Impression Tracking","field":"show_cb / winshowimg","priority":"P0","status":"DRAFT","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"廣告實際可見後保存同一曝光的 tracker chain。","expected":"show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告。","evidence":"e2e-network-evidence.json（impression chain、status、correlation IDs）"},"ios":{"applicable":true,"setup":"廣告實際可見後保存同一曝光的 tracker chain。","expected":"show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告。","evidence":"impression traffic JSON、correlation timeline"}},
-    {"key":"standalone-click","display_id":"E2E-S11","order":1080,"layer":"E2E","round":"E2E-BASELINE","category":"B. Tracking","title":"Appier Click Tracking","field":"xclk redirect chain","priority":"P0","status":"IMPLEMENTED","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"沿用 E2E 共用完整操作紀錄中的 CTA 點擊，保存該次 xclk request／response。","setup_en":"Reuse the CTA interaction documented by the shared E2E recording and preserve its xclk request and response.","expected":"必須送出對應本次可見曝光的 xclk；bidobjid／CID／CRID 與該曝光一致，HTTP response 或 redirect 成功。不要求 AdMob aclk；Landing 由 S14 判定。","expected_en":"An xclk matching the visible impression must be emitted; its bidobjid, CID, and CRID match that impression, and its HTTP response or redirect succeeds. AdMob aclk is not required, and S14 validates the landing destination.","evidence":"e2e-network-evidence.json（xclk URL、correlation IDs、HTTP status）；操作影片顯示於 E2E 區塊頂端"},"ios":{"applicable":true,"setup":"沿用 E2E 共用操作影片中的 CTA 點擊並保存 xclk。","expected":"xclk correlation IDs 對應本次曝光，且 redirect chain 成功；Landing 由 S14 判定。","evidence":"xclk traffic JSON；操作影片顯示於 E2E 區塊頂端"}},
-    {"key":"standalone-landing","display_id":"E2E-S14","order":1090,"layer":"E2E","round":"E2E-BASELINE","category":"B. Tracking","title":"Campaign Destination","field":"landing destination / target app","priority":"P0","status":"IMPLEMENTED","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"緊接 E2E-S11 點擊，保存 redirect chain 與最終畫面；REEN 執行前必須設定 TARGET_APP_PACKAGE。","setup_en":"Immediately after E2E-S11, preserve the redirect chain and final screen. REEN requires TARGET_APP_PACKAGE before execution.","expected":"AIBID 必須到達合法商店／安裝目的地；REEN 必須以 deeplink 開啟設定的 Target App package，無白頁、卡住或 crash。","expected_en":"AIBID must reach a valid store/install destination. REEN must open the configured target App package via deeplink without a blank page, hang, or crash.","evidence":"click-landing.png、e2e-interactions.mp4、e2e-interactions.json、redirect chain"},"ios":{"applicable":true,"setup":"完成 E2E-S11 並保存最終目的地；REEN 必須事先指定 Target App。","expected":"AIBID 到達 App Store；REEN 開啟指定 Target App。","evidence":"landing screenshot、interaction video、redirect chain"}},
-    {"key":"standalone-privacy","display_id":"E2E-S13P","order":1095,"layer":"E2E","round":"E2E-BASELINE","category":"B. Tracking","title":"Privacy Information","field":"privacyInformationLink","priority":"P2","status":"IMPLEMENTED","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"顯示指定 CID 廣告後，先自動點擊右上 Privacy icon，再返回廣告執行 Click。","expected":"Response 有 privacyInformationLink 時，點擊 icon 後開啟對應 Privacy destination，且不誤觸一般 ad click。","evidence":"ad-before-interactions.png、privacy-landing.png、e2e-interactions.mp4、e2e-interactions.json、bid_response.json"},"ios":{"applicable":true,"setup":"Response 有 privacy icon/link 時點擊右上 icon。","expected":"開啟指定 privacy URL，且不誤觸一般 ad click。","evidence":"privacy video、privacy page screenshot、response"}},
-    {"key":"standalone-install-attribution","display_id":"E2E-S15","order":1100,"layer":"E2E","round":"E2E-BASELINE-ATTRIBUTION","category":"C. Attribution","title":"MMP Click Action","field":"MMP click action","priority":"P2","status":"IMPLEMENTED","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"自動保存實際點擊廣告的 BidObjectId、CID 與曝光／點擊時間，再用該查詢鍵檢查 MMP click action。","expected":"MMP click action 必須存在，且 campaign、CID、BidObjectId 與實際 click 對應；AIBID 為 install click，REEN 為 re-engagement click。","evidence":"attribution-query.json、MMP click query、click evidence"},"ios":{"applicable":true,"setup":"保存相同 correlation key 後查詢 MMP click action。","expected":"MMP click action 與實際 campaign click 對應。","evidence":"attribution query、MMP click query、click evidence"}},
-    {"key":"standalone-attribution-reconciliation","display_id":"E2E-S16","order":1110,"layer":"E2E","round":"E2E-BASELINE-ATTRIBUTION","category":"C. Attribution","title":"Attribution Recognition","field":"Spark raw_action / MMP attribution","priority":"P2","status":"IMPLEMENTED","integration_modes":["standalone","admob-mediation"],"aos":{"applicable":true,"setup":"沿用 S15 的 BidObjectId 與時間窗口，在 Spark／MMP 查詢歸因結果。","expected":"AIBID install 或 REEN re-engagement 必須在合理窗口內被認列，並對應正確 CID、BidObjectId 與 click action。","evidence":"attribution-query.json、backend query、MMP attribution result"},"ios":{"applicable":true,"setup":"沿用 S15 correlation key 查詢歸因結果。","expected":"對應 campaign 的 attribution action 被正確認列。","evidence":"attribution query、backend query、MMP attribution result"}},
-
-    {"key":"admob-pubsetting","display_id":"E2E-M02","order":1020,"layer":"E2E","round":"E2E-ADMOB","category":"A. Ad Serving","title":"AdMob Pubsetting Mediation Config","field":"getconfig/pubsetting","priority":"P0","status":"DRAFT","integration_modes":["admob-mediation"],"aos":{"applicable":true,"setup":"保存 Google pubsetting request/response。","expected":"HTTP/status 正常，mediation config 含 Appier adapter 與對應 zoneId。","evidence":"pubsetting request/response、traffic screenshot"},"ios":{"applicable":true,"setup":"保存 Google pubsetting request/response。","expected":"HTTP/status 正常，mediation config 含 Appier adapter 與對應 zoneId。","evidence":"pubsetting request/response、traffic screenshot"}},
-    {"key":"admob-gma-request","display_id":"E2E-M03","order":1030,"layer":"E2E","round":"E2E-ADMOB","category":"A. Ad Serving","title":"AdMob GMA Request and Mediation Routing","field":"mads/gma","priority":"P0","status":"DRAFT","integration_modes":["admob-mediation"],"aos":{"applicable":true,"setup":"觸發 AdMob 版位並保存 mads/gma response。","expected":"HTTP 成功且 ad_networks/adapter/zoneId 對應 Appier mediation。","evidence":"GMA request/response、traffic session"},"ios":{"applicable":true,"setup":"觸發 AdMob 版位並保存 mads/gma response。","expected":"HTTP 成功且 ad_networks/adapter/zoneId 對應 Appier mediation。","evidence":"GMA request/response、traffic session"}},
-    {"key":"admob-appier-ad-request","display_id":"E2E-M05","order":1041,"layer":"E2E","round":"E2E-ADMOB","category":"A. Ad Serving","title":"Appier Adapter Ad Request","field":"Appier ad endpoint","priority":"P0","status":"DRAFT","integration_modes":["admob-mediation"],"aos":{"applicable":true,"setup":"確認 GMA 觸發 Appier adapter 後保存 Appier request/response。","expected":"Appier request 的 zone/CID 與 pubsetting 一致，response ad payload 完整。","evidence":"pubsetting、GMA、Appier request/response timeline"},"ios":{"applicable":true,"setup":"確認 GMA 觸發 Appier adapter 後保存 Appier request/response。","expected":"Appier request 的 zone/CID 與 pubsetting 一致，response ad payload 完整。","evidence":"pubsetting、GMA、Appier request/response timeline"}},
-    {"key":"admob-impression","display_id":"E2E-M09","order":1061,"layer":"E2E","round":"E2E-ADMOB","category":"B. Tracking","title":"AdMob Impression Reporting","field":"AdMob imp_urls","priority":"P0","status":"DRAFT","integration_modes":["admob-mediation"],"aos":{"applicable":true,"setup":"Mediation ad 可見後保存 Appier 與 Google impression events。","expected":"沿用 E2E-S08 驗證 Appier impression；本 TC 只驗證 AdMob imp_urls 成功送出且對應同一廣告。","evidence":"mediation-network-evidence.json（AdMob impression event、status、timeline）"},"ios":{"applicable":true,"setup":"Mediation ad 可見後保存 Appier 與 Google impression events。","expected":"沿用 E2E-S08 驗證 Appier impression；本 TC 只驗證 AdMob imp_urls 成功送出且對應同一廣告。","evidence":"AdMob impression traffic JSON、timeline"}},
-    {"key":"admob-fill-result","display_id":"E2E-M10","order":1070,"layer":"E2E","round":"E2E-ADMOB","category":"B. Tracking","title":"Mediation Fill Result","field":"pagead/interaction fill_urls","priority":"P2","status":"DRAFT","integration_modes":["admob-mediation"],"aos":{"applicable":true,"setup":"完成 Appier adapter fill 並保存 fill result event。","expected":"fill result 正常送出且 mediation_fill_status 與實際 fill 一致。","evidence":"fill event、GMA/Appier timeline"},"ios":{"applicable":true,"setup":"完成 Appier adapter fill 並保存 fill result event。","expected":"fill result 正常送出且 mediation_fill_status 與實際 fill 一致。","evidence":"fill event、GMA/Appier timeline"}},
-    {"key":"admob-click","display_id":"E2E-M12","order":1081,"layer":"E2E","round":"E2E-ADMOB","category":"B. Tracking","title":"AdMob Click Reporting","field":"AdMob aclk","priority":"P0","status":"DRAFT","integration_modes":["admob-mediation"],"aos":{"applicable":true,"setup":"沿用 S11 已錄製的同一次 CTA 點擊，保存 AdMob click event。","expected":"沿用 E2E-S11 驗證 Appier xclk；本 TC 只驗證 AdMob aclk 成功且與同一次 click 對應。","evidence":"mediation-network-evidence.json（AdMob click event、status、timeline）；操作影片由 S11 保存"},"ios":{"applicable":true,"setup":"沿用 S11 的同一次點擊並保存 AdMob click event。","expected":"AdMob aclk 成功且與同一次 click 對應。","evidence":"AdMob click traffic JSON；操作影片由 S11 保存"}}
+    {
+      "key": "output-volume",
+      "display_id": null,
+      "order": 68,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Output Volume",
+      "field": "device.ext.volume",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟 Android「音效與震動」，查看媒體音量滑桿；同時讀取系統的目前音量與最大音量。",
+        "setup_en": "Open Android Sound & vibration and view the Media volume slider. Read the system's current and maximum media-volume levels at the same time.",
+        "expected": "Payload 必須介於 0～1，並等於「目前媒體音量 ÷ 最大媒體音量」；容許一個音量級距的誤差。",
+        "expected_en": "The payload must be between 0 and 1 and equal current Media volume divided by maximum Media volume, with a tolerance of one volume step.",
+        "evidence": "volume-evidence.png、volume-status.json、bid_decoded.json、verdicts.json",
+        "evidence_en": "Sound & vibration screenshot, volume-status.json, decoded bid, and verdicts.json",
+        "evidence_note": "「音效與震動」頁的媒體音量滑桿提供人眼 Evidence；volume-status.json 記錄 current/max 與正規化算式。",
+        "evidence_note_en": "The Media volume slider is the human-readable evidence. volume-status.json records current/max and the normalization formula."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Output Volume 的 device.ext.volume 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Output Volume (device.ext.volume) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "device-make",
+      "display_id": null,
+      "order": 69,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Device Make",
+      "field": "device.make",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；開啟 About phone。",
+        "expected": "req/ext device.make 均須等於 Android ro.product.manufacturer。",
+        "evidence": "make-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "About phone 提供人眼裝置背景，ro.product.manufacturer 是精確 OS 答案。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Device Make 的 device.make 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Device Make (device.make) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "device-model",
+      "display_id": null,
+      "order": 70,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Device Model",
+      "field": "device.model / device.hwv",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；開啟 About phone。",
+        "expected": "req/ext 的 model 與 hwv 均須等於 Android ro.product.model。",
+        "evidence": "model-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "同時檢查 device.model 與 stakeholder 指定的 device.hwv，不只檢查其中一份 payload。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Device Model 的 device.model / device.hwv 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Device Model (device.model / device.hwv) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "default-timezone",
+      "display_id": null,
+      "order": 71,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Default Timezone",
+      "field": "device.utcoffset",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；開啟 Date & time 原生頁。",
+        "expected": "req/ext utcoffset 均須等於 capture 當下 Android UTC offset，單位為分鐘；不可固定寫 480。",
+        "evidence": "utcoffset-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "設定頁顯示時區名稱；device date +%z 轉成分鐘後才是欄位的精確答案。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Default Timezone 的 device.utcoffset 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Default Timezone (device.utcoffset) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "default-language-iso",
+      "display_id": null,
+      "order": 72,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "System Language Code",
+      "field": "device.lang",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟 Settings → System → Languages & region，擷取第一順位的系統語言。",
+        "setup_en": "Open Settings → System → Languages & region and capture the primary system language.",
+        "expected": "ext device.lang 必須等於第一順位系統語言的 ISO-639-1 語言代碼；例如 English (Japan) → en。",
+        "expected_en": "Extended device.lang must equal the ISO-639-1 language component of the primary Android system language; for example, en-JP becomes en.",
+        "evidence": "Languages & region 頁、lang-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "這條只驗語言部分，不驗地區；en-JP 與 en-US 在這條都會得到 en。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "System Language Code 的 device.lang 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "System Language Code (device.lang) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "default-language-bcp47",
+      "display_id": null,
+      "order": 73,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "System Language and Region Tag",
+      "field": "device.langb",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟 Settings → System → Languages & region，擷取第一順位的系統語言與地區，例如 English (Japan)。",
+        "setup_en": "Open Settings → System → Languages & region and capture the primary system language and region, such as English (Japan).",
+        "expected": "將設定頁的語言與地區正規化為完整 BCP 47，例如 English (Japan) → en-JP；req/ext device.langb 必須都與它完全相同。",
+        "expected_en": "Request and extended device.langb must equal the complete BCP 47 tag of the primary Android system language and region; for example, English (Japan) becomes en-JP.",
+        "evidence": "Languages & region 頁、langb-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "這條驗完整的語言＋地區標籤，因此能分辨 en-JP 與 en-US。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "System Language and Region Tag 的 device.langb 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "System Language and Region Tag (device.langb) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "keyboard-languages",
+      "display_id": null,
+      "order": 74,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "B. Device Signals",
+      "title": "Installed Keyboard Languages",
+      "field": "device.input_lang",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "開啟 Gboard Languages，讀取 enabled input-method subtypes。",
+        "expected": "字串陣列，順序與啟用的 Gboard BCP 47 language tags 完全一致。",
+        "evidence": "input_lang-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Gboard Languages 是直接人眼 Evidence；dumpsys input_method 提供精確 tag。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Installed Keyboard Languages 的 device.input_lang 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Installed Keyboard Languages (device.input_lang) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "root-status",
+      "display_id": null,
+      "order": 75,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "C. Device Integrity",
+      "title": "Root Status",
+      "field": "device.ext.jailbreak",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 rooted QA device；開啟 Magisk 並執行 su -c id。",
+        "expected": "JSON boolean，必須與獨立 root probe 一致；Android 欄位名稱仍為 jailbreak。",
+        "evidence": "jailbreak-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Magisk 畫面是人眼 Evidence，uid=0(root) 是精確 OS 證據。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Root Status 的 device.ext.jailbreak 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Root Status (device.ext.jailbreak) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "emulator-detection",
+      "display_id": null,
+      "order": 76,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "C. Device Integrity",
+      "title": "Emulator Detection",
+      "field": "device.ext.emulator",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用實體 Pixel；讀取 qemu/product hardware properties。",
+        "expected": "JSON boolean，實體 Pixel 應為 false；模擬器另建正向 round。",
+        "evidence": "emulator-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "About phone 顯示實體型號，hardware properties 提供精確判定。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Emulator Detection 的 device.ext.emulator 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Emulator Detection (device.ext.emulator) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "ipv6-address",
+      "display_id": null,
+      "order": 77,
+      "layer": "Signal",
+      "round": "R4",
+      "category": "D. Network",
+      "title": "IPv6 Address",
+      "field": "ext.device.ipv6",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "使用可連線至 Appier IPv6 endpoint 的網路；冷啟動 App，等待 SDK 完成 net probe 後觸發廣告。",
+        "setup_en": "Use a network that can reach the Appier IPv6 endpoint. Cold-launch the App, wait for the SDK net probe, and then request an ad.",
+        "expected": "同一輪須看到 adx6.apx.appier.net/v2/sdk/net HTTP 200；response 的合法 IPv6 必須與 decoded ext.device.ipv6 完全相同。",
+        "expected_en": "The same capture must show an HTTP 200 response from adx6.apx.appier.net/v2/sdk/net. Its valid IPv6 must exactly match decoded ext.device.ipv6.",
+        "evidence": "proxy-events.jsonl、ipv6-net-probe-response.json、bid_decoded.json、verdicts.json",
+        "evidence_en": "Proxy events, Appier net-probe response, decoded bid, and verdicts.json",
+        "evidence_note": "AOS 從 Appier 自有 endpoint 取得公網 IPv6，不需要 SIM，也不是手機 local IP。網路無法連到 IPv6-only endpoint 時 BLOCKED；endpoint 成功但 payload 缺值或不一致則 FAILED。",
+        "evidence_note_en": "AOS obtains public IPv6 from Appier's endpoint; no SIM is required and this is not the phone's local IP. An unreachable IPv6-only endpoint is BLOCKED; a successful probe with a missing or mismatched payload value is FAILED."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "同一 Appium session 依序執行啟動、Wi-Fi 切換、斷線恢復、快速切換與慢網路。",
+        "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
+        "expected": "IPv6 Address 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
+        "expected_en": "IPv6 Address must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
+        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+      }
+    },
+    {
+      "key": "ipv6-refresh-launch",
+      "display_id": "NET-01",
+      "order": 77.1,
+      "layer": "Signal",
+      "round": "R4",
+      "category": "D. Network - Refresh",
+      "title": "IPv6 on App Launch",
+      "field": "device.ipv6",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "在 network A 冷啟動 App，等待 10 秒讓 Appier adx6 net probe 完成，再觸發廣告。",
+        "setup_en": "Cold-launch the App on network A, wait 10 seconds for the Appier adx6 net probe, and then request an ad.",
+        "expected": "conntype=wifi；Appier probe response 與 ext.device.ipv6 都是合法 IPv6 且完全相同。若網路無法連到 IPv6-only endpoint，整輪 BLOCKED。",
+        "expected_en": "Connection type is Wi-Fi; the Appier probe response and ext.device.ipv6 are the same valid IPv6. The Round is BLOCKED when the network cannot reach the IPv6-only endpoint.",
+        "evidence": "AOS-NET-01 bundle、IPv6 probe response、bid_decoded.json、r4-network-sequence.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "同一 Appium session 依序執行啟動、Wi-Fi 切換、斷線恢復、快速切換與慢網路。",
+        "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
+        "expected": "IPv6 on App Launch 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
+        "expected_en": "IPv6 on App Launch must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
+        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+      }
+    },
+    {
+      "key": "ipv6-refresh-wifi-switch",
+      "display_id": "NET-02",
+      "order": 77.2,
+      "layer": "Signal",
+      "round": "R4",
+      "category": "D. Network - Refresh",
+      "title": "IPv6 after Wi-Fi Switch",
+      "field": "device.ipv6",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "不重開 App，從 network A 切到 network B；確認連線後等待 10 秒再觸發廣告。",
+        "setup_en": "Keep the App open, switch from network A to network B, wait 10 seconds after reconnection, and request another ad.",
+        "expected": "同一 Appium／App session；新的 Appier probe response 等於 ext.device.ipv6，且不同於 network A。",
+        "expected_en": "The same Appium/App session is preserved. The new Appier probe response equals ext.device.ipv6 and differs from network A.",
+        "evidence": "AOS-NET-01/02 bundles、IPv6 probe responses、r4-network-sequence.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "同一 Appium session 依序執行啟動、Wi-Fi 切換、斷線恢復、快速切換與慢網路。",
+        "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
+        "expected": "IPv6 after Wi-Fi Switch 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
+        "expected_en": "IPv6 after Wi-Fi Switch must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
+        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+      }
+    },
+    {
+      "key": "ipv6-refresh-recovery",
+      "display_id": "NET-03",
+      "order": 77.3,
+      "layer": "Signal",
+      "round": "R4",
+      "category": "D. Network - Recovery",
+      "title": "IPv6 after Network Recovery",
+      "field": "device.ipv6",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "App 保持開啟；Wi-Fi 關閉 10 秒後恢復，確認可上網，再等待 10 秒觸發廣告。",
+        "setup_en": "Keep the App open, disable Wi-Fi for 10 seconds, reconnect, confirm Internet access, wait another 10 seconds, and request an ad.",
+        "expected": "App 不 crash；恢復後 Appier probe 成功，response 等於目前 ext.device.ipv6。",
+        "expected_en": "The App does not crash. After recovery, the Appier probe succeeds and its response equals the current ext.device.ipv6.",
+        "evidence": "AOS-NET-03 bundle、IPv6 probe response、r4-network-sequence.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "同一 Appium session 依序執行啟動、Wi-Fi 切換、斷線恢復、快速切換與慢網路。",
+        "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
+        "expected": "IPv6 after Network Recovery 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
+        "expected_en": "IPv6 after Network Recovery must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
+        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+      }
+    },
+    {
+      "key": "ipv6-refresh-debounce",
+      "display_id": "NET-04",
+      "order": 77.4,
+      "layer": "Signal",
+      "round": "R4",
+      "category": "D. Network - Debounce",
+      "title": "IPv6 after Rapid Wi-Fi Switching",
+      "field": "device.ipv6",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "同一 App session 快速執行 A→B→A→B，最後停在 B，等待 10 秒觸發廣告。",
+        "setup_en": "In the same App session, rapidly switch A→B→A→B, remain on B, wait 10 seconds, and request an ad.",
+        "expected": "App 不 crash／卡住；最終 probe response 與 ext.device.ipv6 都等於 network B 的 IPv6，不得保留 A。",
+        "expected_en": "The App does not crash or hang. The final probe response and ext.device.ipv6 both equal network B and do not retain network A.",
+        "evidence": "AOS-NET-02/04 bundles、IPv6 probe responses、r4-network-sequence.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "同一 Appium session 依序執行啟動、Wi-Fi 切換、斷線恢復、快速切換與慢網路。",
+        "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
+        "expected": "IPv6 after Rapid Wi-Fi Switching 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
+        "expected_en": "IPv6 after Rapid Wi-Fi Switching must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
+        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+      }
+    },
+    {
+      "key": "ipv6-refresh-slow-network",
+      "display_id": "NET-05",
+      "order": 77.5,
+      "layer": "Signal",
+      "round": "R4",
+      "category": "D. Network - Slow Network",
+      "title": "IPv6 Refresh on Slow Network",
+      "field": "device.ipv6",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "確認 Charles 已套用 1～2 秒延遲；App 保持開啟並切換 Wi-Fi，等待 15 秒後觸發廣告。",
+        "setup_en": "Confirm a 1–2 second Charles throttle, keep the App open while switching Wi-Fi, wait 15 seconds, and request an ad.",
+        "expected": "App 不 crash／卡住，ad request 不被 probe 阻擋；probe response 與 ext.device.ipv6 是目前網路的合法 IPv6。",
+        "expected_en": "The App does not crash or hang and the probe does not block the ad request. The probe response and ext.device.ipv6 are the current network's valid IPv6.",
+        "evidence": "AOS-NET-05 bundle、throttle checkpoint、IPv6 probe response、r4-network-sequence.json、verdicts.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "同一 Appium session 依序執行啟動、Wi-Fi 切換、斷線恢復、快速切換與慢網路。",
+        "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
+        "expected": "IPv6 Refresh on Slow Network 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
+        "expected_en": "IPv6 Refresh on Slow Network must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
+        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+      }
+    },
+    {
+      "key": "connection-type",
+      "display_id": null,
+      "order": 78,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "D. Network",
+      "title": "Connection Type",
+      "field": "device.conntype",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；進入 Internet／Wi-Fi 詳細頁，讓目前連線 SSID 可見。",
+        "expected": "req/ext conntype 均須等於 Android active network；本輪為 wifi。",
+        "evidence": "conntype-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Wi-Fi 詳細頁提供已連線 SSID 的人眼證據；dumpsys connectivity 提供精確 active transport。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Connection Type 的 device.conntype 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Connection Type (device.conntype) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "carrier",
+      "display_id": null,
+      "order": 79,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "D. Network",
+      "title": "Carrier",
+      "field": "device.carrier",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "QA device 無 active SIM；保留 Network & internet／SIM 狀態作為硬體限制證明。",
+        "expected": "BLOCKED：沒有 active SIM 時無法取得並驗證 Carrier 正確值；空字串只記為觀察結果，不視為 PASS。",
+        "evidence": "carrier-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "未來須插入有效 SIM 並建立 cellular Round，以 Android subscription/operator name 對照 payload。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Carrier 的 device.carrier 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Carrier (device.carrier) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "mcc-mnc",
+      "display_id": null,
+      "order": 80,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "D. Network",
+      "title": "MCC/MNC",
+      "field": "device.mccmnc",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "QA device 無 active SIM；保留 Network & internet／SIM 狀態作為硬體限制證明。",
+        "expected": "BLOCKED：沒有 active SIM 時無法取得並驗證 MCC/MNC 正確值；空字串只記為觀察結果，不視為 PASS。",
+        "evidence": "mccmnc-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "未來須插入有效 SIM 並建立 cellular Round，以 Android SIM／network operator 的 MCC + MNC 對照 payload。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "MCC/MNC 的 device.mccmnc 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "MCC/MNC (device.mccmnc) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "precise-gps-latitude",
+      "display_id": null,
+      "order": 81,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "E. Location",
+      "title": "Precise GPS Latitude",
+      "field": "ext.device.geo_lat",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "R1 前授予 Sample App 精確與約略位置權限；讀取 Android fused last-known location 作為獨立答案。",
+        "expected": "ext.device.geo_lat 必須是數字，且經緯度與 Android fused location 的距離須在 max(location accuracy, 200m) 內。",
+        "evidence": "App 畫面、geo_lat-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "device.lat 是廣告追蹤 flag；GPS 緯度的正確路徑是 ext.device.geo_lat。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Precise GPS Latitude 的 ext.device.geo_lat 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Precise GPS Latitude (ext.device.geo_lat) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "precise-gps-longitude",
+      "display_id": null,
+      "order": 82,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "E. Location",
+      "title": "Precise GPS Longitude",
+      "field": "ext.device.geo_lon",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "與緯度共用 R1 定位權限、Android fused last-known location 與同一份 capture。",
+        "expected": "ext.device.geo_lon 必須是數字，且經緯度與 Android fused location 的距離須在 max(location accuracy, 200m) 內。",
+        "evidence": "App 畫面、geo_lon-evidence.png、device-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "經緯度成對判定；不得只因非零就 PASS。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Precise GPS Longitude 的 ext.device.geo_lon 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Precise GPS Longitude (ext.device.geo_lon) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "session-duration-continuous",
+      "display_id": null,
+      "order": 90,
+      "layer": "Signal",
+      "round": "R3",
+      "category": "G. In-Session",
+      "title": "Session Duration — Continuous App Session",
+      "field": "user.session_duration",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "冷啟動後抓 Request 1；關閉廣告但不離開 App，等待後抓 Request 2。",
+        "expected": "Request 1 與 2 的 App PID 相同，且 Request 2 session_duration > Request 1。",
+        "evidence": "01-cold-start.png、02-continuous.png、session-duration-sequence.json、verdicts.json",
+        "evidence_note": "同一 App process 內的兩次 request；只看單一 payload 無法驗證遞增。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
+        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
+        "expected": "Session Duration — Continuous App Session 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
+        "expected_en": "Session Duration — Continuous App Session must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
+        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "session-duration-background",
+      "display_id": null,
+      "order": 91,
+      "layer": "Signal",
+      "round": "R3",
+      "category": "G. In-Session",
+      "title": "Session Duration — Resume from Background",
+      "field": "user.session_duration",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Request 2 後按 Home 保留 App process；再次開啟 App 並抓 Request 3。",
+        "expected": "Request 2 與 3 的 PID 相同，且 Request 3 session_duration > Request 2；若系統殺掉 process 則 BLOCKED。",
+        "evidence": "02-continuous.png、03-after-background.png、session-duration-sequence.json、verdicts.json",
+        "evidence_note": "PID 證明只是 background/resume，而不是意外冷啟動。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
+        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
+        "expected": "Session Duration — Resume from Background 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
+        "expected_en": "Session Duration — Resume from Background must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
+        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "session-duration-termination",
+      "display_id": null,
+      "order": 92,
+      "layer": "Signal",
+      "round": "R3",
+      "category": "G. In-Session",
+      "title": "Session Duration — Reset after Termination",
+      "field": "user.session_duration",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Request 3 後從 Recent Apps 向上滑掉 App，確認舊 PID 消失；重開後抓 Request 4。",
+        "expected": "Request 4 使用新 PID，且 session_duration < Request 3，證明終止後 reset。",
+        "evidence": "03-after-background.png、04-after-termination.png、session-duration-sequence.json、verdicts.json",
+        "evidence_note": "若滑掉後舊 PID 仍存在，前提不成立，整個 termination scenario 應 BLOCKED 而不是 FAILED。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
+        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
+        "expected": "Session Duration — Reset after Termination 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
+        "expected_en": "Session Duration — Reset after Termination must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
+        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "last-foreground-times",
+      "display_id": null,
+      "order": 84,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "F. User Session",
+      "title": "Last Foreground Times",
+      "field": "user.last_foreground_time",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪第一個廣告 capture。",
+        "expected": "非空陣列；每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "目前驗證跨平台欄位契約；若要逐筆證明 lifecycle 時間正確，Sample App 需另輸出 foreground callback log。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Last Foreground Times 的 user.last_foreground_time 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Last Foreground Times (user.last_foreground_time) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "last-background-times",
+      "display_id": null,
+      "order": 85,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "F. User Session",
+      "title": "Last Background Times",
+      "field": "user.last_background_time",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪 capture；沒有 background 事件時允許空陣列。",
+        "expected": "陣列可為空；有值時每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。Android／iOS 使用同一份資料契約。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "空陣列表示尚無 background history，不等同欄位缺失。逐筆 lifecycle 對時需 Sample App log。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Last Background Times 的 user.last_background_time 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Last Background Times (user.last_background_time) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "impression-history",
+      "display_id": null,
+      "order": 86,
+      "layer": "Signal",
+      "round": "R2",
+      "category": "F. User Session",
+      "title": "Impression History",
+      "field": "user.impression_history",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "同一個 App session 先讓第一個廣告成功曝光，再抓第二個廣告 request。",
+        "expected": "第二個 request 的 impression_history 必須為非空陣列；第一個廣告的 impression callback 必須已被獨立保存。",
+        "evidence": "previous-impression.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "R2 不可 force-stop 或重啟 App；否則第二次會退化成新的第一個廣告，歷史仍為空。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先完成一次可證明的廣告曝光，等待 SDK 初始化／probe，再擷取第二次 request。",
+        "setup_en": "Complete one proven ad impression, wait for SDK initialization/probes, then capture the second request.",
+        "expected": "第二次 request 的 user.impression_history 必須符合 Impression History 的因果與格式契約。",
+        "expected_en": "The second request's user.impression_history must satisfy the causal and wire-format contract for Impression History.",
+        "evidence": "第一／第二次 Bid、proxy-events.jsonl、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "vpn-status",
+      "display_id": null,
+      "order": 87,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "D. Network",
+      "title": "VPN Status",
+      "field": "device.ext.vpn",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "Not In Scope；本輪不建立 VPN 狀態。",
+        "expected": "BLOCKED：目前 AOS payload 沒有已確認的 device.ext.vpn 欄位。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "待確認 Android SDK 已實作並接入 payload 後，再建立 VPN ON／OFF rounds。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "VPN Status 的 device.ext.vpn 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "VPN Status (device.ext.vpn) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "argus-sdk-version",
+      "display_id": null,
+      "order": 88,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "A. Core Identifiers",
+      "title": "Argus SDK Version",
+      "field": "device.argus_ver",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用本輪第二段 Argus payload，自動擷取 Actual；到報告人工輸入 Expected。",
+        "expected": "未輸入 Expected 時 BLOCKED；人工輸入後與 device.argus_ver 精確相等為 PASS，不等為 FAILED。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "Expected 不得由 payload 反推；必須由 reviewer 依本次整合版本獨立填入。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Argus SDK Version 的 device.argus_ver 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Argus SDK Version (device.argus_ver) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "network-latency",
+      "display_id": null,
+      "order": 89,
+      "layer": "Signal",
+      "round": "R2",
+      "category": "K. Network Latency",
+      "title": "Connection Latency",
+      "field": "device.ext.latency",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "App 啟動後先完成第一則廣告，再沿用 R2 的第二個 request；保存同一次 Automation 中 SDK 對 cr.adsappier.com 固定資源送出的 HEAD latency probe。",
+        "setup_en": "After App launch, complete the first ad and reuse the second request captured in R2; preserve the SDK HEAD latency probe to the fixed cr.adsappier.com resource from the same automation run.",
+        "expected": "同一次 Automation（可在 R1 或 R2）必須有 HTTP 200 的 HEAD probe，且 R2 第二個 request 的 device.ext.latency 必須是大於 0 的整數毫秒值；缺任一項即 FAILED。",
+        "expected_en": "The same automation run (R1 or R2) must contain an HTTP 200 HEAD probe, and device.ext.latency in R2's second request must be a positive integer in milliseconds; either missing is FAILED.",
+        "evidence": "同次執行的 proxy-events.jsonl、R2 bid_decoded.json、verdicts.json",
+        "evidence_note": "SDK 啟動後會非同步完成 latency probe，結果可沿用到後續 request；因此以同一次 Automation 為證據邊界，不強迫 HEAD 與 R2 第二包發生在同一個 capture。",
+        "evidence_note_en": "The SDK completes its latency probe asynchronously and may reuse the result in later requests. Evidence is therefore scoped to the same automation run rather than requiring the HEAD and R2 second request in one capture."
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "先完成一次可證明的廣告曝光，等待 SDK 初始化／probe，再擷取第二次 request。",
+        "setup_en": "Complete one proven ad impression, wait for SDK initialization/probes, then capture the second request.",
+        "expected": "第二次 request 的 device.ext.latency 必須符合 Connection Latency 的因果與格式契約。",
+        "expected_en": "The second request's device.ext.latency must satisfy the causal and wire-format contract for Connection Latency.",
+        "evidence": "第一／第二次 Bid、proxy-events.jsonl、bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "app-initialization-time",
+      "display_id": null,
+      "order": 93,
+      "layer": "Signal",
+      "round": "R3",
+      "category": "G. In-Session",
+      "title": "App Initialization Time",
+      "field": "user.app_init_time",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 R3 四份 request；Request 1～3 保持同一 process，Request 4 終止後重新啟動。",
+        "expected": "Request 1～3 必須使用同一 PID，且 app_init_time 完全相同；Request 4 必須使用新 PID，且 app_init_time 大於前三次。",
+        "evidence": "04-after-termination.png、session-duration-sequence.json、verdicts.json",
+        "evidence_note": "Code 定義為 AppLifecycleTracker 建立時的 System.currentTimeMillis；SignalManager 為 process singleton，因此只在新 process 更新。不將手機 timestamp 與執行機的 capture timestamp 直接比較，避免兩台設備時鐘差導致誤判。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
+        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
+        "expected": "App Initialization Time 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
+        "expected_en": "App Initialization Time must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
+        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "app-duration-today",
+      "display_id": null,
+      "order": 94,
+      "layer": "Signal",
+      "round": "R3",
+      "category": "G. In-Session",
+      "title": "Total App Usage Time Today",
+      "field": "user.app_duration",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 R3 四份 request；包含持續前景、背景恢復與 process 終止重開。",
+        "expected": "四個 app_duration 都是非負整數 milliseconds 且單調不減；Request 4 換 PID 後仍不得小於 Request 3。",
+        "evidence": "04-after-termination.png、session-duration-sequence.json、verdicts.json",
+        "evidence_note": "app_duration 是今日前景使用累積並跨 process 保存；與會在新 process reset 的 session_duration 不同。跨日歸零另立未來 Round。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
+        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
+        "expected": "Total App Usage Time Today 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
+        "expected_en": "Total App Usage Time Today must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
+        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+      }
+    },
+    {
+      "key": "connection-type-cellular",
+      "display_id": null,
+      "order": 95,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "D. Network - Format",
+      "title": "Connection Type (Cellular)",
+      "field": "device.conntype",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "先跳過；目前 QA 裝置沒有 active SIM，無法建立 cellular transport。",
+        "expected": "BLOCKED：需要有 SIM 的裝置；未來 4G 應為 6、5G 應為 7。",
+        "evidence": "verdicts.json",
+        "evidence_note": "這是硬體限制；不能用目前 WiFi=2 的 capture 驗證 Cellular。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
+        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
+        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
+        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
+        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+      }
+    },
+    {
+      "key": "force-gdpr-override",
+      "display_id": null,
+      "order": 96,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "L. Privacy Compliance",
+      "title": "Force GDPR Override",
+      "field": "compliance.force_gdpr_applies",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "先跳過；SDK API 是 Appier.setForceGDPRApplies(true)，但 Sample App 目前沒有呼叫或測試入口。",
+        "expected": "BLOCKED：待 Sample App 暴露 true/false 觸發方式後，再比較 request compliance.force_gdpr_applies。",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "觸發方式已從 SDK Code 確認；目前缺的是 Sample App 可控入口。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "Force GDPR Override 的 compliance.force_gdpr_applies 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "Force GDPR Override (compliance.force_gdpr_applies) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "coppa-applies",
+      "display_id": null,
+      "order": 97,
+      "layer": "Signal",
+      "round": "R1",
+      "category": "L. Privacy Compliance",
+      "title": "COPPA Applicability Flag",
+      "field": "compliance.coppa_applies",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "aos": {
+        "applicable": true,
+        "setup": "免設定；Sample App 已呼叫 Appier.setCoppaApplies(true)，沿用 R1 capture。",
+        "expected": "req compliance.coppa_applies 必須存在、型別為整數且等於 1。",
+        "evidence": "Sample App AppierAdHelper.java、bid_decoded.json、verdicts.json",
+        "evidence_note": "Sample App source 是獨立 expected；payload 由抓包解碼取得。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
+        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
+        "expected": "COPPA Applicability Flag 的 compliance.coppa_applies 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
+        "expected_en": "COPPA Applicability Flag (compliance.coppa_applies) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
+        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-sdk-init",
+      "display_id": "E2E-S01",
+      "order": 1000,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "A. Ad Serving",
+      "title": "SDK Initialization",
+      "field": "platform init endpoint",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "不執行；Android Ads SDK 沒有獨立 Init endpoint。",
+        "expected": "BLOCKED：等待確認是否需要建立與 iOS Init 流程對齊的 AOS 等效契約；不得以 ad request 取代 Init 並判為 PASS。",
+        "evidence": "Android SDK Code、verdicts.json",
+        "evidence_note": "目前保留卡片以維持跨平台 E2E 流程對照，但 AOS 固定為 BLOCKED。"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "SDK Initialization 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "SDK Initialization must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-appier-ad-request",
+      "display_id": "E2E-S04",
+      "order": 1040,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "A. Ad Serving",
+      "title": "Appier Direct Ad Request",
+      "field": "POST /v2/sdk/{platform}/ad",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "在所選整合模式觸發 Appier 廣告，並保存可追溯的 proxy/Charles traffic session。",
+        "expected": "同一 traffic flow 必須證明 POST /v2/sdk/aos/ad 與 HTTP 200 response；request/response body 均保存，bundle、zone、SDK version、CID 正確，response 含有效 adUnits[0].ad。只有抽出的 JSON、Logcat 或 onAdLoaded 不足以 PASS。",
+        "evidence": "traffic flow 摘要、完整 proxy/Charles session、request/response body、decoded payload"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Appier Direct Ad Request 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Appier Direct Ad Request must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-creative-assets",
+      "display_id": "E2E-S06",
+      "order": 1050,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "A. Ad Serving",
+      "title": "Creative Asset Loading",
+      "field": "icon/main/privacy asset URLs",
+      "priority": "P1",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 S04／M05 的 ad response，擷取 response 指定的每個 icon、main image 與 privacy icon URL request／response。",
+        "setup_en": "Reuse the S04/M05 ad response and capture the request and response for every icon, main-image, and privacy-icon URL it specifies.",
+        "expected": "Response 指定的每個素材 URL 都必須在同一輪 traffic 中出現；HTTP 200 或有效 304、MIME 為 image/*，且非 304 response body 必須非空。素材是否正確顯示由 S07 驗證。",
+        "expected_en": "Every asset URL specified by the response must appear in the same traffic session, return HTTP 200 or a valid 304, use an image/* MIME type, and have a non-empty body unless it is a 304. Visual rendering is validated by S07.",
+        "evidence": "e2e-network-evidence.json（素材 URL、HTTP status、MIME、bytes）"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Creative Asset Loading 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Creative Asset Loading must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-native-render",
+      "display_id": "E2E-S07",
+      "order": 1051,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "A. Ad Serving",
+      "title": "Native Ad Rendering",
+      "field": "visible native elements",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "等待 Native ad 完整顯示並保存 response 與畫面。",
+        "expected": "response 實際回傳的文字與素材必須在畫面有對應，且有廣告標示；破圖、裁切與版面由人眼覆核截圖。",
+        "evidence": "visual-review.json、render screenshot、serving video、ad response"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Native Ad Rendering 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Native Ad Rendering must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-impression",
+      "display_id": "E2E-S08",
+      "order": 1060,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "B. Tracking",
+      "title": "Appier Impression Tracking",
+      "field": "show_cb / winshowimg",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "廣告實際可見後保存同一曝光的 tracker chain。",
+        "expected": "show_cb → winshowimg 成功；CID/CRID/bidobjid 對應本次廣告。",
+        "evidence": "e2e-network-evidence.json（impression chain、status、correlation IDs）"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Appier Impression Tracking 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Appier Impression Tracking must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-click",
+      "display_id": "E2E-S11",
+      "order": 1080,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "B. Tracking",
+      "title": "Appier Click Tracking",
+      "field": "xclk redirect chain",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 E2E 共用完整操作紀錄中的 CTA 點擊，保存該次 xclk request／response。",
+        "setup_en": "Reuse the CTA interaction documented by the shared E2E recording and preserve its xclk request and response.",
+        "expected": "必須送出對應本次可見曝光的 xclk；bidobjid／CID／CRID 與該曝光一致，HTTP response 或 redirect 成功。不要求 AdMob aclk；Landing 由 S14 判定。",
+        "expected_en": "An xclk matching the visible impression must be emitted; its bidobjid, CID, and CRID match that impression, and its HTTP response or redirect succeeds. AdMob aclk is not required, and S14 validates the landing destination.",
+        "evidence": "e2e-network-evidence.json（xclk URL、correlation IDs、HTTP status）；操作影片顯示於 E2E 區塊頂端"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Appier Click Tracking 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Appier Click Tracking must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-landing",
+      "display_id": "E2E-S14",
+      "order": 1090,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "B. Tracking",
+      "title": "Campaign Destination",
+      "field": "landing destination / target app",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "緊接 E2E-S11 點擊，保存 redirect chain 與最終畫面；REEN 執行前必須設定 TARGET_APP_PACKAGE。",
+        "setup_en": "Immediately after E2E-S11, preserve the redirect chain and final screen. REEN requires TARGET_APP_PACKAGE before execution.",
+        "expected": "AIBID 必須到達合法商店／安裝目的地；REEN 必須以 deeplink 開啟設定的 Target App package，無白頁、卡住或 crash。",
+        "expected_en": "AIBID must reach a valid store/install destination. REEN must open the configured target App package via deeplink without a blank page, hang, or crash.",
+        "evidence": "click-landing.png、e2e-interactions.mp4、e2e-interactions.json、redirect chain"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Campaign Destination 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Campaign Destination must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-privacy",
+      "display_id": "E2E-S13P",
+      "order": 1095,
+      "layer": "E2E",
+      "round": "E2E-BASELINE",
+      "category": "B. Tracking",
+      "title": "Privacy Information",
+      "field": "privacyInformationLink",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "顯示指定 CID 廣告後，先自動點擊右上 Privacy icon，再返回廣告執行 Click。",
+        "expected": "Response 有 privacyInformationLink 時，點擊 icon 後開啟對應 Privacy destination，且不誤觸一般 ad click。",
+        "evidence": "ad-before-interactions.png、privacy-landing.png、e2e-interactions.mp4、e2e-interactions.json、bid_response.json"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Privacy Information 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Privacy Information must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-install-attribution",
+      "display_id": "E2E-S15",
+      "order": 1100,
+      "layer": "E2E",
+      "round": "E2E-BASELINE-ATTRIBUTION",
+      "category": "C. Attribution",
+      "title": "MMP Click Action",
+      "field": "MMP click action",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "自動保存實際點擊廣告的 BidObjectId、CID 與曝光／點擊時間，再用該查詢鍵檢查 MMP click action。",
+        "expected": "MMP click action 必須存在，且 campaign、CID、BidObjectId 與實際 click 對應；AIBID 為 install click，REEN 為 re-engagement click。",
+        "evidence": "attribution-query.json、MMP click query、click evidence"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "MMP Click Action 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "MMP Click Action must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "standalone-attribution-reconciliation",
+      "display_id": "E2E-S16",
+      "order": 1110,
+      "layer": "E2E",
+      "round": "E2E-BASELINE-ATTRIBUTION",
+      "category": "C. Attribution",
+      "title": "Attribution Recognition",
+      "field": "Spark raw_action / MMP attribution",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "standalone",
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 S15 的 BidObjectId 與時間窗口，在 Spark／MMP 查詢歸因結果。",
+        "expected": "AIBID install 或 REEN re-engagement 必須在合理窗口內被認列，並對應正確 CID、BidObjectId 與 click action。",
+        "evidence": "attribution-query.json、backend query、MMP attribution result"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Attribution Recognition 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Attribution Recognition must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "admob-pubsetting",
+      "display_id": "E2E-M02",
+      "order": 1020,
+      "layer": "E2E",
+      "round": "E2E-ADMOB",
+      "category": "A. Ad Serving",
+      "title": "AdMob Pubsetting Mediation Config",
+      "field": "getconfig/pubsetting",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "保存 Google pubsetting request/response。",
+        "expected": "HTTP/status 正常，mediation config 含 Appier adapter 與對應 zoneId。",
+        "evidence": "pubsetting request/response、traffic screenshot"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "AdMob Pubsetting Mediation Config 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "AdMob Pubsetting Mediation Config must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "admob-gma-request",
+      "display_id": "E2E-M03",
+      "order": 1030,
+      "layer": "E2E",
+      "round": "E2E-ADMOB",
+      "category": "A. Ad Serving",
+      "title": "AdMob GMA Request and Mediation Routing",
+      "field": "mads/gma",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "觸發 AdMob 版位並保存 mads/gma response。",
+        "expected": "HTTP 成功且 ad_networks/adapter/zoneId 對應 Appier mediation。",
+        "evidence": "GMA request/response、traffic session"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "AdMob GMA Request and Mediation Routing 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "AdMob GMA Request and Mediation Routing must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "admob-appier-ad-request",
+      "display_id": "E2E-M05",
+      "order": 1041,
+      "layer": "E2E",
+      "round": "E2E-ADMOB",
+      "category": "A. Ad Serving",
+      "title": "Appier Adapter Ad Request",
+      "field": "Appier ad endpoint",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "確認 GMA 觸發 Appier adapter 後保存 Appier request/response。",
+        "expected": "Appier request 的 zone/CID 與 pubsetting 一致，response ad payload 完整。",
+        "evidence": "pubsetting、GMA、Appier request/response timeline"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Appier Adapter Ad Request 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Appier Adapter Ad Request must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "admob-impression",
+      "display_id": "E2E-M09",
+      "order": 1061,
+      "layer": "E2E",
+      "round": "E2E-ADMOB",
+      "category": "B. Tracking",
+      "title": "AdMob Impression Reporting",
+      "field": "AdMob imp_urls",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "Mediation ad 可見後保存 Appier 與 Google impression events。",
+        "expected": "沿用 E2E-S08 驗證 Appier impression；本 TC 只驗證 AdMob imp_urls 成功送出且對應同一廣告。",
+        "evidence": "mediation-network-evidence.json（AdMob impression event、status、timeline）"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "AdMob Impression Reporting 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "AdMob Impression Reporting must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "admob-fill-result",
+      "display_id": "E2E-M10",
+      "order": 1070,
+      "layer": "E2E",
+      "round": "E2E-ADMOB",
+      "category": "B. Tracking",
+      "title": "Mediation Fill Result",
+      "field": "pagead/interaction fill_urls",
+      "priority": "P2",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "完成 Appier adapter fill 並保存 fill result event。",
+        "expected": "fill result 正常送出且 mediation_fill_status 與實際 fill 一致。",
+        "evidence": "fill event、GMA/Appier timeline"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "Mediation Fill Result 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "Mediation Fill Result must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    },
+    {
+      "key": "admob-click",
+      "display_id": "E2E-M12",
+      "order": 1081,
+      "layer": "E2E",
+      "round": "E2E-ADMOB",
+      "category": "B. Tracking",
+      "title": "AdMob Click Reporting",
+      "field": "AdMob aclk",
+      "priority": "P0",
+      "status": "IMPLEMENTED",
+      "integration_modes": [
+        "admob-mediation"
+      ],
+      "aos": {
+        "applicable": true,
+        "setup": "沿用 S11 已錄製的同一次 CTA 點擊，保存 AdMob click event。",
+        "expected": "沿用 E2E-S11 驗證 Appier xclk；本 TC 只驗證 AdMob aclk 成功且與同一次 click 對應。",
+        "evidence": "mediation-network-evidence.json（AdMob click event、status、timeline）；操作影片由 S11 保存"
+      },
+      "ios": {
+        "applicable": true,
+        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
+        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
+        "expected": "AdMob Click Reporting 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
+        "expected_en": "AdMob Click Reporting must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
+        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+      }
+    }
   ]
 }

@@ -1,6 +1,13 @@
-"""iOS E2E S baseline shared by Standalone and Mediation."""
+"""iOS-owned E2E baseline validator for Standalone and Mediation."""
 
+import json
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+from campaign_profiles import campaign_profile
+from verdict import blocked, evaluate
 from .e2e_shared_contracts import E2ETestCase, definitions
+
 
 TESTCASES = definitions(
     E2ETestCase("standalone-sdk-init", "SDK Initialization", "Serving", "P0"),
@@ -14,3 +21,155 @@ TESTCASES = definitions(
     E2ETestCase("standalone-install-attribution", "MMP Click Action", "Attribution", "P2"),
     E2ETestCase("standalone-attribution-reconciliation", "Attribution Recognition", "Attribution", "P2"),
 )
+
+
+def _json(path, default=None):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _events(folder):
+    rows = []
+    path = Path(folder) / "proxy-events.jsonl"
+    if path.is_file():
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return rows
+
+
+def _row(key, expected, actual, passed, evidence, success, failure):
+    reason = success if passed else failure
+    row = evaluate(key, expected=expected, actual=actual, evidence=evidence,
+                   compare=lambda _e, _a: passed, reason=reason).to_dict()
+    row.update({"layer": "E2E", "title": TESTCASES[key].title, "description": reason})
+    return row
+
+
+def _blocked(key, reason, actual=None, evidence="attribution-query.json"):
+    row = blocked(key, reason).to_dict()
+    row.update({"layer": "E2E", "title": TESTCASES[key].title,
+                "description": reason, "actual": actual, "evidence": evidence})
+    return row
+
+
+def _responses(events, kind):
+    return [row for row in events if row.get("phase") == "response" and row.get("kind") == kind]
+
+
+def _requests(events, kind):
+    return [row for row in events if row.get("phase") == "request" and row.get("kind") == kind]
+
+
+def _ok(rows, redirects=True):
+    statuses = {200, 204}
+    if redirects:
+        statuses |= {301, 302, 303, 307, 308}
+    return bool(rows) and rows[-1].get("status") in statuses
+
+
+def _ids(url):
+    query = parse_qs(urlsplit(str(url or "")).query)
+    return {key: values[0] for key in ("bidobjid", "cid", "crid", "crpid")
+            if (values := query.get(key)) and values[0]}
+
+
+def validate_bundle(folder):
+    folder = Path(folder)
+    summary = _json(folder / "summary.json", {}) or {}
+    response = _json(folder / "bid_response.json", {}) or {}
+    raw = _json(folder / "bid_raw.json", {}) or {}
+    decoded = _json(folder / "bid_decoded.json", {}) or {}
+    interactions = _json(folder / "e2e-interactions.json", {}) or {}
+    visual = _json(folder / "visual-review.json", {}) or {}
+    events = _events(folder)
+    profile = campaign_profile(summary.get("test_type"))
+
+    bid_requests = [row for row in _requests(events, "bid")
+                    if urlsplit(str(row.get("url", ""))).path == "/v2/sdk/ios/ad"]
+    bid_responses = _responses(events, "bid")
+    bid_request = bid_requests[-1] if bid_requests else None
+    bid_response = next((row for row in reversed(bid_responses)
+                         if bid_request and row.get("flow_id") == bid_request.get("flow_id")), None)
+    app = (((decoded.get("req") or {}).get("plaintext") or {}).get("app") or {})
+    ad_units = response.get("adUnits") if isinstance(response, dict) else None
+    request_actual = {
+        "request": bid_request, "response": bid_response, "cid": summary.get("cid"),
+        "zone_id": raw.get("zone_id"), "bundle": app.get("bundle"),
+        "sdk_version": app.get("sdk_version"),
+        "request_body_saved": (folder / "bid_raw.json").is_file(),
+        "response_body_saved": (folder / "bid_response.json").is_file(),
+        "valid_ad_unit": bool(ad_units and isinstance(ad_units[0], dict) and ad_units[0].get("ad")),
+    }
+    request_ok = bool(bid_request and bid_response and bid_response.get("status") == 200
+                      and request_actual["request_body_saved"] and request_actual["response_body_saved"]
+                      and request_actual["bundle"] and request_actual["sdk_version"]
+                      and request_actual["zone_id"] and request_actual["valid_ad_unit"])
+    (folder / "appier-ad-flow.json").write_text(json.dumps(request_actual, ensure_ascii=False, indent=2) + "\n")
+
+    init = _responses(events, "sdk-init")
+    init_ok = _ok(init, redirects=False)
+    init_row = _row(
+        "standalone-sdk-init", {"GET iOS init": "HTTP 200"}, init, init_ok,
+        "e2e-network-evidence.json", "The iOS SDK initialization transaction succeeded."
+        , "FAILED: no successful iOS SDK initialization transaction was preserved.")
+
+    assets = _responses(events, "asset")
+    asset_urls = []
+    try:
+        native = response["adUnits"][0]["ad"]["native"]
+        asset_urls = [str((native.get(key) or {}).get("url") or "")
+                      for key in ("iconImage", "mainImage", "privacyInformationIcon")]
+        asset_urls = [url for url in asset_urls if url]
+    except (KeyError, IndexError, TypeError):
+        pass
+    seen = {str(row.get("url") or "") for row in assets
+            if row.get("status") in (200, 304) and str(row.get("content_type", "")).startswith("image/")}
+    assets_ok = bool(asset_urls and set(asset_urls).issubset(seen))
+
+    impressions = _responses(events, "impression")
+    wins = _responses(events, "impression-win")
+    impression_ok = _ok(impressions) and _ok(wins, redirects=False)
+    click_events = _responses(events, "click")
+    impression_ids = [_ids(row.get("url")) for row in impressions]
+    matching_clicks = [row for row in click_events if _ids(row.get("url")) in impression_ids and _ids(row.get("url"))]
+    click_state = interactions.get("click") if isinstance(interactions, dict) else {}
+    click_ok = bool(click_state and click_state.get("attempted") and _ok(matching_clicks))
+
+    privacy_state = interactions.get("privacy") if isinstance(interactions, dict) else {}
+    privacy_ok = bool(privacy_state and privacy_state.get("attempted") and privacy_state.get("opened")
+                      and (folder / "privacy-landing.png").is_file())
+    destination = click_state.get("destination", {}) if isinstance(click_state, dict) else {}
+    target = str(summary.get("target_app_package") or summary.get("target_app_bundle_id") or "")
+    destination_id = str(destination.get("bundle_id") or destination.get("package") or "")
+    destination_ok = bool(click_ok and click_state.get("opened") and (folder / "click-landing.png").is_file()
+                          and (destination_id == target if profile.landing_contract == "target-app-deeplink" else destination_id))
+
+    lookup_ids = _ids(matching_clicks[-1].get("url")) if matching_clicks else (impression_ids[-1] if impression_ids else {})
+    lookup = {**lookup_ids, "cid": lookup_ids.get("cid") or summary.get("cid"),
+              "bid_requested_at": bid_request.get("timestamp") if bid_request else None,
+              "ad_clicked_at": matching_clicks[-1].get("timestamp") if matching_clicks else None}
+    (folder / "attribution-query.json").write_text(json.dumps(lookup, ensure_ascii=False, indent=2) + "\n")
+    network = {"init": init, "bid": request_actual, "assets": assets,
+               "impressions": impressions, "wins": wins, "clicks": click_events,
+               "matching_clicks": matching_clicks}
+    (folder / "e2e-network-evidence.json").write_text(json.dumps(network, ensure_ascii=False, indent=2) + "\n")
+
+    recording_ok = (folder / "e2e-interactions.mp4").is_file() and (folder / "e2e-interactions.mp4").stat().st_size > 0
+    render_ok = bool((folder / "ad-before-interactions.png").is_file() and response and visual.get("passed"))
+    return [
+        init_row,
+        _row("standalone-appier-ad-request", {"POST /v2/sdk/ios/ad": "same-flow HTTP 200 with bodies"}, request_actual, request_ok, "appier-ad-flow.json", "The same proxy flow proves the iOS Appier request and response.", "FAILED: no complete same-flow iOS Appier ad transaction was preserved."),
+        _row("standalone-creative-assets", {"all response assets": "successful image responses"}, {"expected": asset_urls, "seen": sorted(seen)}, assets_ok, "e2e-network-evidence.json", "All response-specified creative assets loaded successfully.", "FAILED: one or more response-specified creative assets were not proven in traffic."),
+        _row("standalone-native-render", {"visible screenshot": True, "response-to-view comparison": True, "full recording": True}, {"visual_review": visual, "recording": recording_ok}, render_ok and recording_ok, "ad-before-interactions.png", "The visible ad, response comparison and full recording prove rendering.", "FAILED: rendered-ad screenshot, objective visual comparison, or full recording is missing."),
+        _row("standalone-impression", {"show_cb": True, "winshowimg": True}, {"show_cb": impressions, "winshowimg": wins}, impression_ok, "e2e-network-evidence.json", "The complete Appier impression chain was captured.", "FAILED: show_cb and winshowimg were not both captured successfully."),
+        _row("standalone-click", {"visible CTA action": True, "matching xclk": True}, {"interaction": click_state, "matching_xclk": matching_clicks}, click_ok, "e2e-network-evidence.json", "The recorded CTA action emitted a matching xclk.", "FAILED: no recorded CTA action with a matching successful xclk was proven."),
+        _row("standalone-landing", {"campaign destination": profile.landing_contract, "visible screenshot": True}, {"destination": destination, "target": target}, destination_ok, "click-landing.png", "The tracked click opened and preserved the campaign destination.", "FAILED: the tracked click did not preserve the required campaign destination."),
+        _row("standalone-privacy", {"privacy interaction": True, "visible destination": True}, privacy_state, privacy_ok, "privacy-landing.png", "The Privacy interaction opened and preserved its destination.", "FAILED: Privacy interaction and visible destination Evidence are incomplete."),
+        _blocked("standalone-install-attribution", f"Traffic lookup data is ready; query the MMP {profile.mmp_click_action} action.", lookup),
+        _blocked("standalone-attribution-reconciliation", "Traffic lookup data is ready; backend attribution reconciliation still requires the authorized data query.", lookup),
+    ]
