@@ -22,7 +22,10 @@ Agent 應將需要的命令核准合併在執行前提出；若產品仍要求�
 只限本 repository 與本次測試裝置：
 
 - `python3 qa_aos.py ...`：執行已列入 ExecutionPlan 的 AOS Round／capture。
+- `python3 run_ios_test_suite.py ...`／`python3 qa_ios.py ...`：執行已列入 ExecutionPlan 的 iOS
+  suite、Round／capture。
 - `appium`：啟動 UiAutomator2 automation service。
+- `appium`：iOS 時啟動 XCUITest／WebDriverAgent automation service。
 - `mitmdump -s <repo>/mitmdump_addon.py --listen-port 8081`：攔截並保存測試流量。
 - `adb -s <selected-serial> ...`：僅執行下列 Android 白名單操作。
 - `python3 page.py --publish`：生成 Report、更新本 repository 的 `gh-pages`、打開公開頁面。
@@ -44,6 +47,16 @@ Agent 應將需要的命令核准合併在執行前提出；若產品仍要求�
 - 為已列入 E2E 的廣告執行曝光、Privacy icon、CTA click 與 landing，並保存網路與視覺 Evidence。
 - 在 `/sdcard/laf2-*` 建立及清除本工具自己的暫存檔。
 
+## iOS 裝置操作白名單
+
+- 透過 `idevice_id`、`ideviceinfo`、`idevicesyslog` 與 `xcrun` 讀取已選定 iPhone 的裝置、OS、
+  locale、timezone、連線狀態與 Sample App syslog。
+- 透過 Appium XCUITest／WebDriverAgent 啟動、停止、切換 Sample App；tap、swipe、back，以及處理
+  ExecutionPlan 內明確列出的系統權限提示。
+- 保存截圖、操作影片、syslog、proxy traffic 與 UI hierarchy 暫存；UI hierarchy 只供定位。
+- 執行已列入 iOS R4 的 Wi-Fi／IPv6 人工 checkpoint；未經 ExecutionPlan 宣告不得修改其他網路設定。
+- iOS alternate state、ATT／IDFA privacy mutation 尚未進入白名單；實作並人工確認 Scenario 前不得執行。
+
 ## Evidence 與發布白名單
 
 - 寫入 `<repo>/evidence`、`<repo>/report.html` 與 OS temporary directory 中的 `appier_*`／
@@ -56,8 +69,8 @@ Agent 應將需要的命令核准合併在執行前提出；若產品仍要求�
 
 以下任一項不成立，不得按下 placement 或開始 Round：
 
-1. 只有一台或明確指定且已授權的 Android 裝置。
-2. Appium 可連線，Sample App package/activity 存在。
+1. 只有一台或明確指定且已授權的目標 Android／iOS 裝置。
+2. Appium 可連線；Android Sample App package/activity 或 iOS bundle id 存在。
 3. Charles 正在 `:8888` 監聽。
 4. mitmdump 正在 `:8081` 使用本 repository 的 `mitmdump_addon.py`；缺少時允許自動啟動。
 5. Android proxy 已指向 `<Mac LAN IP>:8888`；缺少或端口錯誤時允許自動設定並讀回。

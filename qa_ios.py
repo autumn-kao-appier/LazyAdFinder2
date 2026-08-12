@@ -32,28 +32,22 @@ from typing import Callable, Optional
 
 from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
+from evidence_ios import collect as collect_evidence
 from evidence_bundle import finalize_bundle
+from testcases.ios_signal_testcases import TC_DEFINITIONS, ROUND_DEFINITIONS
 from testcases.ipv6_refresh_testcases import ROUND_DEFINITIONS as IPV6_ROUNDS
 from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
 from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
-
-
-# Add definitions only after the corresponding testcase and Round setup have
-# been reviewed manually.  The automation engine does not inspect TC answers.
-TC_DEFINITIONS = {}
-ROUND_DEFINITIONS = {}
 
 
 APPIUM_URL = "http://127.0.0.1:4723"
 MODE_TABS = {
     "standalone": "Appier Direct",
     "admob-mediation": "AdMob Mediation",
-    "applovin-mediation": "AppLovin Mediation",
 }
 MODE_TRIGGERS = {
     "standalone": "direct (AppierAds SDK)",
     "admob-mediation": "mediation (AdMob + Appier)",
-    "applovin-mediation": "mediation (AppLovin + Appier)",
 }
 
 FLAG_FILE = Path("/tmp/appier_hit")
@@ -61,6 +55,14 @@ BID_FILE = Path("/tmp/appier_bid.json")
 BID_STATUS_FILE = Path("/tmp/appier_bid_status")
 BID_RESPONSE_FILE = Path("/tmp/appier_bid_response.json")
 IMPRESSION_FILE = Path("/tmp/appier_impression.json")
+EVENTS_FILE = Path("/tmp/appier_proxy_events.jsonl")
+NET_PROBE_RESPONSE_FILE = Path("/tmp/appier_net_probe_response.json")
+ADMOB_RAW_FILES = (
+    Path("/tmp/admob_pubsetting_request.bin"),
+    Path("/tmp/admob_pubsetting_response.bin"),
+    Path("/tmp/admob_gma_request.bin"),
+    Path("/tmp/admob_gma_response.bin"),
+)
 SYSLOG_FILE = Path("/tmp/appier_ios_syslog.txt")
 DETECTOR_FILES = (
     FLAG_FILE,
@@ -68,6 +70,9 @@ DETECTOR_FILES = (
     BID_STATUS_FILE,
     BID_RESPONSE_FILE,
     IMPRESSION_FILE,
+    EVENTS_FILE,
+    NET_PROBE_RESPONSE_FILE,
+    *ADMOB_RAW_FILES,
 )
 
 
@@ -90,6 +95,8 @@ class CaptureConfig:
     accept_request: bool
     xcode_org_id: str
     wda_bundle_id: str
+    test_run_id: str
+    test_run_started_at: str
 
 
 @dataclass(frozen=True)
@@ -295,12 +302,8 @@ def round_directory(config):
     kind = _safe_label(config.test_type, "type").upper()
     cid = _safe_label(config.test_cid, "ANY")
     label = _safe_label(config.test_round, "MANUAL")
-    prefix = f"IOS_{mode}_{kind}_CID_{cid}_{label}"
-    existing = sorted(path for path in config.evidence_dir.glob(f"{prefix}_*") if path.is_dir())
-    if existing:
-        return existing[-1]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return config.evidence_dir / f"{prefix}_{timestamp}"
+    run_label = _safe_label(config.test_run_id, "RUN", 64)
+    return config.evidence_dir / f"IOS_{mode}_{kind}_CID_{cid}_{label}_{run_label}"
 
 
 def ideviceinfo(config, key):
@@ -344,7 +347,7 @@ def save_evidence(driver, config, folder, started_at, request, status, identity,
     )
 
 
-def capture(config, capture_name="MANUAL", setup=None):
+def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0):
     started_at = datetime.now().astimezone().isoformat()
     folder = create_capture_folder(config, capture_name)
     clear_detector_state()
@@ -365,6 +368,7 @@ def capture(config, capture_name="MANUAL", setup=None):
             select_tab(driver, config.tab_name)
 
             attempt = 0
+            completed_warmups = 0
             while True:
                 attempt += 1
                 if config.max_attempts and attempt > config.max_attempts:
@@ -391,6 +395,11 @@ def capture(config, capture_name="MANUAL", setup=None):
 
                 request, status, identity, source = wait_for_bid(config)
                 if eligible(config, request, status, identity):
+                    if completed_warmups < warmup_ads:
+                        completed_warmups += 1
+                        print(f"[warmup] completed {completed_warmups}/{warmup_ads}")
+                        time.sleep(config.retry_delay)
+                        continue
                     save_evidence(
                         driver, config, folder, started_at, request, status, identity, source
                     )
@@ -546,22 +555,58 @@ def run_ipv6_refresh_round(config):
 def run_round(config, name):
     if name == "R4":
         return run_ipv6_refresh_round(config)
-    steps = ROUND_DEFINITIONS.get(name)
-    if not steps:
+    definition = ROUND_DEFINITIONS.get(name)
+    if not definition:
         available = ", ".join(sorted(ROUND_DEFINITIONS)) or "none"
         raise CaptureError(f"Round {name!r} is not defined; available rounds: {available}")
-    folders = []
-    for step in steps:
-        if not isinstance(step, RoundStep):
-            raise CaptureError(f"Round {name!r} contains an invalid step: {step!r}")
-        print(f"\n[round {name}] {step.name}")
+    testcases = [TC_DEFINITIONS[key] for key in definition.testcase_keys]
+    required = tuple(item for testcase in testcases for item in testcase.evidence)
+    print(f"\n[round {name}] {definition.capture_name}")
+    try:
+        folder = collect_evidence(
+            config,
+            required,
+            lambda setup: capture(
+                config, capture_name=definition.capture_name, setup=setup,
+                warmup_ads=definition.warmup_ads,
+            ),
+        )
+    except Exception as exc:
+        round_dir = round_directory(config)
+        candidates = sorted(path for path in round_dir.iterdir() if path.is_dir()) if round_dir.is_dir() else []
+        if candidates:
+            folder = candidates[-1]
+            summary = _read_json(folder / "summary.json") or {}
+            actual_cid = summary.get("cid")
+            reason = str(exc)
+            if "No eligible bid" in reason:
+                reason = (
+                    f"iOS R1 reached the {config.max_attempts}-attempt limit without the target CID "
+                    f"{config.test_cid}; the last captured CID was {actual_cid or 'unknown'}"
+                )
+            rows = []
+            for testcase in testcases:
+                row = blocked(testcase.key, reason).to_dict()
+                row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
+                rows.append(row)
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+        raise
+    rows = []
+    for testcase in testcases:
         try:
-            folders.append(capture(config, capture_name=step.name, setup=step.setup))
+            rows.append(testcase.validate(folder))
         except Exception as exc:
-            raise CaptureError(
-                f"Round {name!r} failed at step {step.name!r}: {exc}"
-            ) from exc
-    return folders
+            row = {
+                "tc": testcase.key, "status": "FAILED",
+                "reason": f"iOS validator could not compare captured Evidence: {type(exc).__name__}: {exc}",
+                "expected": "The iOS validator completes with its platform Evidence",
+                "actual": {"error_type": type(exc).__name__},
+                "evidence": "evidence-errors.json" if (Path(folder) / "evidence-errors.json").is_file() else "summary.json",
+                "layer": "Signal", "title": testcase.title, "description": testcase.description,
+            }
+            rows.append(row)
+    (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    return [Path(folder)]
 
 
 def publish_completed_round(evidence_dir):
@@ -602,14 +647,13 @@ def build_parser():
         target.add_argument("--test-mode", default=_env("TEST_MODE"))
         target.add_argument("--test-type", default=_env("TEST_TYPE"))
         target.add_argument("--test-cid", default=_env("TEST_CID"))
-        target.add_argument("--test-round", default=_env("TEST_ROUND", "MANUAL"))
         target.add_argument("--trigger-label", default=_env("TRIGGER_LABEL", _env("AD_LABEL")))
         target.add_argument("--tab-name", default=_env("TAB"))
         target.add_argument("--udid", default=_env("UDID"))
         target.add_argument("--evidence-dir", default=_env("EVIDENCE_DIR", str(Path(__file__).parent / "evidence")))
         target.add_argument("--bid-timeout", type=float, default=float(_env("BID_TIMEOUT", "12")))
         target.add_argument("--retry-delay", type=float, default=float(_env("AD_RETRY_DELAY", "2")))
-        target.add_argument("--max-attempts", type=int, default=int(_env("MAX_AD_ATTEMPTS", "0")))
+        target.add_argument("--max-attempts", type=int, default=int(_env("MAX_AD_ATTEMPTS", "20")))
         target.add_argument("--phase-timeout", type=float, default=float(_env("PHASE_TIMEOUT_SEC", "0")))
         target.add_argument("--accept-request", action="store_true", default=_env("SAVE_ON_BID", "0") == "1")
         target.add_argument("--capture-name", default="MANUAL")
@@ -648,7 +692,7 @@ def config_from_args(args):
         test_mode=mode,
         test_type=args.test_type.strip().lower(),
         test_cid=args.test_cid.strip(),
-        test_round=_safe_label(args.test_round, "MANUAL", 24),
+        test_round=_safe_label(args.name if args.command == "round" else "MANUAL", "MANUAL", 24),
         trigger_label=trigger_label,
         tab_name=tab_name,
         udid=udid,
@@ -661,6 +705,8 @@ def config_from_args(args):
         accept_request=args.accept_request,
         xcode_org_id=args.xcode_org_id.strip(),
         wda_bundle_id=args.wda_bundle_id.strip(),
+        test_run_id=_env("TEST_RUN_ID", f"ios-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}").strip(),
+        test_run_started_at=_env("TEST_RUN_STARTED_AT", datetime.now().astimezone().isoformat()).strip(),
     )
 
 
@@ -671,9 +717,11 @@ def main(argv=None):
         if not all_rounds:
             print("No rounds defined.")
             return 0
-        for name, steps in sorted(all_rounds.items()):
-            labels = [step.name if isinstance(step, RoundStep) else IPV6_TESTCASES[step].title for step in steps]
-            print(f"{name}: {', '.join(labels)}")
+        for name, definition in sorted(all_rounds.items()):
+            if name in ROUND_DEFINITIONS:
+                print(f"{name}: {definition.capture_name} [{', '.join(definition.testcase_keys)}]")
+            else:
+                print(f"{name}: {', '.join(IPV6_TESTCASES[key].title for key in definition)}")
         return 0
 
     config = config_from_args(args)

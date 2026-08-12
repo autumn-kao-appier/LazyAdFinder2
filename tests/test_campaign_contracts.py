@@ -9,11 +9,14 @@ from unittest.mock import patch
 import evidence_aos
 import page
 import qa_aos
+import qa_ios
 import run_aos_test_suite
+import run_ios_test_suite
 import run_reen_test_suite
 from campaign_profiles import CAMPAIGN_PROFILES
 from campaign_testcases import CAMPAIGN_TESTCASES
 from testcases import android_signal_testcases
+from testcases import ios_signal_testcases
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +32,35 @@ def round_args(name, test_type="aibid", mode="standalone"):
 
 
 class CampaignContractTests(unittest.TestCase):
+    def test_ios_registry_is_platform_owned_and_does_not_alias_android(self):
+        self.assertIsNot(ios_signal_testcases.TC_DEFINITIONS, android_signal_testcases.TC_DEFINITIONS)
+        self.assertIsNot(ios_signal_testcases.ROUND_DEFINITIONS, android_signal_testcases.ROUND_DEFINITIONS)
+        self.assertEqual("BASELINE", ios_signal_testcases.ROUND_DEFINITIONS["R1"].capture_name)
+        self.assertNotIn("advertising-id", ios_signal_testcases.TC_DEFINITIONS)
+        self.assertIn(qa_ios.EVENTS_FILE, qa_ios.DETECTOR_FILES)
+        self.assertTrue(set(qa_ios.ADMOB_RAW_FILES).issubset(qa_ios.DETECTOR_FILES))
+
+    def test_ios_suite_plan_exposes_unimplemented_platform_work_without_fake_results(self):
+        plan = run_ios_test_suite.execution_plan("aibid", "standalone")
+        by_name = {item.name: item for item in plan}
+        self.assertEqual("RUN", by_name["R1"].decision)
+        self.assertEqual("RUN", by_name["R4"].decision)
+        self.assertEqual("NOT_IMPLEMENTED", by_name["R5"].decision)
+        self.assertEqual("NOT_IMPLEMENTED", by_name["E2E-STANDALONE"].decision)
+
+    def test_ios_mediation_has_an_independent_test_device_gate(self):
+        opened = []
+        self.assertFalse(run_ios_test_suite.confirm_mediation_test_device(
+            "mediation", input_fn=lambda _prompt: "no", open_page=opened.append,
+        ))
+        self.assertTrue(opened and "admob.google.com" in opened[0])
+        self.assertTrue(run_ios_test_suite.confirm_mediation_test_device(
+            "mediation", input_fn=lambda _prompt: "yes", open_page=lambda _url: None,
+        ))
+        self.assertTrue(run_ios_test_suite.confirm_mediation_test_device(
+            "standalone", input_fn=lambda _prompt: self.fail("Standalone must not prompt"),
+        ))
+
     @classmethod
     def setUpClass(cls):
         cls.catalog = json.loads((ROOT / "testcases/testcase_catalog.json").read_text())["testcases"]
