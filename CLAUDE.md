@@ -175,6 +175,9 @@ baseline 或任何預設狀態。
   SDK Signal Evidence；R5-1 後不得再送 Mediation request。`--privacy-verification manual` 則
   保留 BLOCKED 與人工覆寫入口。
   AIBID、REEN Static、REEN Dynamic 必須共用同一套 R1–R5 與 E2E runner，不得複製成三份流程。
+  R5 固定使用 `DISPLAY-HIGH`、`DISPLAY-LOW`、`SYSTEM-ALT`、`PRIVACY-DENIED` 四個交易式
+  Scenario；Battery Saver 只能在 `SYSTEM-ALT`，不得與任何 Brightness TC 共包。單項 mutation／
+  validator 必須隔離；restore 後須重新讀值驗證，restore 失敗即停止後續 R5 Scenario。
   REEN E2E 必須在執行前提供 `TARGET_APP_PACKAGE`；S14 驗證 tracked click 確實開啟該 App，S15
   查 MMP Click Action，S16 使用同一組 BidObjectId／CID／時間窗口核對歸因認列。AIBID S14–S16
   使用相同 Evidence 契約，但目的地與 attribution action 由 campaign profile 決定。

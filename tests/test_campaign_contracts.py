@@ -224,21 +224,28 @@ class CampaignContractTests(unittest.TestCase):
         self.assertIn("CANNOT RUN", card)
         self.assertIn("不可執行", card)
 
-    def test_r5_state_testcases_are_independent_scenarios(self):
+    def test_r5_uses_four_transactional_scenarios(self):
         plan = qa_aos.resolve_execution_plan(round_args("R5"))
-        state_keys = {
-            "dark-mode-enabled", "font-scale-maximum", "screen-brightness-minimum",
-            "output-volume-muted", "battery-saver-enabled",
+        scenarios = {scenario.label: set(scenario.testcase_keys) for scenario in plan.scenarios}
+        self.assertEqual(
+            {"DISPLAY-HIGH", "DISPLAY-LOW", "SYSTEM-ALT", "PRIVACY-DENIED"},
+            set(scenarios),
+        )
+        self.assertEqual({
+            "dark-mode-enabled", "font-scale-maximum",
             "screen-brightness-maximum", "output-volume-maximum",
-        }
-        owners = {
-            key: scenario.label
-            for scenario in plan.scenarios
-            for key in scenario.testcase_keys
-            if key in state_keys
-        }
-        self.assertEqual(state_keys, set(owners))
-        self.assertEqual(len(state_keys), len(set(owners.values())))
+        }, scenarios["DISPLAY-HIGH"])
+        self.assertEqual({
+            "screen-brightness-minimum", "output-volume-muted",
+        }, scenarios["DISPLAY-LOW"])
+        self.assertEqual({
+            "battery-saver-enabled", "timezone-changed", "location-permission-denied",
+        }, scenarios["SYSTEM-ALT"])
+        self.assertFalse(any(
+            "battery-saver-enabled" in keys
+            and ({"screen-brightness-minimum", "screen-brightness-maximum"} & keys)
+            for keys in scenarios.values()
+        ))
 
     def test_network_latency_is_evaluated_from_r2_second_request(self):
         self.assertNotIn(

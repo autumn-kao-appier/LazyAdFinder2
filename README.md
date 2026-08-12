@@ -89,6 +89,8 @@ export TARGET_APP_PACKAGE='<promoted-app-package>'
 ```
 
 REEN 的執行計畫與報告不列 Advertising ID opt-out 與 tracking-denied；其他 R5 裝置狀態 Scenario 仍會執行。
+R5 以四包執行：`DISPLAY-HIGH`、`DISPLAY-LOW`、`SYSTEM-ALT`、`PRIVACY-DENIED`。每包只送一次
+廣告 request，單項 mutation 與 verdict 仍獨立；Battery Saver 位於 `SYSTEM-ALT`，不與亮度狀態共包。
 
 使用任何 Mediation 模式前，runner 會在第一個廣告操作之前強制詢問：這支手機是否已在
 [Google AdMob 登記為 Test Device](https://developers.google.com/admob/android/test-ads)。若尚未登入，請先依

@@ -2,23 +2,24 @@
 
 ## R5 — Alternate and Negative States
 
-R5 保留 R1 Happy Path。每個裝置狀態 TC 都是可獨立還原的 Scenario，避免一項 mutation 或
-Evidence 失敗連帶影響其他 TC；只有同一隱私狀態下的 GAID／LAT 仍共用 `PRIVACY-DENIED`：
+R5 保留 R1 Happy Path，使用四個可交易式還原的 Scenario。每項 mutation 與 validator 仍獨立
+記錄，一項失敗不連帶改寫同包其他 TC；Scenario 完成後反向還原並驗證原值：
 
 - `PRIVACY-DENIED`：沿用 R1 正向 GAID 的 Settings → Security and privacy → Privacy controls → Ads
   路徑；現代 UI 執行 Delete advertising ID，舊版 UI 開啟 Opt out。動作後重新走同一路徑確認
   Renew/Get new 或 Opt out ON 的停用狀態；驗證 `device.ia` 不可為可用 GAID，且 req/ext
   `device.lat` 必須為 integer `1`。
-- `DARK-MODE-ENABLED`、`FONT-SCALE-MAXIMUM`、`BRIGHTNESS-MINIMUM`、`VOLUME-MUTED`、
-  `BATTERY-SAVER-ENABLED`：各自設定、抓包、判定與還原。最低有效 brightness raw 1，payload
+- `DISPLAY-HIGH`：Dark Mode ON、Font Scale 最大、Brightness 最大、Volume 最大，共用一個 Bid。
+- `DISPLAY-LOW`：Brightness 最低與 Volume 靜音，共用一個 Bid；最低有效 brightness raw 1，payload
   對照 `1 ÷ 255 = 0.0039215686`。
-- `BRIGHTNESS-MAXIMUM`、`VOLUME-MAXIMUM`：分開執行。亮度保存 UI 百分比、display-service float
-  與同步後 raw；音量獨立確認 Media volume current=max。任一項失敗不改變另一項 verdict。
-- `TIMEZONE-CHANGED`：切換 `America/New_York`，依抓包當日 DST 動態計算 offset，完成後還原。
-- `LOCATION-PERMISSION-DENIED`：同時收回 precise/approximate location；Android Permissions 頁須顯示
+- `SYSTEM-ALT`：Battery Saver ON、Timezone `America/New_York`、Location Denied，共用一個 Bid。
+  Battery Saver 不得與任何 Brightness TC 放在同一包。Timezone 依抓包當日 DST 動態計算 offset；
+  Location 同時收回 precise/approximate permission，Android Permissions 頁須顯示
   Location 為 Not allowed，req/ext 均不得包含 `geo_lat` 或 `geo_lon`，即使值是 0/null 也 FAILED。
+- `PRIVACY-DENIED`：永遠最後執行並獨立抓包。
 
-Runner 必須在每個 Scenario 後還原原狀態；中途失敗仍保存 Evidence、寫明失敗階段並發布報告。
+Runner 必須在每個 Scenario 後反向還原原狀態並重新讀值驗證；單項 mutation 失敗仍允許同包其他
+TC 擷取與判定。任一 restore 失敗時，後續 Scenario 必須停止並顯示未執行，避免狀態污染。
 `PRIVACY-DENIED` 的 `advertising-id-opt-out` 與 `tracking-denied` 是 AIBID-only TestCases。
 REEN Static／Dynamic 的執行計畫、結果報告與總 TestCase 目錄不列出這兩條；其餘 R5 Scenario
 與 AIBID 共用並照常執行。

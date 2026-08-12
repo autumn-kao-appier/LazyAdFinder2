@@ -48,6 +48,7 @@ from testcases.android_signal_testcases import (
     R5_FONT_SCALE_KEYS, R5_BRIGHTNESS_MINIMUM_KEYS, R5_VOLUME_MUTED_KEYS,
     R5_BATTERY_SAVER_KEYS, R5_BRIGHTNESS_MAXIMUM_KEYS, R5_VOLUME_MAXIMUM_KEYS,
     R5_TIMEZONE_KEYS, R5_LOCATION_DENIED_KEYS,
+    R5_DISPLAY_HIGH_KEYS, R5_DISPLAY_LOW_KEYS, R5_SYSTEM_ALT_KEYS,
 )
 from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
 from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
@@ -1235,16 +1236,10 @@ def resolve_execution_plan(args):
         scenarios = (ScenarioPlan("IPV6-REFRESH", tuple(IPV6_TESTCASES)),)
     elif name == "R5":
         scenarios = (
+            ScenarioPlan("DISPLAY-HIGH", R5_DISPLAY_HIGH_KEYS),
+            ScenarioPlan("DISPLAY-LOW", R5_DISPLAY_LOW_KEYS),
+            ScenarioPlan("SYSTEM-ALT", R5_SYSTEM_ALT_KEYS),
             ScenarioPlan("PRIVACY-DENIED", R5_PRIVACY_KEYS),
-            ScenarioPlan("DARK-MODE-ENABLED", R5_DARK_MODE_KEYS),
-            ScenarioPlan("FONT-SCALE-MAXIMUM", R5_FONT_SCALE_KEYS),
-            ScenarioPlan("BRIGHTNESS-MINIMUM", R5_BRIGHTNESS_MINIMUM_KEYS),
-            ScenarioPlan("VOLUME-MUTED", R5_VOLUME_MUTED_KEYS),
-            ScenarioPlan("BATTERY-SAVER-ENABLED", R5_BATTERY_SAVER_KEYS),
-            ScenarioPlan("BRIGHTNESS-MAXIMUM", R5_BRIGHTNESS_MAXIMUM_KEYS),
-            ScenarioPlan("VOLUME-MAXIMUM", R5_VOLUME_MAXIMUM_KEYS),
-            ScenarioPlan("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS),
-            ScenarioPlan("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS),
         )
     elif name == "R5-1":
         if mode != "standalone" or test_type != "aibid":
@@ -1886,10 +1881,12 @@ def run_round(config, plan):
     if name in {"R5", "R5-1"}:
         folders = []
         round_errors = []
+        restore_chain_failed = False
 
         scenario_plans = {scenario.label: scenario for scenario in plan.scenarios}
 
-        def run_scenario(label, keys, mutate, restore):
+        def run_scenario(label, keys, mutate=None, restore=None, operations=()):
+            nonlocal restore_chain_failed
             if label not in scenario_plans:
                 return
             testcases = [TC_DEFINITIONS[key] for key in keys]
@@ -1903,11 +1900,32 @@ def run_round(config, plan):
             if scenario.decision == "SKIP":
                 folders.append(record_skip(config, name, label, scenario.reason, scenario.checks, scenario.testcase_keys))
                 return
+            if restore_chain_failed:
+                folders.append(record_skip(
+                    config, name, label,
+                    "Not run because the previous R5 Scenario could not restore its original device state",
+                    testcase_keys=scenario.testcase_keys,
+                ))
+                return
             phase = "state mutation"
             scenario_error = None
             scenario_folder = None
+            mutation_errors = {}
+            restore_errors = {}
+            state_before = {}
+            state_after_restore = {}
+            attempted_operations = []
             try:
-                mutate()
+                if operations:
+                    for testcase_key, mutate_one, restore_one, read_state in operations:
+                        try:
+                            state_before[testcase_key] = read_state()
+                            attempted_operations.append((testcase_key, restore_one, read_state))
+                            mutate_one()
+                        except Exception as exc:
+                            mutation_errors[testcase_key] = f"{type(exc).__name__}: {exc}"
+                else:
+                    mutate()
                 phase = "Evidence capture"
                 folder = collect_evidence(
                     config, required,
@@ -1918,6 +1936,19 @@ def run_round(config, plan):
                 rows = []
                 validator_errors = []
                 for testcase in testcases:
+                    if testcase.key in mutation_errors:
+                        rows.append({
+                            "tc": testcase.key,
+                            "status": "FAILED",
+                            "reason": f"R5 state mutation failed: {mutation_errors[testcase.key]}",
+                            "expected": "This TestCase state mutation succeeds before its shared Scenario capture",
+                            "actual": mutation_errors[testcase.key],
+                            "evidence": "mutation-results.json",
+                            "layer": "Signal",
+                            "title": testcase.title,
+                            "description": testcase.description,
+                        })
+                        continue
                     try:
                         rows.append(testcase.validate(folder))
                     except Exception as exc:
@@ -1933,6 +1964,12 @@ def run_round(config, plan):
                         rows.append(row)
                         validator_errors.append(f"{testcase.key}: {exc}")
                 (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+                (folder / "state-before.json").write_text(json.dumps(state_before, ensure_ascii=False, indent=2) + "\n")
+                (folder / "mutation-results.json").write_text(json.dumps({
+                    "scenario": label,
+                    "succeeded": [key for key, _restore, _read in attempted_operations],
+                    "failed": mutation_errors,
+                }, ensure_ascii=False, indent=2) + "\n")
                 folders.append(folder)
                 if validator_errors:
                     scenario_error = CaptureError("; ".join(validator_errors))
@@ -1965,10 +2002,25 @@ def run_round(config, plan):
                     if scenario_folder not in folders:
                         folders.append(scenario_folder)
             finally:
-                try:
-                    restore()
-                except Exception as restore_exc:
-                    print(f"[R5 {label}] restore failed: {restore_exc}", file=sys.stderr)
+                if operations:
+                    for testcase_key, restore_one, read_state in reversed(attempted_operations):
+                        try:
+                            restore_one()
+                            restored = read_state()
+                            state_after_restore[testcase_key] = restored
+                            if restored != state_before.get(testcase_key):
+                                raise CaptureError(
+                                    f"state mismatch: expected {state_before.get(testcase_key)!r}, got {restored!r}"
+                                )
+                        except Exception as restore_exc:
+                            restore_errors[testcase_key] = f"{type(restore_exc).__name__}: {restore_exc}"
+                else:
+                    try:
+                        restore()
+                    except Exception as restore_exc:
+                        restore_errors[label] = f"{type(restore_exc).__name__}: {restore_exc}"
+                if restore_errors:
+                    print(f"[R5 {label}] restore failed: {restore_errors}", file=sys.stderr)
                     if scenario_folder is None:
                         scenario_folder = create_capture_folder(config, f"{label}-RESTORE-FAILED")
                         now = datetime.now().astimezone().isoformat()
@@ -1981,19 +2033,24 @@ def run_round(config, plan):
                             started_at=now,
                             result="INTERRUPTED",
                             failed_step=f"R5 {label} restore",
-                            error=str(restore_exc),
+                            error=json.dumps(restore_errors, ensure_ascii=False),
                         )
                         rows = []
                         for testcase in testcases:
-                            row = blocked(testcase.key, f"{name} {label} restore failed: {restore_exc}").to_dict()
+                            row = blocked(testcase.key, f"{name} {label} restore failed: {restore_errors}").to_dict()
                             row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
                             rows.append(row)
                         (scenario_folder / "verdicts.json").write_text(
                             json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
                         )
                         folders.append(scenario_folder)
-                    (scenario_folder / "restore-error.txt").write_text(str(restore_exc) + "\n")
-                    round_errors.append(f"{label} restore: {restore_exc}")
+                    (scenario_folder / "restore-error.txt").write_text(json.dumps(restore_errors, ensure_ascii=False, indent=2) + "\n")
+                    round_errors.append(f"{label} restore: {restore_errors}")
+                    restore_chain_failed = True
+                if scenario_folder is not None:
+                    (scenario_folder / "state-after-restore.json").write_text(
+                        json.dumps(state_after_restore, ensure_ascii=False, indent=2) + "\n"
+                    )
             if scenario_error is not None:
                 print(f"[R5 {label}] failed: {scenario_error}", file=sys.stderr)
                 round_errors.append(f"{label}: {scenario_error}")
@@ -2103,32 +2160,40 @@ def run_round(config, plan):
                 adb(config.udid, "shell", "pm", "grant", config.app_package, "android.permission.ACCESS_FINE_LOCATION", check=False)
             print("[R5 Location] restored original location permissions")
 
+        def read_dark_mode(): return adb(config.udid, "shell", "cmd", "uimode", "night").strip()
+        def read_font_scale(): return adb(config.udid, "shell", "settings", "get", "system", "font_scale").strip()
+        def read_brightness(): return adb(config.udid, "shell", "settings", "get", "system", "screen_brightness").strip()
+        def read_volume(): return list(media_volume_state(config))
+        def read_battery_saver(): return adb(config.udid, "shell", "settings", "get", "global", "low_power").strip()
+        def read_timezone(): return adb(config.udid, "shell", "getprop", "persist.sys.timezone").strip()
+        def read_location_permissions():
+            return {
+                permission: "granted" in adb(
+                    config.udid, "shell", "cmd", "package", "check-permission",
+                    permission, config.app_package, "0", check=False,
+                ).strip().lower()
+                for permission in (
+                    "android.permission.ACCESS_FINE_LOCATION",
+                    "android.permission.ACCESS_COARSE_LOCATION",
+                )
+            }
+
+        run_scenario("DISPLAY-HIGH", R5_DISPLAY_HIGH_KEYS, operations=(
+            ("dark-mode-enabled", dark_mode_mutate, dark_mode_restore, read_dark_mode),
+            ("font-scale-maximum", font_scale_mutate, font_scale_restore, read_font_scale),
+            ("screen-brightness-maximum", lambda: brightness_mutate("BRIGHTNESS-MAXIMUM", 255), lambda: brightness_restore("BRIGHTNESS-MAXIMUM"), read_brightness),
+            ("output-volume-maximum", lambda: volume_mutate("VOLUME-MAXIMUM", "maximum"), lambda: volume_restore("VOLUME-MAXIMUM"), read_volume),
+        ))
+        run_scenario("DISPLAY-LOW", R5_DISPLAY_LOW_KEYS, operations=(
+            ("screen-brightness-minimum", lambda: brightness_mutate("BRIGHTNESS-MINIMUM", 1), lambda: brightness_restore("BRIGHTNESS-MINIMUM"), read_brightness),
+            ("output-volume-muted", lambda: volume_mutate("VOLUME-MUTED", "muted"), lambda: volume_restore("VOLUME-MUTED"), read_volume),
+        ))
+        run_scenario("SYSTEM-ALT", R5_SYSTEM_ALT_KEYS, operations=(
+            ("battery-saver-enabled", battery_saver_mutate, battery_saver_restore, read_battery_saver),
+            ("timezone-changed", timezone_mutate, timezone_restore, read_timezone),
+            ("location-permission-denied", location_denied_mutate, location_denied_restore, read_location_permissions),
+        ))
         run_scenario("PRIVACY-DENIED", R5_PRIVACY_KEYS, privacy_mutate, privacy_restore)
-        run_scenario("DARK-MODE-ENABLED", R5_DARK_MODE_KEYS, dark_mode_mutate, dark_mode_restore)
-        run_scenario("FONT-SCALE-MAXIMUM", R5_FONT_SCALE_KEYS, font_scale_mutate, font_scale_restore)
-        run_scenario(
-            "BRIGHTNESS-MINIMUM", R5_BRIGHTNESS_MINIMUM_KEYS,
-            lambda: brightness_mutate("BRIGHTNESS-MINIMUM", 1),
-            lambda: brightness_restore("BRIGHTNESS-MINIMUM"),
-        )
-        run_scenario(
-            "VOLUME-MUTED", R5_VOLUME_MUTED_KEYS,
-            lambda: volume_mutate("VOLUME-MUTED", "muted"),
-            lambda: volume_restore("VOLUME-MUTED"),
-        )
-        run_scenario("BATTERY-SAVER-ENABLED", R5_BATTERY_SAVER_KEYS, battery_saver_mutate, battery_saver_restore)
-        run_scenario(
-            "BRIGHTNESS-MAXIMUM", R5_BRIGHTNESS_MAXIMUM_KEYS,
-            lambda: brightness_mutate("BRIGHTNESS-MAXIMUM", 255),
-            lambda: brightness_restore("BRIGHTNESS-MAXIMUM"),
-        )
-        run_scenario(
-            "VOLUME-MAXIMUM", R5_VOLUME_MAXIMUM_KEYS,
-            lambda: volume_mutate("VOLUME-MAXIMUM", "maximum"),
-            lambda: volume_restore("VOLUME-MAXIMUM"),
-        )
-        run_scenario("TIMEZONE-CHANGED", R5_TIMEZONE_KEYS, timezone_mutate, timezone_restore)
-        run_scenario("LOCATION-PERMISSION-DENIED", R5_LOCATION_DENIED_KEYS, location_denied_mutate, location_denied_restore)
         if round_errors:
             error = CaptureError(f"{name} completed with errors: " + " | ".join(round_errors))
             error.evidence_folders = tuple(folders)
