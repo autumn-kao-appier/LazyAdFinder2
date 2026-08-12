@@ -684,6 +684,7 @@ def _capture_e2e_interactions(driver, config, folder):
         "errors": [],
     }
     recording_path = "/sdcard/laf2-e2e-interactions.mp4"
+    adb(config.udid, "shell", "rm", "-f", recording_path, check=False)
     recorder = subprocess.Popen(
         _adb_command(config.udid, "shell", "screenrecord", "--time-limit", "120", recording_path),
         stdout=subprocess.DEVNULL,
@@ -732,13 +733,39 @@ def _capture_e2e_interactions(driver, config, folder):
         except Exception as evidence_exc:
             result["errors"].append(f"evidence: {type(evidence_exc).__name__}: {evidence_exc}")
     finally:
-        recorder.terminate()
+        # Stop Android's screenrecord itself with SIGINT. Terminating only the
+        # local adb client can sever the transport before screenrecord writes
+        # the MP4 moov atom, leaving a non-playable Evidence file.
+        recorder_pids = adb(
+            config.udid, "shell", "pidof", "screenrecord", check=False,
+        ).split()
+        for recorder_pid in recorder_pids:
+            if recorder_pid.isdigit():
+                adb(config.udid, "shell", "kill", "-2", recorder_pid, check=False)
         try:
-            recorder.wait(timeout=5)
+            recorder.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            recorder.kill()
-            recorder.wait()
-        adb(config.udid, "pull", recording_path, str(folder / "e2e-interactions.mp4"), check=False)
+            result["errors"].append("recording: Android screenrecord did not stop cleanly after SIGINT")
+            recorder.terminate()
+            try:
+                recorder.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                recorder.kill()
+                recorder.wait()
+        local_recording = folder / "e2e-interactions.mp4"
+        adb(config.udid, "pull", recording_path, str(local_recording), check=False)
+        recording_valid = local_recording.is_file() and _mp4_has_moov_atom(local_recording)
+        result["recording"] = {
+            "pulled": local_recording.is_file(),
+            "valid_mp4": recording_valid,
+            "bytes": local_recording.stat().st_size if local_recording.is_file() else 0,
+        }
+        if not recording_valid:
+            result["errors"].append(
+                "recording: MP4 finalization failed (missing moov atom); video was excluded from the report"
+            )
+            if local_recording.is_file():
+                local_recording.replace(folder / "e2e-interactions.invalid.mp4")
         adb(config.udid, "shell", "rm", recording_path, check=False)
         if EVENTS_FILE.is_file():
             shutil.copyfile(EVENTS_FILE, folder / "proxy-events.jsonl")
@@ -746,6 +773,34 @@ def _capture_e2e_interactions(driver, config, folder):
             json.dumps(result, ensure_ascii=False, indent=2) + "\n"
         )
     return result
+
+
+def _mp4_has_moov_atom(path):
+    """Return True only when a complete top-level MP4 moov box is present."""
+    path = Path(path)
+    size = path.stat().st_size
+    with path.open("rb") as stream:
+        offset = 0
+        while offset + 8 <= size:
+            stream.seek(offset)
+            header = stream.read(8)
+            box_size = int.from_bytes(header[:4], "big")
+            box_type = header[4:8]
+            header_size = 8
+            if box_size == 1:
+                extended = stream.read(8)
+                if len(extended) != 8:
+                    return False
+                box_size = int.from_bytes(extended, "big")
+                header_size = 16
+            elif box_size == 0:
+                box_size = size - offset
+            if box_size < header_size or offset + box_size > size:
+                return False
+            if box_type == b"moov":
+                return True
+            offset += box_size
+    return False
 
 
 AD_REQUEST_RE = re.compile(

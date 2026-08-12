@@ -318,6 +318,23 @@ class CampaignContractTests(unittest.TestCase):
             errors = json.loads((folder / "evidence-errors.json").read_text())
             self.assertEqual("before_bid", errors["providers"]["broken"]["phase"])
 
+    def test_e2e_recording_requires_complete_mp4_moov_atom(self):
+        def box(kind, payload=b""):
+            return (8 + len(payload)).to_bytes(4, "big") + kind + payload
+
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            valid = directory / "valid.mp4"
+            valid.write_bytes(box(b"ftyp", b"isom") + box(b"mdat", b"video") + box(b"moov", b"index"))
+            incomplete = directory / "incomplete.mp4"
+            incomplete.write_bytes(box(b"ftyp", b"isom") + box(b"mdat", b"video"))
+            truncated = directory / "truncated.mp4"
+            truncated.write_bytes((100).to_bytes(4, "big") + b"mdat" + b"short")
+
+            self.assertTrue(qa_aos._mp4_has_moov_atom(valid))
+            self.assertFalse(qa_aos._mp4_has_moov_atom(incomplete))
+            self.assertFalse(qa_aos._mp4_has_moov_atom(truncated))
+
     def test_mediation_requires_explicit_test_device_confirmation(self):
         environment = {}
         self.assertFalse(qa_aos.confirm_mediation_test_device(
