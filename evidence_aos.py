@@ -250,7 +250,7 @@ def _open_ads_settings(udid):
 
 
 def _position_visible_opt_out(udid):
-    """Return the Ads page to the Opt-out row and reject clipped screenshots."""
+    """Return the Ads page toward the Opt-out row and report its visible state."""
     for _ in range(7):
         _adb(udid, "shell", "input", "swipe", "540", "650", "540", "1900", "300")
         time.sleep(0.2)

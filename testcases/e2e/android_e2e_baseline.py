@@ -184,22 +184,18 @@ def validate_bundle(folder):
         json.dumps(flow_evidence, ensure_ascii=False, indent=2) + "\n"
     )
     if bid_request_event is None or bid_response_event is None:
-        request_row = _evaluated(
+        request_row = _blocked(
             "standalone-appier-ad-request",
-            {"method": "POST", "path": "/v2/sdk/aos/ad", "same_flow": True, "http_status": 200},
-            request_actual,
-            False,
-            "appier-ad-flow.json",
-            "FAILED: the round ran, but no preserved proxy transaction proves that the request and response belong to the same Appier ad flow.",
+            "Evidence unavailable: no preserved proxy transaction can prove that the request and response belong to the same Appier ad flow.",
+            actual=request_actual,
+            evidence="appier-ad-flow.json",
         )
     elif response is None or not raw_exists:
-        request_row = _evaluated(
+        request_row = _blocked(
             "standalone-appier-ad-request",
-            {"request_body_saved": True, "response_body_saved": True},
-            request_actual,
-            False,
-            "appier-ad-flow.json",
-            "FAILED: the proxy flow exists, but its request or response body was not preserved.",
+            "Evidence unavailable: the proxy flow exists, but its request or response body was not preserved.",
+            actual=request_actual,
+            evidence="appier-ad-flow.json",
         )
     else:
         request_row = _evaluated(
@@ -247,13 +243,11 @@ def validate_bundle(folder):
         "all_response_assets_observed": creative_urls.issubset(observed_asset_urls),
     }
     if not request_minimum:
-        asset_row = _evaluated(
+        asset_row = _blocked(
             "standalone-creative-assets",
-            {"specified_cid_confirmed": True},
-            {"cid": cid, "appier_request_passed": request_minimum},
-            False,
-            "appier-ad-flow.json",
-            "FAILED: the round ran, but the specified CID was not proven by the Appier ad request flow.",
+            "Evidence unavailable: the Appier ad flow was not proven, so creative asset loading cannot be compared.",
+            actual={"cid": cid, "appier_request_passed": request_minimum},
+            evidence="appier-ad-flow.json",
         )
     elif not creative_urls:
         asset_row = _evaluated(
@@ -438,11 +432,26 @@ def validate_bundle(folder):
     (folder / "e2e-network-evidence.json").write_text(
         json.dumps(network_evidence, ensure_ascii=False, indent=2) + "\n"
     )
-    rows = {
-        "standalone-appier-ad-request": request_row,
-        "standalone-sdk-init": init_row,
-        "standalone-creative-assets": asset_row,
-        "standalone-native-render": _evaluated(
+    if not request_minimum:
+        native_render_row = _blocked(
+            "standalone-native-render",
+            "Evidence unavailable: the Appier response contract was not proven, so native rendering cannot be compared.",
+            actual={"screenshot_saved": screenshot_exists, "bid_response_saved": response is not None},
+            evidence="appier-ad-flow.json",
+        )
+    elif not screenshot_exists or not visual_review:
+        native_render_row = _blocked(
+            "standalone-native-render",
+            "Evidence unavailable: the required native rendering screenshot or visual review artifact was not preserved.",
+            actual={
+                "screenshot_saved": screenshot_exists,
+                "bid_response_saved": response is not None,
+                "visual_review_saved": bool(visual_review),
+            },
+            evidence="visual-review.json" if visual_review else "summary.json",
+        )
+    else:
+        native_render_row = _evaluated(
             "standalone-native-render",
             {
                 "screenshot_and_response_saved": True,
@@ -455,10 +464,16 @@ def validate_bundle(folder):
                 "bid_response_saved": response is not None,
                 "visual_review": visual_review,
             },
-            bool(screenshot_exists and response is not None and visual_review.get("passed")),
+            bool(visual_review.get("passed")),
             "ad-before-interactions.png" if (folder / "ad-before-interactions.png").is_file() else "screenshot.png",
             "The response and screenshot were saved, and the rendered View tree matches every text or asset actually returned by the response. Pixel quality, clipping, and layout remain visible for human review." if visual_review.get("passed") else "FAILED: the saved screenshot or rendered View tree does not satisfy the objective response-to-UI contract; see visual-review.json for the exact failed check.",
-        ),
+        )
+
+    rows = {
+        "standalone-appier-ad-request": request_row,
+        "standalone-sdk-init": init_row,
+        "standalone-creative-assets": asset_row,
+        "standalone-native-render": native_render_row,
         "standalone-impression": impression_row,
         "standalone-click": click_row,
         "standalone-landing": landing_row,

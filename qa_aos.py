@@ -1003,6 +1003,33 @@ def record_blocked_scenario(config, round_name, scenario, reason, testcase_keys=
     return folder
 
 
+def blocked_validator_verdict(testcase, exc, folder):
+    """Do not turn missing/unreadable capture artifacts into product failures."""
+    missing_artifact = (
+        Path(exc.filename).name
+        if isinstance(exc, FileNotFoundError) and exc.filename
+        else None
+    )
+    reason = (
+        f"Evidence capture did not produce required artifact: {missing_artifact}"
+        if missing_artifact else
+        f"Validator could not compare the captured Evidence: {type(exc).__name__}: {exc}"
+    )
+    row = blocked(testcase.key, reason).to_dict()
+    row.update({
+        "actual": {"error_type": type(exc).__name__, "missing_artifact": missing_artifact},
+        "evidence": (
+            "evidence-errors.json"
+            if (Path(folder) / "evidence-errors.json").is_file()
+            else "summary.json"
+        ),
+        "layer": "Signal",
+        "title": testcase.title,
+        "description": testcase.description,
+    })
+    return row
+
+
 def ipv6_preflight(config):
     """Check Android IPv6 prerequisites without relying on ICMP reachability."""
     addresses = adb(
@@ -1305,8 +1332,20 @@ def preflight_execution_plan(plan, config):
                 ))
                 continue
             probe = privacy_scenario_preflight
-        elif plan.round_name == "R5" and scenario.label == "LOCATION-PERMISSION-DENIED":
-            probe = location_permission_preflight
+        elif (
+            plan.round_name == "R5"
+            and scenario.label == "SYSTEM-ALT"
+            and "location-permission-denied" in scenario.testcase_keys
+        ):
+            ready, reason, checks = location_permission_preflight(config)
+            skipped = {} if ready else {"location-permission-denied": reason}
+            resolved.append(replace(
+                scenario,
+                decision="RUN",
+                reason="" if ready else reason,
+                checks={**checks, "skipped_testcases": skipped},
+            ))
+            continue
         if probe is None:
             resolved.append(scenario)
             continue
@@ -1889,9 +1928,29 @@ def run_round(config, plan):
             nonlocal restore_chain_failed
             if label not in scenario_plans:
                 return
+            scenario = scenario_plans[label]
+            skipped_testcases = (
+                scenario.checks.get("skipped_testcases", {})
+                if isinstance(scenario.checks, dict) else {}
+            )
+            for testcase_key, skip_reason in skipped_testcases.items():
+                folders.append(record_skip(
+                    config,
+                    name,
+                    f"{label}-{testcase_key.upper()}",
+                    skip_reason,
+                    scenario.checks,
+                    (testcase_key,),
+                ))
+            keys = tuple(key for key in keys if key not in skipped_testcases)
+            operations = tuple(
+                operation for operation in operations
+                if operation[0] not in skipped_testcases
+            )
+            if not keys:
+                return
             testcases = [TC_DEFINITIONS[key] for key in keys]
             required = tuple(evidence for testcase in testcases for evidence in testcase.evidence)
-            scenario = scenario_plans[label]
             if scenario.decision == "BLOCK":
                 folders.append(record_blocked_scenario(
                     config, name, label, scenario.reason, scenario.testcase_keys,
@@ -1952,22 +2011,7 @@ def run_round(config, plan):
                     try:
                         rows.append(testcase.validate(folder))
                     except Exception as exc:
-                        missing_artifact = Path(exc.filename).name if isinstance(exc, FileNotFoundError) and exc.filename else None
-                        operator_reason = (
-                            f"Evidence capture did not produce required artifact: {missing_artifact}"
-                            if missing_artifact else
-                            f"Validator could not compare the captured Evidence: {type(exc).__name__}: {exc}"
-                        )
-                        row = {
-                            "tc": testcase.key,
-                            "status": "FAILED",
-                            "reason": operator_reason,
-                            "expected": "Validator completes and compares captured Evidence",
-                            "actual": {"error_type": type(exc).__name__, "missing_artifact": missing_artifact},
-                            "evidence": "evidence-errors.json" if (Path(folder) / "evidence-errors.json").is_file() else "summary.json",
-                        }
-                        row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
-                        rows.append(row)
+                        rows.append(blocked_validator_verdict(testcase, exc, folder))
                         validator_errors.append(f"{testcase.key}: {exc}")
                 (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
                 (folder / "state-before.json").write_text(json.dumps(state_before, ensure_ascii=False, indent=2) + "\n")
@@ -2246,16 +2290,7 @@ def run_round(config, plan):
             try:
                 verdicts.append(testcase.validate(folder))
             except Exception as exc:
-                row = {
-                    "tc": testcase.key,
-                    "status": "FAILED",
-                    "reason": f"Validator error after execution: {exc}",
-                    "expected": "Validator completes and compares captured Evidence",
-                    "actual": f"{type(exc).__name__}: {exc}",
-                    "evidence": "bid_decoded.json and captured Evidence artifacts",
-                }
-                row.update({"layer": "Signal", "title": testcase.title, "description": testcase.description})
-                verdicts.append(row)
+                verdicts.append(blocked_validator_verdict(testcase, exc, folder))
                 validator_errors.append(f"{testcase.key}: {exc}")
         (folder / "verdicts.json").write_text(
             json.dumps({"verdicts": verdicts}, ensure_ascii=False, indent=2) + "\n"

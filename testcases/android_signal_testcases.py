@@ -1122,9 +1122,11 @@ def validate_network_latency(folder):
     events = []
     event_paths = [folder / "proxy-events.jsonl"]
     summary_path = folder / "summary.json"
+    current_summary = {}
     if summary_path.is_file():
         try:
-            run_id = json.loads(summary_path.read_text()).get("test_run_id")
+            current_summary = json.loads(summary_path.read_text())
+            run_id = current_summary.get("test_run_id")
         except json.JSONDecodeError:
             run_id = None
         if run_id:
@@ -1145,13 +1147,35 @@ def validate_network_latency(folder):
     for path in event_paths:
         if not path.is_file():
             continue
+        source_summary = {}
+        source_summary_path = path.parent / "summary.json"
+        if source_summary_path.is_file():
+            try:
+                source_summary = json.loads(source_summary_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                pass
+        provenance = {
+            "evidence_file": str(path.relative_to(folder.parent.parent)),
+            "source_round": source_summary.get("test_round"),
+            "source_capture": source_summary.get("capture_name"),
+            "same_round": path.parent == folder,
+            "same_test_run": bool(
+                current_summary.get("test_run_id")
+                and source_summary.get("test_run_id") == current_summary.get("test_run_id")
+            ),
+        }
+        if not provenance["same_round"]:
+            provenance["reuse_reason"] = (
+                "The asynchronous SDK latency probe may complete in an earlier Round; "
+                "reuse is restricted to the same TEST_RUN_ID."
+            )
         for line in path.read_text().splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
             if event.get("method") == "HEAD" and event.get("url") == "https://cr.adsappier.com/4QGDNtuHG/icon/Info.svg":
-                events.append({**event, "evidence_file": str(path.relative_to(folder.parent.parent))})
+                events.append({**event, **provenance})
     successful_probe = next(
         (event for event in events if event.get("phase") == "response" and event.get("status") == 200),
         None,

@@ -17,6 +17,7 @@ from campaign_profiles import CAMPAIGN_PROFILES
 from campaign_testcases import CAMPAIGN_TESTCASES
 from testcases import android_signal_testcases
 from testcases import ios_signal_testcases
+from testcases.e2e.android_e2e_baseline import validate_bundle as validate_android_e2e
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -309,6 +310,29 @@ class CampaignContractTests(unittest.TestCase):
             for keys in scenarios.values()
         ))
 
+    def test_r5_missing_location_permission_skips_only_location_testcase(self):
+        plan = qa_aos.resolve_execution_plan(round_args("R5"))
+        config = types.SimpleNamespace(test_type="aibid")
+        with patch.object(
+            qa_aos,
+            "location_permission_preflight",
+            return_value=(False, "Sample App declares no location permission to revoke", {"declared_permissions": []}),
+        ), patch.object(
+            qa_aos,
+            "privacy_scenario_preflight",
+            return_value=(True, "ready", {}),
+        ):
+            resolved = qa_aos.preflight_execution_plan(plan, config)
+
+        system_alt = next(item for item in resolved.scenarios if item.label == "SYSTEM-ALT")
+        self.assertEqual("RUN", system_alt.decision)
+        self.assertEqual(
+            {"location-permission-denied": "Sample App declares no location permission to revoke"},
+            system_alt.checks["skipped_testcases"],
+        )
+        self.assertIn("battery-saver-enabled", system_alt.testcase_keys)
+        self.assertIn("timezone-changed", system_alt.testcase_keys)
+
     def test_network_latency_is_evaluated_from_r2_second_request(self):
         self.assertNotIn(
             "network-latency",
@@ -470,6 +494,10 @@ class CampaignContractTests(unittest.TestCase):
             self.assertEqual("PASS", verdict["status"])
             self.assertEqual(38, verdict["actual"]["latency_ms"])
             self.assertIn("R1_run-one", verdict["actual"]["probe_response"]["evidence_file"])
+            self.assertEqual("R1", verdict["actual"]["probe_response"]["source_round"])
+            self.assertFalse(verdict["actual"]["probe_response"]["same_round"])
+            self.assertTrue(verdict["actual"]["probe_response"]["same_test_run"])
+            self.assertIn("same TEST_RUN_ID", verdict["actual"]["probe_response"]["reuse_reason"])
 
     def test_report_summarizes_and_translates_missing_evidence_errors(self):
         rendered = page._dynamic_bi(
@@ -479,6 +507,64 @@ class CampaignContractTests(unittest.TestCase):
         self.assertIn("Evidence capture did not produce location-permission-status.json", rendered)
         self.assertIn("Evidence 擷取未產生 location-permission-status.json", rendered)
         self.assertNotIn("/private/evidence", rendered)
+
+    def test_aos_missing_signal_evidence_is_blocked(self):
+        testcase = types.SimpleNamespace(
+            key="location-permission-denied",
+            title="Location Permission Denied",
+            description="Captured permission state matches the payload.",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "summary.json").write_text("{}")
+            missing = folder / "location-permission-status.json"
+            error = FileNotFoundError(2, "No such file or directory", str(missing))
+
+            verdict = qa_aos.blocked_validator_verdict(testcase, error, folder)
+
+        self.assertEqual("BLOCKED", verdict["status"])
+        self.assertIsNone(verdict.get("expected"))
+        self.assertEqual("location-permission-status.json", verdict["actual"]["missing_artifact"])
+
+    def test_aos_e2e_missing_proxy_evidence_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "summary.json").write_text(json.dumps({
+                "test_type": "aibid", "cid": "target-cid",
+                "app_package": "com.example.app",
+            }))
+
+            rows = {row["tc"]: row for row in validate_android_e2e(folder)}
+
+        self.assertEqual("BLOCKED", rows["standalone-appier-ad-request"]["status"])
+        self.assertEqual("BLOCKED", rows["standalone-creative-assets"]["status"])
+        self.assertEqual("BLOCKED", rows["standalone-native-render"]["status"])
+
+    def test_aos_e2e_preserved_bad_response_is_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "summary.json").write_text(json.dumps({
+                "test_type": "aibid", "cid": "target-cid",
+                "app_package": "com.example.app",
+            }))
+            (folder / "bid_raw.json").write_text(json.dumps({"zone_id": "zone"}))
+            (folder / "bid_response.json").write_text(json.dumps({"adUnits": []}))
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"app": {
+                    "bundle": "com.example.app", "sdk_version": "1.0",
+                }}},
+            }))
+            events = (
+                {"kind": "bid", "phase": "request", "method": "POST", "flow_id": "flow-1", "url": "https://adx.apx.appier.net/v2/sdk/aos/ad"},
+                {"kind": "bid", "phase": "response", "flow_id": "flow-1", "status": 200},
+            )
+            (folder / "proxy-events.jsonl").write_text(
+                "".join(json.dumps(event) + "\n" for event in events)
+            )
+
+            rows = {row["tc"]: row for row in validate_android_e2e(folder)}
+
+        self.assertEqual("FAILED", rows["standalone-appier-ad-request"]["status"])
 
     def test_report_translates_common_execution_failures(self):
         appium = page._dynamic_bi(
