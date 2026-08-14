@@ -15,6 +15,7 @@ from campaign_testcases import supports
 from testcases.ios_signal_testcases import ROUND_DEFINITIONS
 from testcases.e2e.ios_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
 from testcases.e2e.ios_admob_mediation_extensions import TESTCASES as ADMOB_E2E_EXTENSIONS
+from testcases.ipv6_refresh_testcases import TESTCASES as IPV6_TESTCASES
 
 
 ROOT = Path(__file__).resolve().parent
@@ -31,7 +32,7 @@ class PlannedRound:
     reason: str = ""
 
 
-def execution_plan(test_type, integration_mode, signal_only=False):
+def execution_plan(test_type, integration_mode, signal_only=False, selected_rounds=(), ipv6_ready=False):
     campaign_profile(test_type)
     if integration_mode not in MODE_MAP:
         raise ValueError(f"Unsupported iOS integration mode: {integration_mode!r}")
@@ -39,9 +40,11 @@ def execution_plan(test_type, integration_mode, signal_only=False):
     for name in ("R1", "R2", "R3"):
         keys = tuple(key for key in ROUND_DEFINITIONS[name].testcase_keys if supports(test_type, key))
         rounds.append(PlannedRound(name, "RUN", keys))
+    ipv6_keys = tuple(IPV6_TESTCASES)
     rounds.append(PlannedRound(
-        "R4", "RUN",
-        ("ipv6-address", "ipv6-refresh-launch", "ipv6-refresh-wifi-switch", "ipv6-refresh-recovery", "ipv6-refresh-debounce", "ipv6-refresh-slow-network"),
+        "R4", "RUN" if ipv6_ready else "NOT_EXECUTABLE", ipv6_keys,
+        "iPhone IPv6 network was confirmed before execution" if ipv6_ready else
+        "Current iPhone IPv6 capability was not confirmed; pass --ipv6-ready only after verifying the network",
     ))
     r5_keys = tuple(key for key in ROUND_DEFINITIONS["R5"].testcase_keys if supports(test_type, key))
     rounds.append(PlannedRound("R5", "RUN", r5_keys))
@@ -53,6 +56,19 @@ def execution_plan(test_type, integration_mode, signal_only=False):
             "E2E-ADMOB" if integration_mode == "mediation" else "E2E-STANDALONE",
             "RUN", e2e_keys,
         ))
+    selected = {str(name).strip().upper() for name in selected_rounds if str(name).strip()}
+    known = {item.name for item in rounds}
+    unknown = sorted(selected - known)
+    if unknown:
+        raise ValueError("Unknown iOS Round(s): " + ", ".join(unknown))
+    if selected:
+        rounds = [
+            item if item.name in selected else PlannedRound(
+                item.name, "SKIP", item.testcase_keys,
+                "Not selected in this suite's Test Scope",
+            )
+            for item in rounds
+        ]
     return tuple(rounds)
 
 
@@ -93,6 +109,14 @@ def build_parser():
     parser.add_argument("--target-app-bundle-id", default=os.environ.get("TARGET_APP_BUNDLE_ID", ""))
     parser.add_argument("--udid", default=os.environ.get("UDID", ""))
     parser.add_argument("--signal-only", action="store_true")
+    parser.add_argument(
+        "--round", action="append", default=[],
+        help="run only this Round; repeat for multiple Rounds (default: complete suite)",
+    )
+    parser.add_argument(
+        "--ipv6-ready", action="store_true",
+        help="confirm before execution that the iPhone network supports the R4 IPv6 scenarios",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the complete plan without touching a device")
     parser.add_argument("--yes", action="store_true", help="confirm the displayed allowlisted suite plan")
     parser.add_argument("--evidence-dir", default=str(ROOT / "evidence"))
@@ -107,14 +131,23 @@ def main(argv=None):
         raise SystemExit("REEN requires TARGET_APP_BUNDLE_ID/--target-app-bundle-id")
     run_id = f"ios-{datetime.now().strftime('%Y%m%dT%H%M%S%z')}"
     started_at = datetime.now().astimezone().isoformat()
-    plan = execution_plan(args.test_type, args.integration_mode, args.signal_only)
+    plan = execution_plan(
+        args.test_type, args.integration_mode, args.signal_only,
+        selected_rounds=args.round, ipv6_ready=args.ipv6_ready,
+    )
     print_plan(plan, args, run_id)
     if args.dry_run:
         return 0
-    if not args.yes:
-        raise SystemExit("Review the ExecutionPlan, then rerun with --yes to authorize this suite")
     if not confirm_mediation_test_device(args.integration_mode):
         raise SystemExit("iOS Mediation cancelled before any ad request because Test Device registration was not confirmed")
+    if not args.yes:
+        try:
+            answer = input("\n確認執行以上完整 Test Scope？[y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("[suite] cancelled before execution")
+            return 2
 
     environment = os.environ.copy()
     environment.update({
@@ -130,6 +163,9 @@ def main(argv=None):
         "AUTO_PUBLISH": "0",
     })
     failures = []
+    for item in plan:
+        if item.decision != "RUN":
+            record_skip(args, item, run_id, started_at)
     for item in plan:
         if item.decision != "RUN":
             continue
@@ -148,6 +184,33 @@ def main(argv=None):
         print(json.dumps({"run_id": run_id, "failed": failures}, ensure_ascii=False), file=sys.stderr)
         return 1
     return 0
+
+
+def record_skip(args, item, run_id, started_at):
+    """Write the pre-confirmed non-run decision so Report cards stay explicit."""
+    mode = MODE_MAP[args.integration_mode].upper()
+    kind = args.test_type.upper()
+    cid = args.test_cid.replace("/", "-")
+    round_dir = Path(args.evidence_dir) / f"IOS_{mode}_{kind}_CID_{cid}_{item.name}_{run_id}"
+    folder = round_dir / f"{item.name}-{item.decision}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    folder.mkdir(parents=True, exist_ok=False)
+    now = datetime.now().astimezone().isoformat()
+    reason = item.reason or "Round was not selected in the confirmed Test Scope"
+    (folder / "round-skip.json").write_text(json.dumps({
+        "status": "SKIPPED", "decision": item.decision, "round": item.name,
+        "reason": reason, "recorded_at": now, "testcases": list(item.testcase_keys),
+        "policy": "No device mutation, capture, or verdict was produced.",
+    }, ensure_ascii=False, indent=2) + "\n")
+    (folder / "summary.json").write_text(json.dumps({
+        "result": "SKIPPED", "platform": "ios", "test_mode": MODE_MAP[args.integration_mode],
+        "test_type": args.test_type, "test_cid": args.test_cid,
+        "target_app_package": args.target_app_bundle_id, "test_round": item.name,
+        "test_run_id": run_id, "test_run_started_at": started_at,
+        "capture_name": item.decision, "started_at": now, "finished_at": now,
+        "skipped_testcases": list(item.testcase_keys), "skip_reason": reason,
+        "execution_state": item.decision, "device": {},
+    }, ensure_ascii=False, indent=2) + "\n")
+    print(f"[suite {run_id}] {item.name} {item.decision}: {reason}")
 
 
 if __name__ == "__main__":

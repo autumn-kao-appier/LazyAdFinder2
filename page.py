@@ -181,7 +181,7 @@ def current_verdicts(verdicts, catalog, captures=()):
 
 
 def current_skip_reasons(captures):
-    """Return per-TC SKIP reasons from the newest run in each report slot."""
+    """Return per-TC execution-plan decisions from the newest run in each slot."""
     runs = {}
     for folder in captures:
         summary_path = Path(folder) / SUMMARY_FILE
@@ -208,8 +208,9 @@ def current_skip_reasons(captures):
             if summary.get("result") != "SKIPPED":
                 continue
             reason = str(summary.get("skip_reason") or "Scenario was skipped by the execution plan")
+            decision = str(summary.get("execution_state") or "SKIP").strip().upper()
             for testcase in summary.get("skipped_testcases", []):
-                result[(*slot, str(testcase))] = reason
+                result[(*slot, str(testcase))] = {"reason": reason, "decision": decision}
     return result
 
 
@@ -286,6 +287,7 @@ def _verdict_rows(document, path):
             "tc": canonical_tc, "title": str(row.get("title", tc)).strip() or canonical_tc,
             "description": str(row.get("description", "")).strip(), "status": status,
             "reason": reason, "expected": row.get("expected"), "actual": actual,
+            "execution_state": str(row.get("execution_state", "")).strip().upper(),
             "comparison_view": row.get("comparison_view") if isinstance(row.get("comparison_view"), dict) else None,
             "evidence": evidence, "source": path, "platform": _platform_of(metadata, path),
             "test_mode": test_mode, "mode_group": _mode_group(test_mode),
@@ -613,6 +615,81 @@ DYNAMIC_ZH = {
     "FAILED: the executed Mediation round has no successful fill-result event evidence.": "FAILED：已執行的 Mediation round 沒有成功的 fill-result event Evidence。",
     "The AdMob click-reporting event was captured successfully.": "已成功擷取 AdMob click-reporting event。",
     "FAILED: the executed Mediation round has no successful AdMob click-reporting evidence.": "FAILED：已執行的 Mediation round 沒有成功的 AdMob click-reporting Evidence。",
+    "No independent Settings/ATT state was captured before the bid.": "Bid 送出前沒有擷取獨立的 Settings／ATT 狀態 Evidence。",
+    "Waiting for a reviewer to enter the expected iOS Argus SDK version in the report.": "等待 reviewer 在報告中輸入預期的 iOS Argus SDK 版本。",
+    "Waiting for a reviewer to enter the expected iOS Ads SDK build version in the report.": "等待 reviewer 在報告中輸入預期的 iOS Ads SDK Build 版本。",
+    "The decoded value matches independent iOS device Evidence.": "解碼值與獨立擷取的 iOS 實機 Evidence 一致。",
+    "FAILED: the decoded value does not match independent iOS device Evidence.": "FAILED：解碼值與獨立擷取的 iOS 實機 Evidence 不一致。",
+    "The App-language UI Evidence was not captured; payload alone cannot PASS.": "未擷取 App 語言的 UI Evidence；不能只憑 payload 判定 PASS。",
+    "The App language code matches the language component of the iOS locale.": "App 語言代碼與 iOS locale 的語言部分一致。",
+    "FAILED: the App language code does not match the independently captured iOS locale.": "FAILED：App 語言代碼與獨立擷取的 iOS locale 不一致。",
+    "The high-precision App tag agrees with the visible App language and has normalized BCP 47 form.": "高精度 App 語言標籤與畫面可見的 App 語言一致，且符合標準化 BCP 47 格式。",
+    "FAILED: the App language-region tag disagrees with the visible App language or is not normalized BCP 47.": "FAILED：App 語言地區標籤與畫面可見的 App 語言不一致，或不符合標準化 BCP 47 格式。",
+    "Logical points and physical pixels agree through the captured iOS pixel ratio.": "iOS 邏輯點數、實體像素與擷取到的 pixel ratio 計算一致。",
+    "FAILED: iOS logical and physical display dimensions do not agree through pixel ratio.": "FAILED：iOS 邏輯尺寸與實體顯示尺寸無法透過 pixel ratio 對上。",
+    "ATT authorization Evidence was not captured; IDFA/LAT alone cannot prove user consent.": "未擷取 ATT 授權 Evidence；不能只憑 IDFA／LAT 證明使用者同意追蹤。",
+    "ATT, IDFA and LAT consistently prove tracking is allowed.": "ATT、IDFA 與 LAT 一致證明目前允許廣告追蹤。",
+    "FAILED: visible ATT state, IDFA and LAT do not consistently prove tracking is allowed.": "FAILED：畫面可見的 ATT 狀態、IDFA 與 LAT 無法一致證明允許追蹤。",
+    "ATT denied Evidence was not captured; payload alone cannot prove the privacy state.": "未擷取 ATT 拒絕狀態 Evidence；不能只憑 payload 證明隱私狀態。",
+    "ATT, IDFA and LAT consistently prove tracking is denied.": "ATT、IDFA 與 LAT 一致證明目前已拒絕廣告追蹤。",
+    "FAILED: ATT state, IDFA and LAT violate the denied-tracking contract.": "FAILED：ATT 狀態、IDFA 與 LAT 不符合拒絕追蹤契約。",
+    "The required independent iOS lifecycle sequence was not executed.": "必要的獨立 iOS lifecycle 操作序列尚未執行。",
+    "The iOS lifecycle sequence passed.": "iOS lifecycle 操作序列符合預期。",
+    "FAILED: the iOS lifecycle sequence did not satisfy its contract.": "FAILED：iOS lifecycle 操作序列未符合契約。",
+    "Continuous foreground session_duration must increase.": "App 持續停留前景時，session_duration 必須增加。",
+    "session_duration must continue after Home and resume.": "按 Home 進入背景再返回後，session_duration 必須延續增加。",
+    "session_duration must reset after process termination.": "App process 終止後，session_duration 必須重設。",
+    "app_init_time must remain stable in one process and renew after termination.": "同一個 App process 內 app_init_time 必須保持不變，終止重啟後必須更新。",
+    "app_duration must be monotonic across foreground, background and process restart.": "app_duration 在前景、背景與 process 重啟後都必須單調遞增。",
+    "The second request contains a valid proven impression history.": "第二次 request 包含已驗證且格式有效的 impression history。",
+    "FAILED: the second request has no valid first-impression history.": "FAILED：第二次 request 沒有有效的首次曝光紀錄。",
+    "Alternate iOS state must match visible Settings Evidence.": "iOS 替代狀態必須與畫面可見的 Settings Evidence 一致。",
+    "FAILED: visible native iOS Settings Evidence is missing or the decoded Bid does not match that state.": "FAILED：缺少可見的 iOS 原生 Settings Evidence，或解碼後的 Bid 與該狀態不一致。",
+    "The iOS SDK initialization transaction succeeded.": "iOS SDK initialization transaction 成功。",
+    "FAILED: no successful iOS SDK initialization transaction was preserved.": "FAILED：沒有保存成功的 iOS SDK initialization transaction。",
+    "The same proxy flow proves the iOS Appier request and response.": "同一條 proxy flow 已證明 iOS Appier request 與 response 相互對應。",
+    "FAILED: no complete same-flow iOS Appier ad transaction was preserved.": "FAILED：沒有保存完整且屬於同一 flow 的 iOS Appier ad transaction。",
+    "All response-specified creative assets loaded successfully.": "Response 指定的所有廣告素材都已成功載入。",
+    "FAILED: one or more response-specified creative assets were not proven in traffic.": "FAILED：流量 Evidence 無法證明一個或多個 response 指定素材成功載入。",
+    "The visible ad, response comparison and full recording prove rendering.": "可見廣告、response 對照與完整錄影共同證明廣告已正確渲染。",
+    "FAILED: rendered-ad screenshot, objective visual comparison, or full recording is missing.": "FAILED：缺少廣告渲染截圖、客觀畫面對照或完整操作錄影。",
+    "The complete Appier impression chain was captured.": "已擷取完整的 Appier impression chain。",
+    "FAILED: show_cb and winshowimg were not both captured successfully.": "FAILED：未同時成功擷取 show_cb 與 winshowimg。",
+    "The recorded CTA action emitted a matching xclk.": "錄製的 CTA 操作已送出與該次曝光相符的 xclk。",
+    "FAILED: no recorded CTA action with a matching successful xclk was proven.": "FAILED：沒有證明錄製的 CTA 操作產生相符且成功的 xclk。",
+    "The tracked click opened and preserved the campaign destination.": "Tracked click 已開啟 Campaign 目的地並保存可見 Evidence。",
+    "FAILED: the tracked click did not preserve the required campaign destination.": "FAILED：Tracked click 沒有保存 Campaign 要求的目的地 Evidence。",
+    "The Privacy interaction opened and preserved its destination.": "Privacy 操作已開啟並保存其目的地。",
+    "FAILED: Privacy interaction and visible destination Evidence are incomplete.": "FAILED：Privacy 操作或可見目的地 Evidence 不完整。",
+    "Traffic lookup data is ready; backend attribution reconciliation still requires the authorized data query.": "流量查詢資料已備妥；後端歸因對帳仍需具備權限的資料查詢。",
+    "Pubsetting proves the Appier iOS adapter and zone configuration.": "Pubsetting 已證明 Appier iOS adapter 與 zone 設定。",
+    "FAILED: Pubsetting does not prove a complete Appier iOS mediation configuration.": "FAILED：Pubsetting 無法證明完整的 Appier iOS Mediation 設定。",
+    "The GMA response proves Appier mediation routing.": "GMA response 已證明 Appier Mediation routing。",
+    "FAILED: no successful GMA response with Appier routing was preserved.": "FAILED：沒有保存含 Appier routing 的成功 GMA response。",
+    "The timeline proves GMA invoked the Appier iOS adapter with the configured zone.": "Timeline 已證明 GMA 使用設定的 zone 呼叫 Appier iOS adapter。",
+    "FAILED: no ordered GMA-to-Appier iOS adapter flow was proven.": "FAILED：沒有證明依序發生的 GMA → Appier iOS adapter flow。",
+    "Google impression reporting succeeded.": "Google impression 回報成功。",
+    "FAILED: no successful Google impression event was captured.": "FAILED：沒有擷取到成功的 Google impression event。",
+    "Mediation fill-result reporting succeeded.": "Mediation fill-result 回報成功。",
+    "FAILED: no successful mediation fill-result event was captured.": "FAILED：沒有擷取到成功的 Mediation fill-result event。",
+    "Google click reporting succeeded.": "Google click 回報成功。",
+    "FAILED: no successful Google click event was captured.": "FAILED：沒有擷取到成功的 Google click event。",
+    "The visible ad, response comparison, full recording and timeline prove rendering.": "可見廣告、response 對照、完整錄影與操作時間軸共同證明廣告已正確渲染。",
+    "FAILED: rendered-ad screenshot, objective visual comparison, valid full recording, or timeline stage is missing.": "FAILED：缺少廣告渲染截圖、客觀畫面對照、有效完整錄影或對應的時間軸階段。",
+    "The recorded CTA action, timeline and valid full recording emitted a matching xclk.": "錄製的 CTA 操作、時間軸與有效完整錄影共同證明已送出相符的 xclk。",
+    "FAILED: no recorded CTA action, timeline and valid full recording with a matching successful xclk were proven.": "FAILED：未能以 CTA 操作、時間軸、有效完整錄影及相符的成功 xclk 共同證明點擊。",
+    "The tracked click, timeline and valid full recording preserved the campaign destination.": "Tracked click、時間軸與有效完整錄影已保存 Campaign 目的地。",
+    "FAILED: the tracked click did not preserve the required campaign destination in the timeline and valid full recording.": "FAILED：時間軸與有效完整錄影沒有保存 tracked click 所要求的 Campaign 目的地。",
+    "The Privacy interaction, return step, timeline and valid full recording preserved its destination.": "Privacy 操作、返回廣告步驟、時間軸與有效完整錄影已保存 Privacy 目的地。",
+    "FAILED: Privacy interaction, return step, visible destination, timeline or valid full recording Evidence is incomplete.": "FAILED：Privacy 操作、返回廣告步驟、可見目的地、時間軸或有效完整錄影 Evidence 不完整。",
+    "Not executed because the previous iOS Scenario did not restore its original state.": "未執行：前一個 iOS Scenario 沒有成功還原原始狀態。",
+    "The declared iOS operation completes and produces comparable Evidence": "指定的 iOS 操作必須完成並產生可供比較的 Evidence。",
+    "The iOS validator completes with its platform Evidence": "iOS validator 必須使用平台 Evidence 完成比較。",
+    "Environment prerequisite unavailable: the current network did not produce a matching Appier IPv6 probe and payload; R4 was not executable": "環境前提不足：目前網路沒有產生相符的 Appier IPv6 probe 與 payload，因此 R4 無法執行。",
+    "R5 DISPLAY-AUDIO-HIGH failed at state mutation: Maximum brightness mutation was not applied: '179'": "R5 DISPLAY-AUDIO-HIGH 在切換裝置狀態時失敗：最高亮度設定未成功套用，讀回原始值為 179。",
+    "The Sample App does not expose the requested independent value yet; the decoded Bid Request is not accepted as its own Evidence.": "Sample App 尚未提供所需的獨立真值；解碼後的 Bid Request 不得作為自身的 Evidence。",
+    "The decoded value matches the visible Sample App QA Evidence.": "解碼值與 Sample App 畫面可見的 QA Evidence 一致。",
+    "FAILED: the decoded value does not match the visible Sample App QA Evidence.": "FAILED：解碼值與 Sample App 畫面可見的 QA Evidence 不一致。",
 }
 
 
@@ -644,6 +721,36 @@ def _dynamic_bi(text, zh=None):
         r"R5 (.+?) failed at Evidence capture: Cannot launch Appium session:.*", text, re.DOTALL,
     )
     r5_mutation = re.fullmatch(r"R5 state mutation failed: (.+)", text, re.DOTALL)
+    ios_wire_pass = re.fullmatch(
+        r"iOS request and extended (.+) satisfy the reviewed wire contract\.", text,
+    )
+    ios_wire_fail = re.fullmatch(
+        r"FAILED: iOS (.+) is missing, invalid, or inconsistent between request and extended payloads\.", text,
+    )
+    ios_context_missing = re.fullmatch(
+        r"Independent iOS Evidence for (.+) was not captured; payload alone cannot PASS\.", text,
+    )
+    ios_contract_pending = re.fullmatch(
+        r"The reviewed iOS contract for (.+) is not defined yet; the TC remains visible but cannot PASS from an Android expectation\.", text,
+    )
+    ios_attempt_limit = re.fullmatch(
+        r"iOS (.+) reached the (\d+)-attempt limit without the target CID (.+); the last captured CID was (.+)", text,
+    )
+    ios_validator_error = re.fullmatch(
+        r"iOS validator could not compare captured Evidence: (.+)", text, re.DOTALL,
+    )
+    ios_r5_setup = re.fullmatch(
+        r"iOS native Settings automation could not establish and read back this state: (.+)", text, re.DOTALL,
+    )
+    ios_r5_execution = re.fullmatch(
+        r"iOS R5 (.+) failed after execution began: (.+)", text, re.DOTALL,
+    )
+    mmp_lookup = re.fullmatch(
+        r"Traffic lookup data is ready; query the MMP (.+) action\.", text,
+    )
+    ios_qa_missing = re.fullmatch(
+        r"Sample App QA Evidence for (.+) is unavailable; the decoded Bid Request cannot verify itself\.", text,
+    )
     if missing_evidence:
         artifact = Path(missing_evidence.group(1)).name
         text = f"Evidence capture did not produce {artifact}, so this TestCase could not be compared."
@@ -660,6 +767,67 @@ def _dynamic_bi(text, zh=None):
         detail = r5_mutation.group(1)
         text = f"R5 could not apply the required device state: {detail}"
         zh = f"R5 無法完成必要的裝置狀態切換：{detail}"
+    elif ios_wire_pass:
+        field = ios_wire_pass.group(1)
+        zh = f"iOS Request 與 Extended 的 {field} 均符合已確認的 wire contract。"
+    elif ios_wire_fail:
+        field = ios_wire_fail.group(1)
+        zh = f"FAILED：iOS {field} 缺少、格式無效，或 Request 與 Extended payload 不一致。"
+    elif ios_context_missing:
+        field = ios_context_missing.group(1)
+        zh = f"未擷取 {field} 的獨立 iOS Evidence；不能只憑 payload 判定 PASS。"
+    elif ios_contract_pending:
+        field = ios_contract_pending.group(1)
+        zh = f"{field} 的 iOS 契約尚未定義；此 TC 保留顯示，但不能套用 Android 預期值判定 PASS。"
+    elif ios_attempt_limit:
+        round_name, attempts, cid, actual_cid = ios_attempt_limit.groups()
+        zh = (
+            f"iOS {round_name} 已達 {attempts} 次嘗試上限，仍未取得指定 CID {cid}；"
+            f"最後擷取到的 CID 為 {actual_cid}。"
+        )
+    elif ios_validator_error:
+        zh = f"iOS validator 無法使用已擷取的 Evidence 完成比較：{ios_validator_error.group(1)}"
+    elif ios_r5_setup:
+        detail = ios_r5_setup.group(1)
+        switch_readback = re.fullmatch(
+            r"CaptureError: iOS switch read-back is (.+), expected (.+)", detail,
+        )
+        slider_readback = re.fullmatch(
+            r"CaptureError: iOS slider read-back is (.+), expected (.+)", detail,
+        )
+        slider_missing = re.fullmatch(
+            r"CaptureError: Cannot read iOS slider value (.+)", detail,
+        )
+        if switch_readback:
+            actual, expected = switch_readback.groups()
+            detail_zh = f"操作開關後讀回值為 {actual}，預期應為 {expected}。"
+        elif slider_readback:
+            actual, expected = slider_readback.groups()
+            detail_zh = f"操作滑桿後讀回值為 {actual}，預期應為 {expected}。"
+        elif slider_missing:
+            detail_zh = f"無法讀取 iOS 滑桿值 {slider_missing.group(1)}。"
+        elif "does not expose current/max media output volume" in detail:
+            detail_zh = "iOS Settings 沒有顯示目前／最大媒體輸出音量；硬體音量鍵的變更無法獨立讀回，也無法安全還原。"
+        elif "timezone mutation is intentionally unavailable" in detail:
+            detail_zh = "自動切換 iOS 時區目前刻意停用；需先確認可穩定操作的城市選擇器契約。"
+        elif "Tracking switch" in detail and "unavailable" in detail:
+            detail_zh = "找不到此 Sample App 的 Tracking 開關。"
+        else:
+            detail_zh = detail
+        zh = f"iOS 原生 Settings automation 無法建立並讀回此狀態：{detail_zh}"
+    elif ios_r5_execution:
+        scenario, detail = ios_r5_execution.groups()
+        no_bid = re.search(r"No eligible bid after (\d+) attempts", detail)
+        if no_bid:
+            detail_zh = f"嘗試 {no_bid.group(1)} 次後仍未取得有效 Bid。"
+        else:
+            detail_zh = detail
+        zh = f"iOS R5 {scenario} 已開始執行，但未能完成：{detail_zh}"
+    elif mmp_lookup:
+        zh = f"流量查詢資料已備妥；仍需查詢 MMP 的 {mmp_lookup.group(1)} action。"
+    elif ios_qa_missing:
+        field = ios_qa_missing.group(1)
+        zh = f"Sample App 尚未提供 {field} 的 QA Evidence；解碼後的 Bid Request 不能驗證自己。"
     elif stopped:
         attempts, cid = stopped.groups()
         zh = (
@@ -791,6 +959,23 @@ def _evidence_content(row, guidance="", guidance_en=""):
             state = _load_json(target.parent / "tracking-denied-state.json") if (target.parent / "tracking-denied-state.json").exists() else {}
             if state.get("visual_contract") != "opt-out-row-visible-v2":
                 return guidance_html + f'<div class="evidence-missing">{_bi("Stale Evidence hidden: recapture the complete Opt out row with the switch visibly ON.", "已隱藏舊 Evidence：請重新擷取完整的 Opt out 開關列，並讓 ON 狀態清楚可見。")}</div>'
+        if target.name == "ios-settings-state.png":
+            stages = (
+                ("Before", "切換前", target.parent / "ios-settings-before.png"),
+                ("Mutated", "切換後", target),
+                ("Restored", "還原後", target.parent / "ios-settings-restored.png"),
+            )
+            figures = []
+            for en, zh, stage_path in stages:
+                if not stage_path.is_file() or not stage_path.stat().st_size:
+                    figures.append(
+                        f'<div class="evidence-missing"><b>{_bi(en, zh)}</b><p>{_bi("Stage Evidence was not produced.", "此階段沒有產生 Evidence。")}</p></div>'
+                    )
+                    continue
+                stage_url = _register_report_asset(stage_path)
+                figures.append(f'''<figure class="evidence-image"><b>{_bi(en, zh)}</b><button class="evidence-zoom" type="button" aria-label="放大 {html.escape(stage_path.name)}"><img loading="lazy" src="{html.escape(stage_url, quote=True)}" alt="{html.escape(stage_path.name)}"></button>
+<figcaption>{html.escape(stage_path.name)} · {_bi("Click to view full image", "點擊查看全圖")}</figcaption></figure>''')
+            return guidance_html + '<div class="ios-state-stages">' + "".join(figures) + "</div>"
         asset_url = _register_report_asset(target)
         return guidance_html + f'''<figure class="evidence-image"><button class="evidence-zoom" type="button" aria-label="放大 {html.escape(reference)}"><img loading="lazy" src="{html.escape(asset_url, quote=True)}" alt="{html.escape(reference)}"></button>
 <figcaption>{html.escape(reference)} · {_bi("Click to view full image", "點擊查看全圖")}</figcaption></figure>'''
@@ -852,6 +1037,8 @@ def _comparison_summary(row, fallback_criterion, fallback_criterion_zh=None):
 {_comparison_cell({"label": "Expected version", "value": "Enter in Evidence"}, "required-value")}
 <div class="comparison-operator">?</div>{_comparison_cell(view.get("actual"), "actual-value")}</div>
 <p><span>{_bi("Review gate", "人工核對")}</span>{_dynamic_bi(str(view.get("criterion") or fallback_criterion), fallback_criterion_zh)}</p></section>'''
+    if row["status"] == Status.BLOCKED.value and row.get("execution_state") == "NOT_EXECUTABLE":
+        return f'<section class="comparison-hero blocked-comparison"><b>{_bi("Not executable", "不可執行")}</b><span>{_bi("The required platform contract or environment is unavailable.", "缺少必要的平台契約或執行條件。")}</span></section>'
     if row["status"] == Status.BLOCKED.value:
         return f'<section class="comparison-hero blocked-comparison"><b>{_bi("Not executed", "未執行")}</b><span>{_bi("No comparison is claimed.", "未宣稱任何比較結果。")}</span></section>'
     if str(row.get("layer", "")).lower() == "e2e":
@@ -940,7 +1127,10 @@ def _result_card(row, catalog_by_key):
 <div class="manual-saved" hidden></div></div></details></div></article>'''
 
 
-def _unexecuted_card(spec, platform, reason=""):
+def _unexecuted_card(spec, platform, skip=None):
+    skip = skip if isinstance(skip, dict) else ({"reason": str(skip), "decision": "NOT_EXECUTABLE"} if skip else {})
+    reason = str(skip.get("reason") or "")
+    decision = str(skip.get("decision") or "SKIP").upper()
     key = str(spec["key"])
     platform_spec = spec.get(platform, {})
     title = str(spec.get("title") or key)
@@ -948,7 +1138,7 @@ def _unexecuted_card(spec, platform, reason=""):
     priority = html.escape(str(spec.get("priority") or "—"))
     setup = _catalog_text(platform_spec, "setup")
     expected = _catalog_text(platform_spec, "expected")
-    execution_status = _bi("CANNOT RUN", "不可執行") if reason else _bi("NOT RUN", "未執行")
+    execution_status = _bi("CANNOT RUN", "不可執行") if decision == "NOT_EXECUTABLE" else _bi("NOT RUN", "未執行")
     return f'''<article class="result-card unexecuted-card" data-tc="{html.escape(key, quote=True)}" data-result-status="unexecuted" data-automation-status="unexecuted" data-layer="{html.escape(str(spec.get("layer", "Signal")).lower())}">
 <div class="result-head"><div><strong>{title_html}</strong><span class="tc-id">{html.escape(_tc_label(key, {key: spec}))}</span></div><div class="result-badges"><span class="priority-tag">{priority}</span><span class="status unexecuted">{execution_status}</span></div></div>
 <div class="unexecuted-body"><b>{_dynamic_bi(reason) if reason else _bi("No verdict was generated for this TestCase in the selected run.", "所選執行中沒有產生這條 TestCase 的 Verdict。")}</b>
@@ -1230,7 +1420,7 @@ CSS = r"""
 .comparison-list{max-height:190px;margin:9px 0 0;padding:0;overflow:auto;list-style:none;text-align:left;border-top:1px solid var(--line)}.comparison-list li{padding:6px 3px;border-bottom:1px solid var(--line);font:650 11px/1.35 var(--mono);overflow-wrap:anywhere}.comparison-list li:last-child{border-bottom:0}
 .catalog-round{margin:18px 0 30px}.catalog-round-head{display:flex;justify-content:space-between;align-items:end;gap:16px;padding:14px 16px;margin-bottom:9px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.catalog-round-head span{display:inline-block;color:var(--accent);font:800 11px var(--mono);background:var(--accent2);padding:4px 8px;border-radius:6px}.catalog-round-head h3{display:inline;margin-left:9px;font-size:16px}.catalog-round-head p{margin:7px 0 0;color:var(--soft)}.catalog-round-head>b{white-space:nowrap;color:var(--faint);font:800 11px var(--mono)}.catalog-key{display:block;margin:0 0 7px;font:10px/1.35 var(--mono);overflow-wrap:anywhere}.catalog-round-id{display:inline-block;padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--faint);font:700 9px var(--mono)}.draft.implemented{color:var(--pass);background:#2f7d3a20}
 .compact-evidence{overflow:visible}.compact-evidence>label{display:block;margin-top:10px;color:var(--faint);font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.raw-capture{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.raw-capture summary{width:max-content;max-width:100%;color:var(--accent);font:750 10px var(--mono);cursor:pointer}.raw-capture pre{max-height:320px;margin:10px 0 0;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.45 var(--mono)}
-.result-card[data-layer="e2e"] .card-page{min-height:0}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}.e2e-summary-block+ .e2e-summary-block{margin-top:11px}.e2e-summary-block>label{display:block;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.e2e-json-evidence .raw-capture pre code{font:inherit}
+.result-card[data-layer="e2e"] .card-page{min-height:0}.ios-state-stages{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ios-state-stages .evidence-image,.ios-state-stages .evidence-missing{padding:8px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.ios-state-stages .evidence-image>b{align-self:flex-start;margin-bottom:6px;font-size:10px}.ios-state-stages .evidence-image img{max-height:260px}@media(max-width:720px){.ios-state-stages{grid-template-columns:1fr}}.mediation-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;margin-top:6px}.mediation-fact{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.mediation-fact small{display:block;color:var(--faint);font:750 8px var(--mono);letter-spacing:.06em;text-transform:uppercase}.mediation-fact b{display:block;margin-top:3px;font:800 11px var(--mono);overflow-wrap:anywhere}.mediation-details{margin-top:10px}.mediation-details summary{color:var(--accent);font:750 10px var(--mono);cursor:pointer}.mediation-details pre{max-height:180px;margin:8px 0 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:auto;white-space:pre;font:10px/1.4 var(--mono)}.e2e-summary-block+ .e2e-summary-block{margin-top:11px}.e2e-summary-block>label{display:block;color:var(--faint);font:750 9px var(--mono);letter-spacing:.07em;text-transform:uppercase}.e2e-json-evidence .raw-capture pre code{font:inherit}
 .e2e-run-recording{display:grid;grid-template-columns:minmax(190px,.8fr) minmax(260px,1.2fr);gap:18px;align-items:center;margin:0 0 15px;padding:15px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:var(--shadow)}.e2e-run-recording-copy span{color:var(--accent);font:800 9px var(--mono);letter-spacing:.08em;text-transform:uppercase}.e2e-run-recording-copy h4{margin:5px 0 4px;font-size:16px}.e2e-run-recording-copy p{margin:0;color:var(--soft);font-size:12px}.e2e-run-recording video{display:block;width:100%;max-height:420px;border-radius:9px;background:#000;object-fit:contain}@media(max-width:700px){.e2e-run-recording{grid-template-columns:1fr}}
 .coverage-source{display:flex;flex-direction:column;gap:2px;margin:0 0 10px;padding:9px 11px;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;background:var(--accent2)}.coverage-source span{color:var(--faint);font:750 8px var(--mono);letter-spacing:.07em;text-transform:uppercase}.coverage-source b{font-size:11px}.coverage-source small{color:var(--soft);font-size:10px}
 .manual-override-summary{margin:0 0 11px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--block) 55%,var(--line));border-left:4px solid var(--block);border-radius:0 9px 9px 0;background:color-mix(in srgb,var(--block) 12%,var(--panel))}.manual-override-summary>div{display:flex;align-items:center;gap:7px}.manual-override-summary b{font:850 10px var(--mono);color:var(--block);letter-spacing:.04em;text-transform:uppercase}.manual-override-summary span[data-manual-summary-status]{padding:2px 6px;border-radius:999px;background:var(--block);color:#fff;font:800 9px var(--mono)}.manual-override-summary p{margin:7px 0 0;color:var(--ink);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}

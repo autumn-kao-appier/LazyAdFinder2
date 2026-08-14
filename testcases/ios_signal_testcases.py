@@ -18,6 +18,7 @@ from verdict import blocked, evaluate
 BID = "bid"
 IOS_DEVICE_CONTEXT = "ios-device-context"
 IOS_SETTINGS_STATE = "ios-settings-state"
+IOS_QA_EVIDENCE = "ios-qa-evidence"
 IOS_LIFECYCLE_SEQUENCE = "ios-lifecycle-sequence"
 
 
@@ -70,12 +71,14 @@ def _row(key, title, expected, actual, passed, evidence, reason):
     return row
 
 
-def _blocked(key, title, reason, actual=None, evidence="ios-device-context.json"):
+def _blocked(key, title, reason, actual=None, evidence="ios-device-context.json", *, not_executable=False):
     row = blocked(key, reason).to_dict()
     row.update({
         "layer": "Signal", "title": title, "description": reason,
         "actual": actual, "evidence": evidence,
     })
+    if not_executable:
+        row["execution_state"] = "NOT_EXECUTABLE"
     return row
 
 
@@ -123,6 +126,34 @@ def _context_validator(key, title, path, context_key, normalize=lambda value: va
             "ios-device-context.json",
             "The decoded value matches independent iOS device Evidence." if passed else
             "FAILED: the decoded value does not match independent iOS device Evidence.",
+        )
+    return validate
+
+
+def _qa_evidence_validator(key, title, path, evidence_key, predicate=_present, normalize=lambda value: value):
+    """Compare a wire value with a human-readable Sample App QA value."""
+    def validate(folder):
+        req, ext = _wire(folder, path)
+        captured = ext if ext is not None else req
+        document = _read(folder, "ios-qa-evidence.json", {}) or {}
+        expected = _get(document, f"values.{evidence_key}")
+        screenshot = Path(folder) / "ios-qa-evidence.png"
+        if expected in (None, "") or not screenshot.is_file():
+            return _blocked(
+                key, title,
+                f"Sample App QA Evidence for {evidence_key} is unavailable; the decoded Bid Request cannot verify itself.",
+                {"payload": captured, "qa_evidence": expected}, "ios-qa-evidence.json",
+            )
+        try:
+            passed = predicate(captured) and normalize(captured) == normalize(expected)
+        except Exception:
+            passed = False
+        return _row(
+            key, title, {"sample_app_qa_value": expected},
+            {"payload": captured, "sample_app_qa_value": expected}, passed,
+            "ios-qa-evidence.png",
+            "The decoded value matches the visible Sample App QA Evidence." if passed else
+            "FAILED: the decoded value does not match the visible Sample App QA Evidence.",
         )
     return validate
 
@@ -256,7 +287,7 @@ def _platform_contract_pending(key, title, field):
         return _blocked(
             key, title,
             f"The reviewed iOS contract for {field} is not defined yet; the TC remains visible but cannot PASS from an Android expectation.",
-            {"request": req, "extended": ext}, "bid_decoded.json",
+            {"request": req, "extended": ext}, "bid_decoded.json", not_executable=True,
         )
     return validate
 
@@ -273,12 +304,12 @@ def _tc(key, title, description, validate, evidence=(IOS_DEVICE_CONTEXT, BID)):
 
 TC_DEFINITIONS = {
     "advertising-id": _tc("advertising-id", "Advertising ID (IDFA)", "IDFA has UUID wire format.", _wire_validator("advertising-id", "Advertising ID (IDFA)", "device.ia", _uuid, "UUID")),
-    "app-set-id": _tc("app-set-id", "Vendor ID (IDFV)", "IDFV has UUID wire format.", _wire_validator("app-set-id", "Vendor ID (IDFV)", "device.ifv", _uuid, "UUID")),
+    "app-set-id": _tc("app-set-id", "Vendor ID (IDFV)", "Visible Sample App IDFV must equal the Bid value.", _qa_evidence_validator("app-set-id", "Vendor ID (IDFV)", "device.ifv", "idfv", _uuid, lambda v: str(v).lower()), (IOS_QA_EVIDENCE, BID)),
     "installed-app-list": _tc("installed-app-list", "Installed App List", "iOS collection contract requires review.", _platform_contract_pending("installed-app-list", "Installed App List", "device.ext.applist")),
     "in-app-purchase-history": _tc("in-app-purchase-history", "In App Purchase History", "iOS collection contract requires review.", _platform_contract_pending("in-app-purchase-history", "In App Purchase History", "device.ext.iaphistory")),
     "boot-timestamps": _tc("boot-timestamps", "System Boot Timestamps", "Power-on history has ordered epoch milliseconds.", _wire_validator("boot-timestamps", "System Boot Timestamps", "device.ext.pot", lambda v: _timestamp_array(v) and v == sorted(v), "ordered epoch-millisecond array")),
-    "ram-total": _tc("ram-total", "RAM Status (Total)", "Total memory is positive.", _wire_validator("ram-total", "RAM Status (Total)", "device.ext.mem_total", _positive_number, "positive bytes")),
-    "ram-available": _tc("ram-available", "RAM Status (Available)", "Available memory is positive.", _wire_validator("ram-available", "RAM Status (Available)", "device.ext.mem_available", _positive_number, "positive bytes")),
+    "ram-total": _tc("ram-total", "RAM Status (Total)", "Visible Sample App physical-memory value must equal the Bid value.", _qa_evidence_validator("ram-total", "RAM Status (Total)", "device.ext.mem_total", "mem_total", _positive_number), (IOS_QA_EVIDENCE, BID)),
+    "ram-available": _tc("ram-available", "RAM Status (Available)", "Visible Sample App available-memory value must equal the Bid value.", _qa_evidence_validator("ram-available", "RAM Status (Available)", "device.ext.mem_available", "mem_available", _positive_number), (IOS_QA_EVIDENCE, BID)),
     "disk-total": _tc("disk-total", "Disk Storage (Total)", "iOS filesystem scope requires review.", _platform_contract_pending("disk-total", "Disk Storage (Total)", "device.ext.disk_total")),
     "disk-free": _tc("disk-free", "Disk Storage (Free)", "iOS filesystem scope requires review.", _platform_contract_pending("disk-free", "Disk Storage (Free)", "device.ext.disk_free")),
     "battery-level": _tc("battery-level", "Battery Level", "Battery percentage is valid.", _wire_validator("battery-level", "Battery Level", "device.batterylevel", lambda v: type(v) in (int, float) and 0 <= v <= 100, "0..100")),
@@ -293,7 +324,7 @@ TC_DEFINITIONS = {
     "dark-mode": _tc("dark-mode", "Dark Mode", "Interface style is boolean.", _wire_validator("dark-mode", "Dark Mode", "device.ext.darkmode", lambda v: type(v) is bool, "boolean")),
     "gyroscope": _tc("gyroscope", "Gyroscope", "iOS sensor collection contract requires review.", _platform_contract_pending("gyroscope", "Gyroscope", "device.ext.gyroscope")),
     "accelerometer": _tc("accelerometer", "Accelerometer", "iOS sensor collection contract requires review.", _platform_contract_pending("accelerometer", "Accelerometer", "device.ext.accelerometer")),
-    "output-volume": _tc("output-volume", "Output Volume", "Output volume is normalized.", _wire_validator("output-volume", "Output Volume", "device.ext.volume", _fraction, "0..1")),
+    "output-volume": _tc("output-volume", "Output Volume", "Visible AVAudioSession outputVolume must equal the Bid value.", _qa_evidence_validator("output-volume", "Output Volume", "device.ext.volume", "output_volume", _fraction), (IOS_QA_EVIDENCE, BID)),
     "device-make": _tc("device-make", "Device Make", "Manufacturer is Apple.", _wire_validator("device-make", "Device Make", "device.make", lambda v: str(v).lower() == "apple", "Apple")),
     "device-model": _tc("device-model", "Device Model", "Model maps to ProductType.", _wire_validator("device-model", "Device Model", "device.model", _present, "non-empty model")),
     "default-timezone": _tc("default-timezone", "Default Timezone", "UTC offset is integer minutes.", _wire_validator("default-timezone", "Default Timezone", "device.utcoffset", lambda v: type(v) is int and -720 <= v <= 840, "UTC offset minutes")),
@@ -306,8 +337,8 @@ TC_DEFINITIONS = {
     "connection-type-cellular": _tc("connection-type-cellular", "Connection Type (Cellular)", "Requires an active cellular test environment.", _platform_contract_pending("connection-type-cellular", "Connection Type (Cellular)", "device.conntype")),
     "carrier": _tc("carrier", "Carrier", "Carrier follows SIM state.", _platform_contract_pending("carrier", "Carrier", "device.carrier")),
     "mcc-mnc": _tc("mcc-mnc", "MCC/MNC", "MCC/MNC follows SIM state.", _platform_contract_pending("mcc-mnc", "MCC/MNC", "device.mccmnc")),
-    "precise-gps-latitude": _tc("precise-gps-latitude", "Precise GPS Latitude", "Latitude is within range.", _wire_validator("precise-gps-latitude", "Precise GPS Latitude", "device.geo_lat", lambda v: type(v) in (int, float) and -90 <= v <= 90 and v != 0, "-90..90, non-zero")),
-    "precise-gps-longitude": _tc("precise-gps-longitude", "Precise GPS Longitude", "Longitude is within range.", _wire_validator("precise-gps-longitude", "Precise GPS Longitude", "device.geo_lon", lambda v: type(v) in (int, float) and -180 <= v <= 180 and v != 0, "-180..180, non-zero")),
+    "precise-gps-latitude": _tc("precise-gps-latitude", "Precise GPS Latitude", "Visible Core Location latitude must equal the Bid value.", _qa_evidence_validator("precise-gps-latitude", "Precise GPS Latitude", "device.geo_lat", "geo_lat", lambda v: type(v) in (int, float) and -90 <= v <= 90 and v != 0, lambda v: round(float(v), 5)), (IOS_QA_EVIDENCE, BID)),
+    "precise-gps-longitude": _tc("precise-gps-longitude", "Precise GPS Longitude", "Visible Core Location longitude must equal the Bid value.", _qa_evidence_validator("precise-gps-longitude", "Precise GPS Longitude", "device.geo_lon", "geo_lon", lambda v: type(v) in (int, float) and -180 <= v <= 180 and v != 0, lambda v: round(float(v), 5)), (IOS_QA_EVIDENCE, BID)),
     "last-foreground-times": _tc("last-foreground-times", "Last Foreground Times", "Foreground timestamps are valid.", _wire_validator("last-foreground-times", "Last Foreground Times", "user.last_foreground_time", _timestamp_array, "epoch-millisecond array")),
     "last-background-times": _tc("last-background-times", "Last Background Times", "Background timestamps are valid.", _wire_validator("last-background-times", "Last Background Times", "user.last_background_time", _timestamp_array, "epoch-millisecond array")),
     "vpn-status": _tc("vpn-status", "VPN Status", "VPN status has a supported value.", _wire_validator("vpn-status", "VPN Status", "device.ext.vpn", lambda v: v in (0, 1, "0", "1", False, True), "boolean-compatible")),
@@ -334,7 +365,7 @@ def _alternate(key, title, path, predicate, expected, *, allow_missing=False):
         values = [value for value in (req, ext) if value is not None]
         wire_ok = (allow_missing and not values) or (bool(values) and all(predicate(value) for value in values) and _same(req, ext))
         state = _read(folder, "ios-settings-state.json", {}) or {}
-        visible = bool(state.get("confirmed_by_operator") and state.get("screenshot_saved")
+        visible = bool((state.get("confirmed_by_operator") or state.get("automation")) and state.get("screenshot_saved")
                        and (Path(folder) / "ios-settings-state.png").is_file())
         passed = visible and wire_ok
         return _row(

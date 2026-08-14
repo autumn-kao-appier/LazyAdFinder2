@@ -92,6 +92,11 @@ def _row(key, expected, actual, passed, success, failure):
 def validate_bundle(folder):
     folder = Path(folder)
     events = _events(folder)
+    try:
+        traffic_session = json.loads((folder / "traffic-session.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        traffic_session = {}
+    complete_session = bool(traffic_session.get("saved") and traffic_session.get("event_count"))
     pub_req, pub_res = _select(events, "admob-pubsetting", "request"), _select(events, "admob-pubsetting", "response")
     gma_req, gma_res = _select(events, "admob-gma", "request"), _select(events, "admob-gma", "response")
     bid_req, bid_res = _select(events, "bid", "request"), _select(events, "bid", "response")
@@ -100,8 +105,8 @@ def validate_bundle(folder):
     clicks = _select(events, "admob-click", "response")
     pub_body = _body(folder / "admob-pubsetting-response.bin")
     gma_body = _body(folder / "admob-gma-response.bin")
-    pub_ok = _ok(pub_res, False) and pub_body["contains_appier"] and pub_body["status"] == 1 and True in pub_body["mediation"] and bool(pub_body["zones"])
-    gma_ok = _ok(gma_res, False) and gma_body["contains_appier"]
+    pub_ok = complete_session and _ok(pub_res, False) and pub_body["contains_appier"] and pub_body["status"] == 1 and True in pub_body["mediation"] and bool(pub_body["zones"])
+    gma_ok = complete_session and _ok(gma_res, False) and gma_body["contains_appier"]
     gma_time = gma_req[-1].get("timestamp") if gma_req else None
     later_bid = [row for row in bid_req if not gma_time or row.get("timestamp", "") >= gma_time]
     try:
@@ -109,9 +114,10 @@ def validate_bundle(folder):
     except (OSError, json.JSONDecodeError):
         raw = {}
     zone = str(raw.get("zone_id") or "")
-    appier_ok = bool(gma_req and later_bid and _ok(bid_res, False) and zone in set(pub_body["zones"]))
+    appier_ok = bool(complete_session and gma_req and later_bid and _ok(bid_res, False) and zone in set(pub_body["zones"]))
     fill_queries = [parse_qs(urlsplit(str(row.get("url", ""))).query) for row in fill]
-    evidence = {"pubsetting": {"requests": pub_req, "responses": pub_res, "body": pub_body},
+    evidence = {"traffic_session": traffic_session,
+                "pubsetting": {"requests": pub_req, "responses": pub_res, "body": pub_body},
                 "gma": {"requests": gma_req, "responses": gma_res, "body": gma_body},
                 "appier_after_gma": {"requests": later_bid, "responses": bid_res, "zone": zone},
                 "impressions": imp, "fill_results": fill, "fill_queries": fill_queries, "clicks": clicks}
@@ -120,7 +126,7 @@ def validate_bundle(folder):
         _row("admob-pubsetting", {"HTTP": 200, "status": 1, "Appier adapter": True, "mediation": True, "zone": True}, evidence["pubsetting"], pub_ok, "Pubsetting proves the Appier iOS adapter and zone configuration.", "FAILED: Pubsetting does not prove a complete Appier iOS mediation configuration."),
         _row("admob-gma-request", {"successful GMA flow": True, "Appier routing": True}, evidence["gma"], gma_ok, "The GMA response proves Appier mediation routing.", "FAILED: no successful GMA response with Appier routing was preserved."),
         _row("admob-appier-ad-request", {"ordered GMA to Appier flow": True, "zone matches": True}, evidence["appier_after_gma"], appier_ok, "The timeline proves GMA invoked the Appier iOS adapter with the configured zone.", "FAILED: no ordered GMA-to-Appier iOS adapter flow was proven."),
-        _row("admob-impression", {"successful Google impression": True}, imp, _ok(imp), "Google impression reporting succeeded.", "FAILED: no successful Google impression event was captured."),
-        _row("admob-fill-result", {"successful fill result": True}, {"events": fill, "queries": fill_queries}, _ok(fill), "Mediation fill-result reporting succeeded.", "FAILED: no successful mediation fill-result event was captured."),
-        _row("admob-click", {"successful Google click": True}, clicks, _ok(clicks), "Google click reporting succeeded.", "FAILED: no successful Google click event was captured."),
+        _row("admob-impression", {"complete traffic session": True, "successful Google impression": True}, {"traffic_session": traffic_session, "events": imp}, complete_session and _ok(imp), "Google impression reporting succeeded.", "FAILED: no successful Google impression event was captured."),
+        _row("admob-fill-result", {"complete traffic session": True, "successful fill result": True}, {"traffic_session": traffic_session, "events": fill, "queries": fill_queries}, complete_session and _ok(fill), "Mediation fill-result reporting succeeded.", "FAILED: no successful mediation fill-result event was captured."),
+        _row("admob-click", {"complete traffic session": True, "successful Google click": True}, {"traffic_session": traffic_session, "events": clicks}, complete_session and _ok(clicks), "Google click reporting succeeded.", "FAILED: no successful Google click event was captured."),
     ]

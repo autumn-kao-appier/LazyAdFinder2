@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from testcases.ios_signal_testcases import (
-    BID, IOS_DEVICE_CONTEXT, IOS_LIFECYCLE_SEQUENCE, IOS_SETTINGS_STATE,
+    BID, IOS_DEVICE_CONTEXT, IOS_LIFECYCLE_SEQUENCE, IOS_QA_EVIDENCE,
+    IOS_SETTINGS_STATE,
 )
 
 
@@ -30,6 +31,7 @@ def materialize_ios_settings_state(folder):
     folder = Path(folder)
     source = Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json"))
     screenshot = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
+    before_screenshot = Path(os.environ.get("IOS_SETTINGS_BEFORE_SCREENSHOT", "/tmp/laf2-ios-settings-before.png"))
     if source.is_file():
         shutil.copy2(source, folder / "ios-settings-state.json")
     else:
@@ -39,12 +41,40 @@ def materialize_ios_settings_state(folder):
         }, ensure_ascii=False, indent=2) + "\n")
     if screenshot.is_file() and screenshot.stat().st_size:
         shutil.copy2(screenshot, folder / "ios-settings-state.png")
+    if before_screenshot.is_file() and before_screenshot.stat().st_size:
+        shutil.copy2(before_screenshot, folder / "ios-settings-before.png")
+
+
+def materialize_ios_qa_evidence(folder):
+    """Preserve the optional, human-readable Sample App QA Evidence surface.
+
+    Payload values are deliberately never synthesized into this document.  A
+    missing Sample App surface remains explicit so validators cannot use the
+    Bid Request as its own ground truth.
+    """
+    folder = Path(folder)
+    source = Path(os.environ.get("IOS_QA_EVIDENCE_FILE", "/tmp/laf2-ios-qa-evidence.json"))
+    screenshot = Path(os.environ.get("IOS_QA_EVIDENCE_SCREENSHOT", "/tmp/laf2-ios-qa-evidence.png"))
+    if source.is_file():
+        shutil.copy2(source, folder / "ios-qa-evidence.json")
+    else:
+        (folder / "ios-qa-evidence.json").write_text(json.dumps({
+            "status": "UNAVAILABLE",
+            "source": "Sample App QA Evidence page",
+            "reason": (
+                "The Sample App does not expose the requested independent value yet; "
+                "the decoded Bid Request is not accepted as its own Evidence."
+            ),
+        }, ensure_ascii=False, indent=2) + "\n")
+    if screenshot.is_file() and screenshot.stat().st_size:
+        shutil.copy2(screenshot, folder / "ios-qa-evidence.png")
 
 
 EVIDENCE_CAPTURES = {
     BID: EvidenceProvider(),
     IOS_DEVICE_CONTEXT: EvidenceProvider(after_bid=materialize_ios_device_context),
     IOS_SETTINGS_STATE: EvidenceProvider(after_bid=materialize_ios_settings_state),
+    IOS_QA_EVIDENCE: EvidenceProvider(after_bid=materialize_ios_qa_evidence),
     # R3 writes the real multi-capture comparison after all lifecycle actions.
     IOS_LIFECYCLE_SEQUENCE: EvidenceProvider(),
 }

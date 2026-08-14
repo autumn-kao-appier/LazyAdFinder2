@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -70,6 +71,9 @@ ADMOB_RAW_FILES = (
     Path("/tmp/admob_gma_response.bin"),
 )
 SYSLOG_FILE = Path("/tmp/appier_ios_syslog.txt")
+CHARLES_PORT = 8888
+MITMDUMP_PORT = 8081
+MITMDUMP_LOG = Path("/tmp/lazyadfinder2_mitmdump.log")
 DETECTOR_FILES = (
     FLAG_FILE,
     BID_FILE,
@@ -104,6 +108,7 @@ class CaptureConfig:
     test_run_id: str
     test_run_started_at: str
     target_app_bundle_id: str = ""
+    selected_scenarios: tuple[str, ...] = ()
 
     @property
     def app_package(self):
@@ -316,9 +321,10 @@ def capture_tracking_settings(driver, config):
                 "name": switch.get_attribute("name") or switch.get_attribute("label"),
                 "value": switch.get_attribute("value"),
             })
-        app_switches = [item for item in state["switches"]
-                        if "allow apps to request" not in str(item.get("name") or "").lower()]
-        selected = app_switches[-1] if app_switches else None
+        selected = next(
+            (item for item in state["switches"] if item.get("name") == config.bundle_id),
+            None,
+        )
         value = str((selected or {}).get("value") or "").lower()
         if value in {"1", "true", "on"}:
             state["att"]["authorization"] = "authorized"
@@ -364,6 +370,63 @@ def wait_for_bid(config):
             return observation
         time.sleep(0.2)
     return observe_bid()
+
+
+def _tcp_listening(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def _listener_commands(port):
+    result = subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+        text=True, capture_output=True,
+    )
+    commands = []
+    for pid in (line.strip() for line in result.stdout.splitlines()):
+        if not pid.isdigit():
+            continue
+        command = subprocess.run(
+            ["ps", "-p", pid, "-o", "command="], text=True, capture_output=True,
+        ).stdout.strip()
+        if command:
+            commands.append(command)
+    return commands
+
+
+def ensure_e2e_proxy_ready():
+    """Fail before UI actions unless the complete Charles→mitmdump path exists."""
+    if not _tcp_listening("127.0.0.1", CHARLES_PORT):
+        raise CaptureError(f"E2E proxy preflight failed: Charles is not listening on :{CHARLES_PORT}")
+    charles = _listener_commands(CHARLES_PORT)
+    if not any("Charles.app/Contents/MacOS/Charles" in command for command in charles):
+        raise CaptureError(f"E2E proxy preflight failed: :{CHARLES_PORT} is not owned by Charles")
+    if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
+        executable = shutil.which("mitmdump")
+        if not executable:
+            raise CaptureError("E2E proxy preflight failed: mitmdump is unavailable")
+        addon = Path(__file__).with_name("mitmdump_addon.py").resolve()
+        stream = MITMDUMP_LOG.open("a")
+        try:
+            subprocess.Popen(
+                [executable, "-s", str(addon), "--listen-port", str(MITMDUMP_PORT)],
+                cwd=addon.parent, stdout=stream, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        finally:
+            stream.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
+            time.sleep(.2)
+    if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
+        raise CaptureError(f"E2E proxy preflight failed: mitmdump is not listening on :{MITMDUMP_PORT}")
+    addon = str(Path(__file__).with_name("mitmdump_addon.py").resolve())
+    if not any("mitmdump" in command and addon in command for command in _listener_commands(MITMDUMP_PORT)):
+        raise CaptureError("E2E proxy preflight failed: mitmdump is not using this repo's addon")
+    print(f"[proxy preflight] READY: iPhone → Charles :{CHARLES_PORT} → mitmdump :{MITMDUMP_PORT}")
 
 
 def round_directory(config):
@@ -446,19 +509,34 @@ def _capture_e2e_interactions(driver, config, folder):
     folder = Path(folder)
     result = {
         "sequence": ["rendered-ad", "privacy", "return-to-ad", "click", "landing"],
+        "timeline": [],
         "privacy": {"attempted": False, "opened": False},
         "click": {"attempted": False, "opened": False},
         "errors": [],
     }
+    timeline_started = time.monotonic()
+
+    def mark(stage, outcome="STARTED", **details):
+        result["timeline"].append({
+            "stage": stage,
+            "outcome": outcome,
+            "timestamp": datetime.now().astimezone().isoformat(),
+            "offset_seconds": round(time.monotonic() - timeline_started, 3),
+            **details,
+        })
+
     recording_started = False
     try:
         driver.start_recording_screen(video_type="h264", video_quality="medium")
         recording_started = True
+        mark("recording", "STARTED")
     except Exception as exc:
         result["errors"].append(f"recording-start: {exc}")
+        mark("recording", "FAILED", error=str(exc))
     try:
         time.sleep(1)
         driver.save_screenshot(str(folder / "ad-before-interactions.png"))
+        mark("rendered-ad", "CAPTURED", screenshot="ad-before-interactions.png")
         source = driver.page_source or ""
         (folder / "rendered-page-source.xml").write_text(source)
         response = _read_json(BID_RESPONSE_FILE) or {}
@@ -490,16 +568,20 @@ def _capture_e2e_interactions(driver, config, folder):
         if privacy is not None:
             before = _active_app(driver)
             result["privacy"]["attempted"] = True
+            mark("privacy", "TAPPED")
             privacy.click()
             time.sleep(2)
             after = _active_app(driver)
             result["privacy"].update({"before": before, "destination": after,
                                       "opened": after != before})
             driver.save_screenshot(str(folder / "privacy-landing.png"))
+            mark("privacy-destination", "CAPTURED", screenshot="privacy-landing.png", destination=after)
             driver.back()
             time.sleep(1)
+            mark("return-to-ad", "COMPLETED")
         else:
             result["errors"].append("privacy: visible Privacy/AdChoices control not found")
+            mark("privacy", "FAILED", error="visible Privacy/AdChoices control not found")
 
         driver.save_screenshot(str(folder / "ad-before-click.png"))
         cta = _first_element(driver, (
@@ -511,14 +593,17 @@ def _capture_e2e_interactions(driver, config, folder):
         if cta is not None:
             before = _active_app(driver)
             result["click"]["attempted"] = True
+            mark("cta", "TAPPED")
             cta.click()
             time.sleep(3)
             after = _active_app(driver)
             result["click"].update({"before": before, "destination": after,
                                     "opened": after != before})
             driver.save_screenshot(str(folder / "click-landing.png"))
+            mark("landing", "CAPTURED", screenshot="click-landing.png", destination=after)
         else:
             result["errors"].append("click: visible CTA control not found")
+            mark("cta", "FAILED", error="visible CTA control not found")
     except Exception as exc:
         result["errors"].append(f"interaction: {type(exc).__name__}: {exc}")
         try:
@@ -532,6 +617,7 @@ def _capture_e2e_interactions(driver, config, folder):
                 payload = base64.b64decode(encoded) if encoded else b""
                 if payload:
                     (folder / "e2e-interactions.mp4").write_bytes(payload)
+                    mark("recording", "SAVED", bytes=len(payload))
                 else:
                     result["errors"].append("recording-stop: empty video")
             except Exception as exc:
@@ -539,6 +625,10 @@ def _capture_e2e_interactions(driver, config, folder):
         result["recording"] = {
             "saved": (folder / "e2e-interactions.mp4").is_file(),
             "bytes": (folder / "e2e-interactions.mp4").stat().st_size if (folder / "e2e-interactions.mp4").is_file() else 0,
+            "valid_mp4": (
+                (folder / "e2e-interactions.mp4").is_file()
+                and b"moov" in (folder / "e2e-interactions.mp4").read_bytes()
+            ),
         }
         (folder / "e2e-interactions.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
 
@@ -868,59 +958,275 @@ def run_lifecycle_round(config):
     return folders
 
 
-def _settings_screenshot(config):
-    target = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
+def _attribute(element, name):
     try:
-        target.unlink()
-    except FileNotFoundError:
+        return element.get_attribute(name)
+    except Exception:
+        return None
+
+
+def _setting_element(driver, label, element_type=None):
+    queries = []
+    if element_type:
+        queries.append(("xpath", f"//{element_type}[@name={json.dumps(label)} or @label={json.dumps(label)}]"))
+    queries.extend((("accessibility id", label), ("xpath", f"//*[@name={json.dumps(label)} or @label={json.dumps(label)}]")))
+    return _first_element(driver, queries)
+
+
+def _settings_home(driver):
+    driver.terminate_app("com.apple.Preferences")
+    time.sleep(.5)
+    driver.activate_app("com.apple.Preferences")
+    time.sleep(1)
+
+
+def _settings_search_open(driver, query, result_label=None):
+    """Open a native Settings result via its searchable, visible label."""
+    _settings_home(driver)
+    search = _first_element(driver, (("class name", "XCUIElementTypeSearchField"),))
+    if search is None:
+        raise CaptureError("iOS Settings Search field is unavailable")
+    search.click()
+    try:
+        search.clear()
+    except Exception:
         pass
-    driver = None
-    detail = ""
+    search.send_keys(query)
+    time.sleep(2)
+    target = _setting_element(driver, result_label or query)
+    if target is None:
+        candidates = driver.find_elements(
+            "xpath", f"//*[contains(translate(@label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),{json.dumps((result_label or query).lower())})]",
+        )
+        target = next((item for item in candidates if item.is_displayed() and item.is_enabled()), None)
+    if target is None:
+        raise CaptureError(f"iOS Settings search did not expose {result_label or query!r}")
+    target.click()
+    time.sleep(1)
+
+
+def _switch_state(element):
+    return str(_attribute(element, "value") or "").strip().lower() in {"1", "true", "on"}
+
+
+def _set_switch(driver, element, desired):
+    before = _switch_state(element)
+    if before != desired:
+        element.click()
+        time.sleep(.8)
+    after = _switch_state(element)
+    if after != desired:
+        rect = element.rect
+        driver.execute_script("mobile: tap", {
+            "x": rect["x"] + rect["width"] / 2,
+            "y": rect["y"] + rect["height"] / 2,
+        })
+        time.sleep(.8)
+        after = _switch_state(element)
+    if after != desired:
+        raise CaptureError(f"iOS switch read-back is {after}, expected {desired}")
+    return before, after
+
+
+def _slider_fraction(element):
+    value = str(_attribute(element, "value") or "").strip().replace("%", "")
     try:
-        driver = create_driver(config, bundle_id="com.apple.Preferences")
-        time.sleep(1)
-        driver.save_screenshot(str(target))
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {exc}"
+        number = float(value)
+    except ValueError as exc:
+        raise CaptureError(f"Cannot read iOS slider value {value!r}") from exc
+    return number / 100 if number > 1 else number
+
+
+def _set_slider(driver, element, desired):
+    before = _slider_fraction(element)
+    rect = element.rect
+    start_x = rect["x"] + max(2, min(rect["width"] - 2, rect["width"] * before))
+    target_x = rect["x"] + max(2, min(rect["width"] - 2, rect["width"] * desired))
+    y = rect["y"] + rect["height"] / 2
+    driver.execute_script("mobile: dragFromToForDuration", {
+        "duration": .8, "fromX": start_x, "fromY": y, "toX": target_x, "toY": y,
+    })
+    time.sleep(.8)
+    after = _slider_fraction(element)
+    tolerance = .03
+    if abs(after - desired) > tolerance:
+        raise CaptureError(f"iOS slider read-back is {after:.3f}, expected {desired:.3f}")
+    return before, after
+
+
+def _r5_open_control(driver, config, label):
+    """Navigate and return (kind, control, desired); raises before any mutation."""
+    if label in {"DISPLAY-DARK", "DISPLAY-LOW", "DISPLAY-HIGH"}:
+        _settings_search_open(driver, "Display & Brightness")
+        if label == "DISPLAY-DARK":
+            return "choice", _setting_element(driver, "Dark"), "Dark"
+        sliders = driver.find_elements("class name", "XCUIElementTypeSlider")
+        if not sliders:
+            raise CaptureError("Display & Brightness has no visible brightness slider")
+        return "slider", sliders[0], 0.0 if label == "DISPLAY-LOW" else 1.0
+    if label == "TEXT-MAX":
+        _settings_search_open(driver, "Larger Text")
+        sliders = driver.find_elements("class name", "XCUIElementTypeSlider")
+        if not sliders:
+            raise CaptureError("Larger Text has no visible text-size slider")
+        return "slider", sliders[-1], 1.0
+    if label == "LOW-POWER":
+        _settings_search_open(driver, "Low Power Mode")
+        control = _setting_element(driver, "Low Power Mode", "XCUIElementTypeSwitch")
+        if control is None:
+            raise CaptureError("Low Power Mode switch is unavailable")
+        return "switch", control, True
+    if label in {"AUDIO-MUTED", "AUDIO-HIGH"}:
+        raise CaptureError(
+            "iOS Settings does not expose current/max media output volume; "
+            "hardware-button mutation cannot be independently read back or safely restored"
+        )
+    if label == "LOCATION-DENIED":
+        _settings_search_open(driver, "Location Services")
+        app = _setting_element(driver, "AppierAdsSwiftSample") or _setting_element(driver, "Random")
+        if app is None:
+            raise CaptureError("Sample App is absent from iOS Location Services")
+        app.click(); time.sleep(.8)
+        return "choice", _setting_element(driver, "Never"), "Never"
+    if label == "PRIVACY-DENIED":
+        _settings_home(driver)
+        privacy = _setting_element(driver, "Privacy & Security") or _setting_element(driver, "Privacy")
+        if privacy is None:
+            for _ in range(5):
+                driver.swipe(180, 650, 180, 250, 500)
+                privacy = _setting_element(driver, "Privacy & Security") or _setting_element(driver, "Privacy")
+                if privacy is not None:
+                    break
+        if privacy is None:
+            raise CaptureError("native Settings does not expose Privacy & Security")
+        privacy.click(); time.sleep(.8)
+        tracking = _setting_element(driver, "Tracking")
+        if tracking is None:
+            raise CaptureError("native Privacy & Security does not expose Tracking")
+        tracking.click(); time.sleep(.8)
+        control = _setting_element(driver, config.bundle_id, "XCUIElementTypeSwitch")
+        if control is None:
+            control = _setting_element(driver, "AppierAdsSwiftSample", "XCUIElementTypeSwitch")
+        if control is None:
+            raise CaptureError(f"Tracking switch for {config.bundle_id} is unavailable")
+        return "switch", control, False
+    if label == "TIMEZONE-ALT":
+        raise CaptureError("Automated iOS timezone mutation is intentionally unavailable until a deterministic city picker contract is reviewed")
+    raise CaptureError(f"Unknown iOS R5 Scenario {label}")
+
+
+def _mutate_ios_state(config, label):
+    driver = create_driver(config, bundle_id="com.apple.Preferences")
+    screenshot = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
+    before_screenshot = Path(os.environ.get("IOS_SETTINGS_BEFORE_SCREENSHOT", "/tmp/laf2-ios-settings-before.png"))
+    state_path = Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json"))
+    try:
+        kind, control, desired = _r5_open_control(driver, config, label)
+        driver.save_screenshot(str(before_screenshot))
+        if kind == "switch":
+            before, after = _set_switch(driver, control, desired)
+        elif kind == "slider":
+            before, after = _set_slider(driver, control, desired)
+        elif kind == "choice":
+            if control is None:
+                raise CaptureError(f"iOS Settings choice {desired!r} is unavailable")
+            if label == "DISPLAY-DARK":
+                choices = ("Light", "Dark")
+            else:
+                choices = ("Never", "Ask Next Time Or When I Share", "While Using the App", "Always")
+            before = next((name for name in choices if (
+                (item := _setting_element(driver, name)) is not None
+                and ("selected" in str(_attribute(item, "traits") or "").lower()
+                     or str(_attribute(item, "value") or "").lower() in {"1", "selected", "true"})
+            )), None)
+            control.click(); time.sleep(.8)
+            traits = str(_attribute(control, "traits") or "")
+            value = str(_attribute(control, "value") or "")
+            after = {"traits": traits, "value": value}
+        else:
+            raise CaptureError(f"Unsupported iOS control kind {kind}")
+        driver.save_screenshot(str(screenshot))
+        state = {
+            "scenario": label, "automation": "Appium XCUITest native Settings UI",
+            "confirmed_by_operator": False, "screenshot_saved": screenshot.is_file() and screenshot.stat().st_size > 0,
+            "control_kind": kind, "before": before, "desired": desired, "after": after,
+            "stages": {
+                "before": {"value": before, "screenshot": "ios-settings-before.png"},
+                "mutated": {"value": after, "screenshot": "ios-settings-state.png"},
+                "restored": {"status": "PENDING"},
+            },
+            "att": {"authorization": "denied" if label == "PRIVACY-DENIED" else None},
+            "captured_at": datetime.now().astimezone().isoformat(),
+        }
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if not state["screenshot_saved"]:
+            raise CaptureError("iOS state changed but native Settings screenshot was not saved")
+        return state
     finally:
-        if driver is not None:
-            try:
-                driver.quit()
-            except Exception as exc:
-                detail = detail or f"cleanup: {exc}"
-    return target.is_file() and target.stat().st_size > 0, detail
+        driver.quit()
 
 
-def _settings_checkpoint(config, label):
-    instructions = {
-        "DISPLAY-DARK": "開啟 iOS 深色模式，停在 Appearance 設定頁。",
-        "TEXT-MAX": "將 Larger Text／Dynamic Type 調到最右端，停在該設定頁。",
-        "DISPLAY-LOW": "將螢幕亮度調到最低，停在 Brightness 設定頁。",
-        "AUDIO-MUTED": "將媒體輸出音量調為靜音，停在音量控制畫面。",
-        "LOW-POWER": "開啟 Low Power Mode，停在 Battery 設定頁。",
-        "DISPLAY-HIGH": "將螢幕亮度調到最高，停在 Brightness 設定頁。",
-        "AUDIO-HIGH": "將媒體輸出音量調到最高，停在音量控制畫面。",
-        "TIMEZONE-ALT": "關閉自動時區並切換到另一時區，停在 Date & Time 頁。",
-        "LOCATION-DENIED": "將 Sample App Location 權限設為 Never，停在 App 權限頁。",
-        "PRIVACY-DENIED": "將 Sample App 的 Tracking 權限設為關閉，停在 Tracking 頁。",
-    }
-    print(f"\n[R5 {label}] {instructions[label]}")
-    if not sys.stdin.isatty():
-        return False, "Non-interactive execution cannot prove the requested visible iOS Settings state"
-    answer = input("完成並停在正確設定頁後按 Enter；輸入 skip 跳過：").strip().lower()
-    if answer in {"skip", "s", "q", "quit"}:
-        return False, "Operator skipped this iOS alternate-state Scenario"
-    saved, detail = _settings_screenshot(config)
-    state = {
-        "scenario": label, "confirmed_by_operator": True,
-        "screenshot_saved": saved, "capture_detail": detail,
-        "att": {"authorization": "denied" if label == "PRIVACY-DENIED" else None},
-        "captured_at": datetime.now().astimezone().isoformat(),
-    }
-    Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json")).write_text(
-        json.dumps(state, ensure_ascii=False, indent=2) + "\n"
-    )
-    return saved, "" if saved else "Could not capture the visible iOS Settings page"
+def _restore_ios_state(config, label, state, evidence_folder=None):
+    """Restore the exact readable baseline and verify it; unsupported restoration fails closed."""
+    kind, before = state.get("control_kind"), state.get("before")
+    if kind == "choice" and before is None:
+        # Appearance/permission/volume do not expose a deterministic original
+        # value through the selected control.  A later scenario must not run on
+        # an unverified baseline.
+        reason = f"{label} original state was not independently readable, so automatic restore cannot be claimed"
+        if evidence_folder:
+            state_file = Path(evidence_folder) / "ios-settings-state.json"
+            document = _read_json(state_file) or dict(state)
+            document.setdefault("stages", {})["restored"] = {
+                "status": "FAILED", "value": None, "screenshot": None,
+                "reason": reason, "captured_at": datetime.now().astimezone().isoformat(),
+            }
+            state_file.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+        return False, reason
+    driver = create_driver(config, bundle_id="com.apple.Preferences")
+    try:
+        current_kind, control, _desired = _r5_open_control(driver, config, label)
+        if current_kind != kind:
+            return False, f"{label} control changed from {kind} to {current_kind}"
+        if kind == "switch":
+            _set_switch(driver, control, bool(before))
+            restored = _switch_state(control) == bool(before)
+        elif kind == "slider":
+            _set_slider(driver, control, float(before))
+            restored = abs(_slider_fraction(control) - float(before)) <= .03
+        elif kind == "choice":
+            original = _setting_element(driver, str(before))
+            if original is None:
+                return False, f"Original iOS choice {before!r} is unavailable"
+            original.click(); time.sleep(.8)
+            restored = (
+                "selected" in str(_attribute(original, "traits") or "").lower()
+                or str(_attribute(original, "value") or "").lower() in {"1", "selected", "true"}
+            )
+        else:
+            restored = False
+        restored_screenshot = Path(os.environ.get("IOS_SETTINGS_RESTORED_SCREENSHOT", "/tmp/laf2-ios-settings-restored.png"))
+        driver.save_screenshot(str(restored_screenshot))
+        reason = "" if restored else f"{label} restore read-back did not match its original value"
+        if evidence_folder:
+            evidence_folder = Path(evidence_folder)
+            if restored_screenshot.is_file() and restored_screenshot.stat().st_size:
+                shutil.copy2(restored_screenshot, evidence_folder / "ios-settings-restored.png")
+            state_file = evidence_folder / "ios-settings-state.json"
+            document = _read_json(state_file) or dict(state)
+            document.setdefault("stages", {})["restored"] = {
+                "status": "VERIFIED" if restored else "FAILED",
+                "value": before if restored else None,
+                "screenshot": "ios-settings-restored.png" if restored_screenshot.is_file() else None,
+                "reason": reason or None,
+                "captured_at": datetime.now().astimezone().isoformat(),
+            }
+            state_file.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+        return restored, reason
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    finally:
+        driver.quit()
 
 
 def _record_blocked(config, round_name, label, keys, reason):
@@ -950,18 +1256,24 @@ def run_r5_round(config):
     folders = []
     restore_failed = False
     for index, (label, keys) in enumerate(R5_SCENARIOS):
+        if config.selected_scenarios and label not in config.selected_scenarios:
+            continue
         # REEN does not require the privacy-denied identity contract.
         if label == "PRIVACY-DENIED" and config.test_type != "aibid":
             continue
         if restore_failed:
             folders.append(_record_blocked(
                 config, "R5", label, keys,
-                "Not executed because the previous iOS Scenario was not restored to baseline.",
+                "Not executed because the previous iOS Scenario did not restore its original state.",
             ))
             continue
-        ok, reason = _settings_checkpoint(config, label)
-        if not ok:
-            folders.append(_record_blocked(config, "R5", label, keys, reason))
+        try:
+            state = _mutate_ios_state(config, label)
+        except Exception as exc:
+            folders.append(_record_blocked(
+                config, "R5", label, keys,
+                f"iOS native Settings automation could not establish and read back this state: {type(exc).__name__}: {exc}",
+            ))
             continue
         scenario_config = config
         if label == "PRIVACY-DENIED" and config.test_mode == "admob-mediation":
@@ -987,15 +1299,14 @@ def run_r5_round(config):
                 )
             print(f"[warn] R5 {label} failed independently: {exc}", file=sys.stderr)
         finally:
-            if sys.stdin.isatty():
-                answer = input(
-                    f"請將 {label} 還原到本輪開始前狀態；完成後按 Enter，輸入 fail 表示無法還原："
-                ).strip().lower()
-                restore_failed = answer in {"fail", "f", "skip", "s", "q", "quit"}
-            else:
+            evidence_folder = folders[-1] if folders else None
+            restored, restore_reason = _restore_ios_state(config, label, state, evidence_folder)
+            if not restored:
                 restore_failed = True
-            if restore_failed:
-                print(f"[warn] R5 {label} restore was not confirmed; later Scenarios will be BLOCKED", file=sys.stderr)
+                target = Path(folders[-1]) if folders else None
+                if target and target.is_dir():
+                    (target / "restore-error.txt").write_text(restore_reason + "\n")
+                print(f"[warn] R5 {label} restore failed independently: {restore_reason}", file=sys.stderr)
     return folders
 
 
@@ -1116,6 +1427,12 @@ def build_parser():
     capture_parser = subparsers.add_parser("capture", help="capture one raw iOS evidence bundle")
     round_parser = subparsers.add_parser("round", help="execute a declared iOS round")
     round_parser.add_argument("name")
+    round_parser.add_argument(
+        "--scenario",
+        action="append",
+        default=[],
+        help="run only the named R5 Scenario; repeat to select more than one",
+    )
     subparsers.add_parser("list-rounds", help="list declared rounds without touching a device")
 
     for target in (capture_parser, round_parser):
@@ -1155,6 +1472,18 @@ def config_from_args(args):
         raise CaptureError("Missing required configuration: " + ", ".join(missing))
     if args.max_attempts < 0 or args.bid_timeout <= 0 or args.phase_timeout < 0:
         raise CaptureError("Timeouts must be positive and attempt limits cannot be negative")
+    selected_scenarios = tuple(
+        str(item).strip().upper() for item in getattr(args, "scenario", ()) if str(item).strip()
+    )
+    if selected_scenarios:
+        if args.name.strip().upper() != "R5":
+            raise CaptureError("--scenario is only valid with round R5")
+        known_scenarios = {label for label, _keys in R5_SCENARIOS}
+        unknown_scenarios = sorted(set(selected_scenarios) - known_scenarios)
+        if unknown_scenarios:
+            raise CaptureError(
+                "Unknown R5 Scenario(s): " + ", ".join(unknown_scenarios)
+            )
 
     mode = args.test_mode.strip().lower()
     tab_name = args.tab_name.strip() or MODE_TABS.get(mode, "")
@@ -1185,6 +1514,7 @@ def config_from_args(args):
         test_run_id=_env("TEST_RUN_ID", f"ios-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}").strip(),
         test_run_started_at=_env("TEST_RUN_STARTED_AT", datetime.now().astimezone().isoformat()).strip(),
         target_app_bundle_id=args.target_app_bundle_id.strip(),
+        selected_scenarios=selected_scenarios,
     )
 
 
@@ -1211,6 +1541,9 @@ def main(argv=None):
     print(f"[type]   {config.test_type}")
     print(f"[cid]    {config.test_cid or '(any request)'}")
     print(f"[round]  {config.test_round}")
+
+    if args.command == "round" and args.name.strip().upper().startswith("E2E-"):
+        ensure_e2e_proxy_ready()
 
     if args.command == "capture":
         capture(config, capture_name=args.capture_name)

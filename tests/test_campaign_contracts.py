@@ -45,12 +45,28 @@ class CampaignContractTests(unittest.TestCase):
     def test_ios_suite_plan_runs_all_reviewed_platform_rounds(self):
         plan = run_ios_test_suite.execution_plan("aibid", "standalone")
         by_name = {item.name: item for item in plan}
-        for name in ("R1", "R2", "R3", "R4", "R5", "E2E-STANDALONE"):
+        for name in ("R1", "R2", "R3", "R5", "E2E-STANDALONE"):
             self.assertEqual("RUN", by_name[name].decision)
             self.assertTrue(by_name[name].testcase_keys)
+        self.assertEqual("NOT_EXECUTABLE", by_name["R4"].decision)
+        ipv6 = {item.name: item for item in run_ios_test_suite.execution_plan(
+            "aibid", "standalone", ipv6_ready=True,
+        )}
+        self.assertEqual("RUN", ipv6["R4"].decision)
         mediation = {item.name: item for item in run_ios_test_suite.execution_plan("aibid", "mediation")}
         self.assertEqual("RUN", mediation["E2E-ADMOB"].decision)
         self.assertIn("admob-pubsetting", mediation["E2E-ADMOB"].testcase_keys)
+
+    def test_ios_suite_round_selection_is_decided_before_execution(self):
+        plan = run_ios_test_suite.execution_plan(
+            "aibid", "standalone", selected_rounds=("R1", "E2E-STANDALONE"),
+        )
+        by_name = {item.name: item for item in plan}
+        self.assertEqual("RUN", by_name["R1"].decision)
+        self.assertEqual("RUN", by_name["E2E-STANDALONE"].decision)
+        for name in ("R2", "R3", "R4", "R5"):
+            self.assertEqual("SKIP", by_name[name].decision)
+            self.assertIn("Not selected", by_name[name].reason)
 
     def test_ios_mediation_has_an_independent_test_device_gate(self):
         opened = []
@@ -259,6 +275,16 @@ class CampaignContractTests(unittest.TestCase):
         )
         self.assertIn("CANNOT RUN", card)
         self.assertIn("不可執行", card)
+
+    def test_execution_plan_skip_is_labeled_not_run(self):
+        card = page._unexecuted_card(
+            self.catalog_by_key["tracking-denied"],
+            "aos",
+            {"decision": "SKIP", "reason": "Not selected in this suite's Test Scope"},
+        )
+        self.assertIn("NOT RUN", card)
+        self.assertIn("未執行", card)
+        self.assertNotIn("CANNOT RUN", card)
 
     def test_r5_uses_four_transactional_scenarios(self):
         plan = qa_aos.resolve_execution_plan(round_args("R5"))

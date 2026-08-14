@@ -1,6 +1,7 @@
 """iOS-owned E2E baseline validator for Standalone and Mediation."""
 
 import json
+import hashlib
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -87,6 +88,17 @@ def validate_bundle(folder):
     interactions = _json(folder / "e2e-interactions.json", {}) or {}
     visual = _json(folder / "visual-review.json", {}) or {}
     events = _events(folder)
+    traffic_path = folder / "proxy-events.jsonl"
+    traffic_bytes = traffic_path.read_bytes() if traffic_path.is_file() else b""
+    traffic_session = {
+        "saved": bool(traffic_bytes),
+        "bytes": len(traffic_bytes),
+        "event_count": len(events),
+        "sha256": hashlib.sha256(traffic_bytes).hexdigest() if traffic_bytes else None,
+        "first_timestamp": events[0].get("timestamp") if events else None,
+        "last_timestamp": events[-1].get("timestamp") if events else None,
+    }
+    (folder / "traffic-session.json").write_text(json.dumps(traffic_session, ensure_ascii=False, indent=2) + "\n")
     profile = campaign_profile(summary.get("test_type"))
 
     bid_requests = [row for row in _requests(events, "bid")
@@ -105,7 +117,7 @@ def validate_bundle(folder):
         "response_body_saved": (folder / "bid_response.json").is_file(),
         "valid_ad_unit": bool(ad_units and isinstance(ad_units[0], dict) and ad_units[0].get("ad")),
     }
-    request_ok = bool(bid_request and bid_response and bid_response.get("status") == 200
+    request_ok = bool(traffic_session["saved"] and bid_request and bid_response and bid_response.get("status") == 200
                       and request_actual["request_body_saved"] and request_actual["response_body_saved"]
                       and request_actual["bundle"] and request_actual["sdk_version"]
                       and request_actual["zone_id"] and request_actual["valid_ad_unit"])
@@ -159,17 +171,23 @@ def validate_bundle(folder):
                "matching_clicks": matching_clicks}
     (folder / "e2e-network-evidence.json").write_text(json.dumps(network, ensure_ascii=False, indent=2) + "\n")
 
-    recording_ok = (folder / "e2e-interactions.mp4").is_file() and (folder / "e2e-interactions.mp4").stat().st_size > 0
+    recording = interactions.get("recording", {}) if isinstance(interactions, dict) else {}
+    recording_ok = bool(recording.get("saved") and recording.get("valid_mp4"))
+    timeline = interactions.get("timeline", []) if isinstance(interactions, dict) else []
+    completed_stages = {row.get("stage") for row in timeline if row.get("outcome") in {"CAPTURED", "COMPLETED", "SAVED"}}
+    render_timeline_ok = "rendered-ad" in completed_stages
+    privacy_timeline_ok = {"privacy-destination", "return-to-ad"}.issubset(completed_stages)
+    click_timeline_ok = {"landing"}.issubset(completed_stages)
     render_ok = bool((folder / "ad-before-interactions.png").is_file() and response and visual.get("passed"))
     return [
         init_row,
         _row("standalone-appier-ad-request", {"POST /v2/sdk/ios/ad": "same-flow HTTP 200 with bodies"}, request_actual, request_ok, "appier-ad-flow.json", "The same proxy flow proves the iOS Appier request and response.", "FAILED: no complete same-flow iOS Appier ad transaction was preserved."),
         _row("standalone-creative-assets", {"all response assets": "successful image responses"}, {"expected": asset_urls, "seen": sorted(seen)}, assets_ok, "e2e-network-evidence.json", "All response-specified creative assets loaded successfully.", "FAILED: one or more response-specified creative assets were not proven in traffic."),
-        _row("standalone-native-render", {"visible screenshot": True, "response-to-view comparison": True, "full recording": True}, {"visual_review": visual, "recording": recording_ok}, render_ok and recording_ok, "ad-before-interactions.png", "The visible ad, response comparison and full recording prove rendering.", "FAILED: rendered-ad screenshot, objective visual comparison, or full recording is missing."),
+        _row("standalone-native-render", {"visible screenshot": True, "response-to-view comparison": True, "full valid recording": True, "timeline stage": "rendered-ad"}, {"visual_review": visual, "recording": recording, "timeline": timeline}, render_ok and recording_ok and render_timeline_ok, "ad-before-interactions.png", "The visible ad, response comparison, full recording and timeline prove rendering.", "FAILED: rendered-ad screenshot, objective visual comparison, valid full recording, or timeline stage is missing."),
         _row("standalone-impression", {"show_cb": True, "winshowimg": True}, {"show_cb": impressions, "winshowimg": wins}, impression_ok, "e2e-network-evidence.json", "The complete Appier impression chain was captured.", "FAILED: show_cb and winshowimg were not both captured successfully."),
-        _row("standalone-click", {"visible CTA action": True, "matching xclk": True}, {"interaction": click_state, "matching_xclk": matching_clicks}, click_ok, "e2e-network-evidence.json", "The recorded CTA action emitted a matching xclk.", "FAILED: no recorded CTA action with a matching successful xclk was proven."),
-        _row("standalone-landing", {"campaign destination": profile.landing_contract, "visible screenshot": True}, {"destination": destination, "target": target}, destination_ok, "click-landing.png", "The tracked click opened and preserved the campaign destination.", "FAILED: the tracked click did not preserve the required campaign destination."),
-        _row("standalone-privacy", {"privacy interaction": True, "visible destination": True}, privacy_state, privacy_ok, "privacy-landing.png", "The Privacy interaction opened and preserved its destination.", "FAILED: Privacy interaction and visible destination Evidence are incomplete."),
+        _row("standalone-click", {"visible CTA action": True, "matching xclk": True, "timeline": True}, {"interaction": click_state, "matching_xclk": matching_clicks, "timeline": timeline}, click_ok and click_timeline_ok and recording_ok, "e2e-network-evidence.json", "The recorded CTA action, timeline and valid full recording emitted a matching xclk.", "FAILED: no recorded CTA action, timeline and valid full recording with a matching successful xclk were proven."),
+        _row("standalone-landing", {"campaign destination": profile.landing_contract, "visible screenshot": True, "timeline": True}, {"destination": destination, "target": target, "timeline": timeline}, destination_ok and click_timeline_ok and recording_ok, "click-landing.png", "The tracked click, timeline and valid full recording preserved the campaign destination.", "FAILED: the tracked click did not preserve the required campaign destination in the timeline and valid full recording."),
+        _row("standalone-privacy", {"privacy interaction": True, "visible destination": True, "return to ad": True, "timeline": True}, {"interaction": privacy_state, "timeline": timeline}, privacy_ok and privacy_timeline_ok and recording_ok, "privacy-landing.png", "The Privacy interaction, return step, timeline and valid full recording preserved its destination.", "FAILED: Privacy interaction, return step, visible destination, timeline or valid full recording Evidence is incomplete."),
         _blocked("standalone-install-attribution", f"Traffic lookup data is ready; query the MMP {profile.mmp_click_action} action.", lookup),
         _blocked("standalone-attribution-reconciliation", "Traffic lookup data is ready; backend attribution reconciliation still requires the authorized data query.", lookup),
     ]
