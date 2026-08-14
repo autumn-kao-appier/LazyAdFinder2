@@ -269,6 +269,14 @@ def dismiss_system_alert(driver):
         return False
 
 
+def _cold_launch_for_e2e(driver, bundle_id):
+    """Guarantee that SDK Init occurs inside the freshly cleared traffic window."""
+    driver.terminate_app(bundle_id)
+    time.sleep(1)
+    driver.activate_app(bundle_id)
+    time.sleep(2)
+
+
 def select_tab(driver, tab_name):
     if not tab_name:
         return
@@ -504,6 +512,89 @@ def _first_element(driver, queries):
     return None
 
 
+def _native_creative(response):
+    try:
+        native = response["adUnits"][0]["ad"]["native"]
+    except (KeyError, IndexError, TypeError):
+        return {}
+    return native if isinstance(native, dict) else {}
+
+
+def _button_with_text(driver, expected_text):
+    """Find the CTA by response text, independent of creative language."""
+    expected = str(expected_text or "").strip().casefold()
+    try:
+        buttons = driver.find_elements("class name", "XCUIElementTypeButton")
+    except Exception:
+        buttons = []
+    for button in buttons:
+        try:
+            values = {
+                str(button.get_attribute(name) or "").strip().casefold()
+                for name in ("name", "label", "value")
+            }
+            if expected and expected in values and button.is_displayed() and button.is_enabled():
+                return button
+        except Exception:
+            continue
+    return None
+
+
+def _privacy_icon(driver):
+    """Find an unlabeled AdChoices icon at the creative's upper-right edge."""
+    try:
+        width = float((driver.get_window_size() or {}).get("width") or 0)
+        images = driver.find_elements("class name", "XCUIElementTypeImage")
+    except Exception:
+        return None
+    candidates = []
+    for element in images:
+        try:
+            rect = element.rect or {}
+            x, y = float(rect.get("x", 0)), float(rect.get("y", 0))
+            w, h = float(rect.get("width", 0)), float(rect.get("height", 0))
+            if element.is_displayed() and 0 < w <= 32 and 0 < h <= 32 and x >= width * 0.65:
+                candidates.append((y, -x, element))
+        except Exception:
+            continue
+    return min(candidates, key=lambda item: (item[0], item[1]), default=(None, None, None))[2]
+
+
+def _tap(driver, element):
+    try:
+        element.click()
+        return
+    except Exception:
+        rect = element.rect or {}
+        x = float(rect.get("x", 0)) + float(rect.get("width", 0)) / 2
+        y = float(rect.get("y", 0)) + float(rect.get("height", 0)) / 2
+        driver.execute_script("mobile: tap", {"x": x, "y": y})
+
+
+def _close_privacy_destination(driver, app_bundle_id):
+    """Close the iOS in-app browser; WebDriver back only navigates browser history."""
+    active_bundle = str(_active_app(driver).get("bundle_id") or "")
+    if active_bundle and active_bundle != app_bundle_id:
+        driver.activate_app(app_bundle_id)
+        return "reactivate-sample-app"
+    close = _first_element(driver, (
+        ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'close')]"),
+        ("xpath", "//XCUIElementTypeButton[contains(translate(@label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'close')]"),
+        ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'done')]"),
+    ))
+    if close is not None:
+        _tap(driver, close)
+        return "accessibility-close"
+    size = driver.get_window_size() or {}
+    width, height = float(size.get("width") or 0), float(size.get("height") or 0)
+    if not width or not height:
+        raise CaptureError("Cannot determine iOS window size to close Privacy destination")
+    # SFSafariViewController exposes a bottom-center close control even when its
+    # accessibility label is absent from WebDriverAgent's tree.
+    driver.execute_script("mobile: tap", {"x": width * 0.69, "y": height - 48})
+    return "safari-close-coordinate"
+
+
 def _capture_e2e_interactions(driver, config, folder):
     """Record one visible iOS journey and preserve every interaction outcome."""
     folder = Path(folder)
@@ -540,17 +631,14 @@ def _capture_e2e_interactions(driver, config, folder):
         source = driver.page_source or ""
         (folder / "rendered-page-source.xml").write_text(source)
         response = _read_json(BID_RESPONSE_FILE) or {}
+        native = _native_creative(response)
         expected_text = []
-        try:
-            native = response["adUnits"][0]["ad"]["native"]
-            for key in ("title", "text", "ctaText"):
-                value = native.get(key)
-                if isinstance(value, dict):
-                    value = value.get("text") or value.get("value")
-                if isinstance(value, str) and value.strip():
-                    expected_text.append(value.strip())
-        except (KeyError, IndexError, TypeError):
-            pass
+        for key in ("title", "text", "ctaText"):
+            value = native.get(key)
+            if isinstance(value, dict):
+                value = value.get("text") or value.get("value")
+            if isinstance(value, str) and value.strip():
+                expected_text.append(value.strip())
         missing_text = [value for value in expected_text if value not in source]
         visual = {
             "platform": "ios", "expected_text": expected_text,
@@ -564,27 +652,37 @@ def _capture_e2e_interactions(driver, config, folder):
         privacy = _first_element(driver, (
             ("xpath", "//*[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'privacy')]"),
             ("xpath", "//*[contains(translate(@label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'adchoices')]"),
-        ))
+        )) or _privacy_icon(driver)
         if privacy is not None:
             before = _active_app(driver)
+            before_source = driver.page_source or ""
             result["privacy"]["attempted"] = True
             mark("privacy", "TAPPED")
-            privacy.click()
+            _tap(driver, privacy)
             time.sleep(2)
             after = _active_app(driver)
+            destination_source = driver.page_source or ""
             result["privacy"].update({"before": before, "destination": after,
-                                      "opened": after != before})
+                                      "opened": after != before or destination_source != before_source})
             driver.save_screenshot(str(folder / "privacy-landing.png"))
             mark("privacy-destination", "CAPTURED", screenshot="privacy-landing.png", destination=after)
-            driver.back()
+            return_method = _close_privacy_destination(driver, config.bundle_id)
             time.sleep(1)
-            mark("return-to-ad", "COMPLETED")
+            driver.save_screenshot(str(folder / "ad-after-privacy-return.png"))
+            returned_source = driver.page_source or ""
+            (folder / "after-privacy-return.xml").write_text(returned_source)
+            returned = bool(returned_source) and returned_source != destination_source
+            mark("return-to-ad", "COMPLETED" if returned else "FAILED",
+                 method=return_method, screenshot="ad-after-privacy-return.png")
         else:
             result["errors"].append("privacy: visible Privacy/AdChoices control not found")
             mark("privacy", "FAILED", error="visible Privacy/AdChoices control not found")
 
         driver.save_screenshot(str(folder / "ad-before-click.png"))
-        cta = _first_element(driver, (
+        cta_value = native.get("ctaText")
+        if isinstance(cta_value, dict):
+            cta_value = cta_value.get("text") or cta_value.get("value")
+        cta = _button_with_text(driver, cta_value) or _first_element(driver, (
             ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'install')]"),
             ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'open')]"),
             ("xpath", "//XCUIElementTypeButton[contains(translate(@name,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'learn')]"),
@@ -594,7 +692,7 @@ def _capture_e2e_interactions(driver, config, folder):
             before = _active_app(driver)
             result["click"]["attempted"] = True
             mark("cta", "TAPPED")
-            cta.click()
+            _tap(driver, cta)
             time.sleep(3)
             after = _active_app(driver)
             result["click"].update({"before": before, "destination": after,
@@ -648,7 +746,10 @@ def capture(config, capture_name="MANUAL", setup=None, warmup_ads=0, strategy="s
         failed_step = "launch-app"
         with SyslogRecorder(config):
             driver = create_driver(config)
-            time.sleep(2)
+            if strategy == "e2e":
+                _cold_launch_for_e2e(driver, config.bundle_id)
+            else:
+                time.sleep(2)
             dismiss_system_alert(driver)
             if config.test_round == "R1":
                 print("[evidence] capture native iOS Settings → Privacy & Security → Tracking")

@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 import evidence_ios
 import qa_ios
@@ -105,6 +105,59 @@ class IOSEvidenceContractTests(unittest.TestCase):
         with patch.object(qa_ios, "_tcp_listening", return_value=False):
             with self.assertRaisesRegex(qa_ios.CaptureError, "Charles is not listening"):
                 qa_ios.ensure_e2e_proxy_ready()
+
+    def test_e2e_cold_launch_terminates_before_reactivating_sample_app(self):
+        driver = MagicMock()
+        with patch.object(qa_ios.time, "sleep") as sleep:
+            qa_ios._cold_launch_for_e2e(driver, "com.appier.Random")
+        self.assertEqual(
+            [
+                call.terminate_app("com.appier.Random"),
+                call.activate_app("com.appier.Random"),
+            ],
+            driver.mock_calls,
+        )
+        self.assertEqual([call(1), call(2)], sleep.mock_calls)
+
+    def test_e2e_cta_locator_uses_response_text_in_any_language(self):
+        chinese_cta = MagicMock()
+        chinese_cta.is_displayed.return_value = True
+        chinese_cta.is_enabled.return_value = True
+        chinese_cta.get_attribute.side_effect = lambda name: "立即下載" if name in {"name", "label"} else None
+        driver = MagicMock()
+        driver.find_elements.return_value = [chinese_cta]
+        self.assertIs(chinese_cta, qa_ios._button_with_text(driver, "立即下載"))
+
+    def test_e2e_privacy_locator_accepts_unlabeled_top_right_icon(self):
+        app_icon = MagicMock()
+        app_icon.is_displayed.return_value = True
+        app_icon.rect = {"x": 20, "y": 146, "width": 40, "height": 41}
+        privacy = MagicMock()
+        privacy.is_displayed.return_value = True
+        privacy.rect = {"x": 335, "y": 156, "width": 20, "height": 21}
+        driver = MagicMock()
+        driver.get_window_size.return_value = {"width": 375, "height": 812}
+        driver.find_elements.return_value = [app_icon, privacy]
+        self.assertIs(privacy, qa_ios._privacy_icon(driver))
+
+    def test_e2e_privacy_return_closes_in_app_browser_instead_of_history_back(self):
+        driver = MagicMock()
+        driver.find_elements.return_value = []
+        driver.get_window_size.return_value = {"width": 375, "height": 812}
+        with patch.object(qa_ios, "_active_app", return_value={"bundle_id": "com.appier.Random"}):
+            method = qa_ios._close_privacy_destination(driver, "com.appier.Random")
+        self.assertEqual("safari-close-coordinate", method)
+        driver.execute_script.assert_called_once_with(
+            "mobile: tap", {"x": 375 * 0.69, "y": 812 - 48},
+        )
+        driver.back.assert_not_called()
+
+    def test_e2e_privacy_return_reactivates_sample_app_after_external_safari(self):
+        driver = MagicMock()
+        with patch.object(qa_ios, "_active_app", return_value={"bundle_id": "com.apple.mobilesafari"}):
+            method = qa_ios._close_privacy_destination(driver, "com.appier.Random")
+        self.assertEqual("reactivate-sample-app", method)
+        driver.activate_app.assert_called_once_with("com.appier.Random")
 
 
 if __name__ == "__main__":

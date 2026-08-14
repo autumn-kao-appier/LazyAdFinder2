@@ -1959,11 +1959,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
-        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
-        "expected": "Creative Asset Loading 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
-        "expected_en": "Creative Asset Loading must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "setup": "沿用同輪 iOS ad response；保存素材流量。若 NSURL cache 未重新發 request，保存廣告畫面與 accessibility tree。",
+        "setup_en": "Reuse the same-run iOS ad response and preserve asset traffic. If NSURL cache avoids a new request, preserve the visible ad and accessibility tree.",
+        "expected": "Response 指定的素材必須由本輪成功 image response 證明；若使用 cache，則 icon、main image、privacy icon 三個圖片元素都必須可見且有完整截圖。Report 必須標明 NETWORK 或 VISIBLE_CACHE，不得假裝 cache hit 是 HTTP Evidence。",
+        "expected_en": "Response assets must be proven by successful same-run image responses. When cache is used, the icon, main image, and privacy icon must all be visible with a complete screenshot. The report identifies NETWORK or VISIBLE_CACHE and never presents a cache hit as HTTP Evidence.",
+        "evidence": "e2e-network-evidence.json、rendered-page-source.xml、ad-before-interactions.png"
       }
     },
     {
@@ -2051,11 +2051,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "執行完整 iOS 廣告旅程；Mediation 另保存 Pubsetting、GMA 與 Google tracking flow。",
-        "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
-        "expected": "Appier Click Tracking 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
-        "expected_en": "Appier Click Tracking must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "setup": "沿用 E2E 共用完整操作紀錄中的 CTA 點擊，保存該次 xclk request／response。",
+        "setup_en": "Reuse the CTA interaction documented by the shared E2E recording and preserve its xclk request and response.",
+        "expected": "必須送出對應本次可見曝光的 xclk；bidobjid／CID／CRID 與曝光一致，HTTP response 或 redirect 成功。影片屬 E2E 共用 Evidence；Landing 由 S14 判定，不得拖累 S11。",
+        "expected_en": "An xclk matching the visible impression must be emitted; bidobjid, CID, and CRID match, and the HTTP response or redirect succeeds. The video is shared E2E Evidence, while S14 independently validates landing and cannot affect S11.",
+        "evidence": "e2e-network-evidence.json（xclk URL、correlation IDs、HTTP status）"
       }
     },
     {
