@@ -11,6 +11,212 @@ from testcases.ios_signal_testcases import TC_DEFINITIONS
 
 
 class IOSEvidenceContractTests(unittest.TestCase):
+    def test_idfa_cannot_pass_without_visible_get_my_idfa_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value}}},
+                "ext": {"plaintext": {"device": {"ia": value}}},
+            }))
+            (folder / "ios-idfa-state.json").write_text(json.dumps({"status": "UNAVAILABLE"}))
+            verdict = TC_DEFINITIONS["advertising-id"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_idfa_passes_with_matching_visible_value_and_authorized_att(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value}}},
+                "ext": {"plaintext": {"device": {"ia": value}}},
+            }))
+            (folder / "ios-idfa-state.json").write_text(json.dumps({
+                "status": "CAPTURED", "value": value.upper(),
+            }))
+            (folder / "ios-idfa.png").write_bytes(b"visible")
+            (folder / "ios-settings-state.json").write_text(json.dumps({
+                "att": {"authorization": "authorized"},
+            }))
+            (folder / "ios-settings-state.png").write_bytes(b"visible tracking")
+            verdict = TC_DEFINITIONS["advertising-id"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_idfa_blocks_when_native_att_evidence_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value}}},
+                "ext": {"plaintext": {"device": {"ia": value}}},
+            }))
+            (folder / "ios-idfa-state.json").write_text(json.dumps({"status": "CAPTURED", "value": value}))
+            (folder / "ios-idfa.png").write_bytes(b"visible")
+            (folder / "ios-settings-state.json").write_text(json.dumps({
+                "status": "UNAVAILABLE", "att": {"authorization": None},
+                "reason": "Tracking page unavailable",
+            }))
+            verdict = TC_DEFINITIONS["advertising-id"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_get_my_idfa_zero_value_is_unavailable_not_product_failure(self):
+        config = MagicMock()
+        driver = MagicMock()
+        driver.page_source = '<XCUIElementTypeStaticText value="00000000-0000-0000-0000-000000000000"/>'
+        driver.find_elements.return_value = []
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state.json"
+            screenshot = Path(temporary) / "idfa.png"
+            driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+            with patch.dict("os.environ", {
+                "IOS_IDFA_STATE_FILE": str(state),
+                "IOS_IDFA_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver), patch.object(qa_ios.time, "sleep"):
+                document = qa_ios.capture_visible_idfa(config)
+            self.assertEqual(document["status"], "UNAVAILABLE")
+            self.assertIn("zero IDFA", document["reason"])
+
+    def test_get_my_idfa_permission_alert_is_not_auto_accepted(self):
+        config = MagicMock()
+        driver = MagicMock()
+        driver.page_source = '<XCUIElementTypeStaticText value="82bd86b3-8f29-0da1-fc71-d24ce7c15f77"/>'
+        driver.find_elements.return_value = [MagicMock()]
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state.json"
+            screenshot = Path(temporary) / "idfa.png"
+            driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+            with patch.dict("os.environ", {
+                "IOS_IDFA_STATE_FILE": str(state),
+                "IOS_IDFA_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver) as create, patch.object(qa_ios.time, "sleep"):
+                document = qa_ios.capture_visible_idfa(config)
+            self.assertEqual(document["status"], "UNAVAILABLE")
+            self.assertIn("visible permission/system alert", document["reason"])
+            create.assert_called_once_with(
+                config, bundle_id="com.pag3dev.GetMyIDFA", auto_accept_alerts=False,
+            )
+
+    def test_tracking_allowed_passes_with_visible_switch_idfa_and_inverse_lat(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value, "lat": 0}}},
+                "ext": {"plaintext": {"device": {"ia": value}}},
+            }))
+            (folder / "ios-tracking-allowed-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "screenshot_saved": True,
+                "att": {"authorization": "authorized"},
+                "app_switch": {"name": "Random", "value": "1"},
+                "visible_idfa_status": "CAPTURED", "visible_idfa": value,
+            }))
+            for name in ("tracking-allowed.png", "ios-idfa.png", "tracking-allowed-evidence.png"):
+                (folder / name).write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["tracking-allowed"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_tracking_allowed_rejects_boolean_lat_after_complete_visual_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value, "lat": False}}},
+                "ext": {"plaintext": {"device": {"ia": value, "lat": 0}}},
+            }))
+            (folder / "ios-tracking-allowed-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "screenshot_saved": True,
+                "att": {"authorization": "authorized"},
+                "app_switch": {"name": "Random", "value": "1"},
+                "visible_idfa_status": "CAPTURED", "visible_idfa": value,
+            }))
+            for name in ("tracking-allowed.png", "ios-idfa.png", "tracking-allowed-evidence.png"):
+                (folder / name).write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["tracking-allowed"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_tracking_allowed_is_blocked_when_visible_app_switch_is_off(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value, "lat": 0}}},
+                "ext": {"plaintext": {"device": {"ia": value, "lat": 0}}},
+            }))
+            (folder / "ios-tracking-allowed-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "screenshot_saved": True,
+                "att": {"authorization": "denied"},
+                "app_switch": {"name": "Random", "value": "0"},
+                "visible_idfa_status": "CAPTURED", "visible_idfa": value,
+            }))
+            for name in ("tracking-allowed.png", "ios-idfa.png", "tracking-allowed-evidence.png"):
+                (folder / name).write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["tracking-allowed"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertIn("does not mutate", verdict["reason"])
+
+    def test_tracking_settings_capture_reads_sample_app_switch_without_mutation(self):
+        config = MagicMock()
+        config.bundle_id = "com.appier.Random"
+        driver = MagicMock()
+        privacy = MagicMock()
+        tracking = MagicMock()
+        app_switch = MagicMock()
+        app_switch.get_attribute.side_effect = lambda name: {"name": "Random", "value": "1"}.get(name)
+        driver.find_elements.return_value = [app_switch]
+        driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "settings.json"
+            screenshot = Path(temporary) / "tracking.png"
+            with patch.dict("os.environ", {
+                "IOS_SETTINGS_STATE_FILE": str(state),
+                "IOS_SETTINGS_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "_first_element", side_effect=[privacy, tracking]), \
+                    patch.object(qa_ios.time, "sleep"):
+                document = qa_ios.capture_tracking_settings(driver, config)
+            self.assertEqual(document["status"], "CAPTURED")
+            self.assertEqual(document["att"]["authorization"], "authorized")
+            self.assertEqual(document["app_switch"]["name"], "Random")
+            app_switch.click.assert_not_called()
+
+    def test_tracking_allowed_materializer_builds_comparison_card(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            settings_state = root / "settings.json"
+            settings_image = root / "settings.png"
+            idfa_state = root / "idfa.json"
+            idfa_image = root / "idfa.png"
+            settings_state.write_text(json.dumps({
+                "status": "CAPTURED", "scenario": "TRACKING-ALLOWED", "screenshot_saved": True,
+                "att": {"authorization": "authorized"},
+                "app_switch": {"name": "Random", "value": "1"},
+            }))
+            settings_image.write_bytes(b"settings")
+            idfa_state.write_text(json.dumps({"status": "CAPTURED", "value": value}))
+            idfa_image.write_bytes(b"idfa")
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ia": value, "lat": 0}}},
+                "ext": {"plaintext": {"device": {"ia": value, "lat": 0}}},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.dict("os.environ", {
+                "IOS_SETTINGS_STATE_FILE": str(settings_state),
+                "IOS_SETTINGS_SCREENSHOT": str(settings_image),
+                "IOS_IDFA_STATE_FILE": str(idfa_state),
+                "IOS_IDFA_SCREENSHOT": str(idfa_image),
+                "IOS_SETTINGS_BEFORE_SCREENSHOT": str(root / "missing-before.png"),
+            }), patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_settings_state(folder)
+            status = json.loads((folder / "ios-tracking-allowed-status.json").read_text())
+            self.assertEqual(status["visible_idfa"], value)
+            self.assertEqual(status["actual"]["request_lat"], 0)
+            self.assertTrue((folder / "tracking-allowed-evidence.png").is_file())
+
     def test_missing_sample_app_surface_is_explicit_and_never_uses_payload(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -23,7 +229,7 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertEqual(document["status"], "UNAVAILABLE")
             self.assertNotIn("values", document)
 
-    def test_idfv_cannot_pass_without_visible_sample_app_evidence(self):
+    def test_idfv_current_scope_passes_from_valid_consistent_wire_value(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
@@ -31,27 +237,877 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 "req": {"plaintext": {"device": {"ifv": value}}},
                 "ext": {"plaintext": {"device": {"ifv": value}}},
             }))
-            (folder / "ios-qa-evidence.json").write_text(json.dumps({
-                "status": "UNAVAILABLE",
-            }))
-            verdict = TC_DEFINITIONS["app-set-id"].validate(folder)
-            self.assertEqual(verdict["status"], "BLOCKED")
-            self.assertIn("cannot verify itself", verdict["reason"])
-
-    def test_idfv_passes_only_with_matching_visible_sample_app_evidence(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
-            (folder / "bid_decoded.json").write_text(json.dumps({
-                "req": {"plaintext": {"device": {"ifv": value}}},
-                "ext": {"plaintext": {"device": {"ifv": value}}},
-            }))
-            (folder / "ios-qa-evidence.json").write_text(json.dumps({
-                "status": "CAPTURED", "values": {"idfv": value.upper()},
-            }))
-            (folder / "ios-qa-evidence.png").write_bytes(b"visible")
             verdict = TC_DEFINITIONS["app-set-id"].validate(folder)
             self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["evidence"], "app-set-id.json")
+            self.assertEqual(verdict["title"], "Identifier for Vendor (IDFV)")
+
+    def test_idfv_uppercase_wire_value_passes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82BD86B3-8F29-0DA1-FC71-D24CE7C15F77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ifv": value}}},
+            }))
+            verdict = TC_DEFINITIONS["app-set-id"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_idfv_payload_evidence_uses_extended_value(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82bd86b3-8f29-0da1-fc71-d24ce7c15f77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ifv": value}}},
+            }))
+            evidence_ios.materialize_ios_idfv_payload(folder)
+            document = json.loads((folder / "app-set-id.json").read_text())
+            self.assertEqual(document["source"], "ext.plaintext.device.ifv")
+            self.assertEqual(document["actual"]["ext_device_ifv"], value)
+            self.assertIn("IDFV", document["note"])
+
+    def test_idfv_invalid_wire_value_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ifv": "not-a-uuid"}}},
+                "ext": {"plaintext": {"device": {"ifv": "not-a-uuid"}}},
+            }))
+            verdict = TC_DEFINITIONS["app-set-id"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_iap_valid_array_is_blocked_without_independent_answer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = ["com.example.product"]
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"iaphistory": value}}}},
+            }))
+            evidence_ios.materialize_ios_iap_payload(folder)
+            verdict = TC_DEFINITIONS["in-app-purchase-history"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertEqual(verdict["evidence"], "in-app-purchase-history.json")
+            document = json.loads((folder / "in-app-purchase-history.json").read_text())
+            self.assertEqual(document["actual"]["product_ids"], value)
+
+    def test_iap_malformed_array_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"iaphistory": [""]}}}},
+            }))
+            verdict = TC_DEFINITIONS["in-app-purchase-history"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_boot_timestamps_valid_format_passes_without_visible_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = [1700000000000, 1710000000000]
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"pot": value}}}},
+            }))
+            evidence_ios.materialize_ios_boot_payload(folder)
+            verdict = TC_DEFINITIONS["boot-timestamps"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["evidence"], "boot-timestamps.json")
+            document = json.loads((folder / "boot-timestamps.json").read_text())
+            self.assertIn("肉眼可見 Evidence", document["note"])
+
+    def test_boot_timestamps_invalid_format_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"pot": [2, 2]}}}},
+            }))
+            verdict = TC_DEFINITIONS["boot-timestamps"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_ram_payload_values_pass_and_preserve_evidence_note(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {
+                    "mem_total": 6_000_000_000,
+                    "mem_available": 2_000_000_000,
+                }}}},
+            }))
+            evidence_ios.materialize_ios_ram_payload(folder)
+            self.assertEqual(TC_DEFINITIONS["ram-total"].validate(folder)["status"], "PASS")
+            self.assertEqual(TC_DEFINITIONS["ram-available"].validate(folder)["status"], "PASS")
+            document = json.loads((folder / "ram-available.json").read_text())
+            self.assertIn("肉眼可見 Evidence", document["note"])
+
+    def test_ram_available_above_total_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {
+                    "mem_total": 100,
+                    "mem_available": 101,
+                }}}},
+            }))
+            verdict = TC_DEFINITIONS["ram-available"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_battery_level_matches_visible_control_center_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"batterylevel": 67}}},
+            }))
+            (folder / "ios-battery-level.json").write_text(json.dumps({
+                "status": "CAPTURED", "value": 68,
+            }))
+            verdict = TC_DEFINITIONS["battery-level"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["evidence"], "ios-battery-level.png")
+
+    def test_battery_level_out_of_range_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"batterylevel": 101}}},
+            }))
+            (folder / "ios-battery-level.json").write_text(json.dumps({
+                "status": "CAPTURED", "value": 68,
+            }))
+            verdict = TC_DEFINITIONS["battery-level"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_battery_level_without_visible_evidence_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"batterylevel": 67}}},
+            }))
+            verdict = TC_DEFINITIONS["battery-level"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_control_center_parser_scopes_battery_away_from_other_percentages(self):
+        source = """
+        <XCUIElementTypeSlider name="Brightness" value="50%"/>
+        <XCUIElementTypeSlider name="Volume" value="25%"/>
+        <XCUIElementTypeOther name="Battery Power" value="67%, Charging"/>
+        """
+        level, charging, text = qa_ios._control_center_battery_state(source)
+        self.assertEqual(level, 67)
+        self.assertIs(charging, True)
+        self.assertIn("Battery Power", text)
+
+    def test_control_center_volume_parser_scopes_media_slider_away_from_brightness(self):
+        source = """
+        <XCUIElementTypeSlider name="Brightness" value="50%"/>
+        <XCUIElementTypeSlider name="Volume" value="25%"/>
+        <XCUIElementTypeOther name="Battery Power" value="67%, Charging"/>
+        """
+        percent, text = qa_ios._control_center_volume_state(source)
+        self.assertEqual(percent, 25)
+        self.assertIn("Volume", text)
+
+    def test_output_volume_passes_against_visible_control_center_slider(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"volume": .25}}}},
+            }))
+            (folder / "ios-output-volume-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "visible_percent": 25,
+                "normalized_volume": .25, "accessibility_text": "Volume | 25%",
+            }))
+            (folder / "ios-output-volume-control-center.png").write_bytes(b"visible")
+            (folder / "output-volume-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["output-volume"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_output_volume_payload_mismatch_fails_with_complete_visual_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"volume": .8}}}},
+            }))
+            (folder / "ios-output-volume-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "visible_percent": 25,
+                "normalized_volume": .25, "accessibility_text": "Volume | 25%",
+            }))
+            (folder / "ios-output-volume-control-center.png").write_bytes(b"visible")
+            (folder / "output-volume-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["output-volume"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_output_volume_materializer_joins_control_center_and_payload(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            state = root / "volume.json"
+            screenshot = root / "volume.png"
+            state.write_text(json.dumps({
+                "status": "CAPTURED", "visible_percent": 25,
+                "normalized_volume": .25, "accessibility_text": "Volume | 25%",
+            }))
+            screenshot.write_bytes(b"image")
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"volume": .25}}}},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.dict("os.environ", {
+                "IOS_OUTPUT_VOLUME_STATE_FILE": str(state),
+                "IOS_OUTPUT_VOLUME_SCREENSHOT": str(screenshot),
+            }), patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_output_volume_visible(folder)
+            document = json.loads((folder / "ios-output-volume-status.json").read_text())
+            self.assertEqual(document["actual"]["extended"], .25)
+            self.assertTrue((folder / "output-volume-evidence.png").is_file())
+
+    def test_system_context_parsers_extract_keyboard_wifi_and_vpn_state(self):
+        self.assertEqual(
+            qa_ios._visible_keyboard_tags(["English (US)", "Chinese, Traditional – Zhuyin", "Emoji"]),
+            ["en-US", "zh-Hant", "emoji"],
+        )
+        wifi_source = '<XCUIElementTypeSwitch label="Wi‑Fi" value="1"/><XCUIElementTypeCell name="QA WiFi"/><XCUIElementTypeImage name="checkmark"/>'
+        self.assertIs(qa_ios._visible_wifi_connected(wifi_source), True)
+        self.assertIs(qa_ios._visible_vpn_connected(["VPN", "Not Connected"]), False)
+
+    def test_ideviceinfo_falls_back_to_coredevice_inventory(self):
+        config = MagicMock(udid="physical-udid")
+        qa_ios._COREDEVICE_DETAILS.clear()
+        details = {"result": {
+            "hardwareProperties": {"productType": "iPhone12,3"},
+            "deviceProperties": {
+                "name": "QA iPhone", "osVersionNumber": "26.3", "osBuildUpdate": "23D127",
+            },
+        }}
+        with patch.object(qa_ios.shutil, "which", return_value="available"), \
+                patch.object(qa_ios, "_run", return_value=""), \
+                patch.object(qa_ios, "_read_json", return_value=details):
+            self.assertEqual(qa_ios.ideviceinfo(config, "ProductType"), "iPhone12,3")
+            self.assertEqual(qa_ios.ideviceinfo(config, "DeviceName"), "QA iPhone")
+            self.assertEqual(qa_ios.ideviceinfo(config, "ProductVersion"), "26.3")
+
+    def test_system_context_materializer_and_validators_use_independent_native_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            state = root / "system.json"
+            pages = {
+                "date_time": {"status": "CAPTURED"},
+                "language_region": {"status": "CAPTURED"},
+                "keyboards": {"status": "CAPTURED", "keyboard_tags": ["en-US", "zh-Hant", "emoji"]},
+                "wifi": {"status": "CAPTURED", "connected": True},
+                "cellular": {"status": "CAPTURED", "no_sim": True},
+                "vpn": {"status": "CAPTURED", "connected": False},
+                "location": {"status": "CAPTURED"},
+            }
+            state.write_text(json.dumps({
+                "status": "CAPTURED", "locale": "en_TW", "timezone": "Asia/Taipei",
+                "timezone_offset_minutes": 480, "product_type": "iPhone12,3", "pages": pages,
+            }))
+            screenshot_env = {}
+            for key, (env_key, _default, _target) in evidence_ios.IOS_SYSTEM_SCREENSHOTS.items():
+                image = root / f"{key}.png"
+                image.write_bytes(b"image")
+                screenshot_env[env_key] = str(image)
+            screenshot_env["IOS_SYSTEM_CONTEXT_STATE_FILE"] = str(state)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {
+                    "utcoffset": 480, "lang": "en", "langb": "en-TW", "conntype": "wifi",
+                    "input_lang": ["en-US", "zh-Hant", "emoji"], "carrier": "", "mccmnc": "",
+                    "ext": {"emulator": False, "jailbreak": False, "vpn": "0"},
+                }}},
+                "ext": {"plaintext": {"device": {
+                    "utcoffset": 480, "lang": "en", "langb": "en-TW", "conntype": "wifi",
+                    "input_lang": ["en-US", "zh-Hant", "emoji"], "carrier": "", "mccmnc": "",
+                    "geo_lat": 25.0, "geo_lon": 121.5,
+                    "ext": {"emulator": False, "jailbreak": False, "vpn": "0"},
+                }}},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.dict("os.environ", screenshot_env), patch.object(
+                evidence_ios, "_write_html_screenshot", side_effect=render,
+            ):
+                evidence_ios.materialize_ios_system_context(folder)
+            for key in (
+                "default-timezone", "default-language-iso", "default-language-bcp47",
+                "keyboard-languages", "connection-type", "carrier", "mcc-mnc", "vpn-status",
+                "emulator-detection",
+            ):
+                self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "PASS", key)
+            for key in ("root-status", "precise-gps-latitude", "precise-gps-longitude", "connection-type-cellular"):
+                self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "BLOCKED", key)
+
+    def test_review_context_materializer_keeps_unverifiable_values_visible_and_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "screenshot.png").write_bytes(b"sample-app")
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {
+                    "app": {"sdk_version": "9.9.9"},
+                    "device": {"argus_ver": "1.2.3"},
+                    "user": {"last_foreground_time": [1000], "last_background_time": []},
+                    "compliance": {"force_gdpr_applies": 0, "coppa_applies": 1},
+                }},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_review_context(folder)
+
+            context = json.loads((folder / "ios-review-context.json").read_text())
+            self.assertEqual(context["status"], "REVIEW_REQUIRED")
+            for key in (
+                "sdk-version", "argus-sdk-version", "last-foreground-times",
+                "last-background-times", "force-gdpr-override", "coppa-applies",
+            ):
+                self.assertTrue((folder / f"{key}-evidence.png").is_file(), key)
+                self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "BLOCKED", key)
+
+    def test_control_center_parser_treats_scoped_battery_without_qualifier_as_not_charging(self):
+        level, charging, _ = qa_ios._control_center_battery_state(
+            '<XCUIElementTypeOther name="Battery" value="67%"/>'
+        )
+        self.assertEqual(level, 67)
+        self.assertIs(charging, False)
+
+    def test_charging_status_matches_visible_control_center_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"charging": 1}}},
+                "ext": {"plaintext": {"device": {"charging": 1}}},
+            }))
+            (folder / "ios-charging-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "charging": True,
+                "accessibility_text": "Battery Power | 67%, Charging",
+            }))
+            (folder / "ios-charging-status.png").write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["charging-status"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["evidence"], "ios-charging-status.png")
+
+    def test_charging_status_without_visible_screenshot_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"charging": 0}}},
+            }))
+            (folder / "ios-charging-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "charging": False,
+            }))
+            verdict = TC_DEFINITIONS["charging-status"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_battery_saver_matches_visible_low_power_switch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"battery_saver": False}}}},
+            }))
+            (folder / "ios-low-power-mode.json").write_text(json.dumps({
+                "status": "CAPTURED", "enabled": False, "switch_value": "0",
+            }))
+            (folder / "ios-low-power-mode.png").write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["battery-saver"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["evidence"], "ios-low-power-mode.png")
+
+    def test_battery_saver_payload_mismatch_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"battery_saver": True}}}},
+            }))
+            (folder / "ios-low-power-mode.json").write_text(json.dumps({
+                "status": "CAPTURED", "enabled": False, "switch_value": "0",
+            }))
+            (folder / "ios-low-power-mode.png").write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["battery-saver"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_low_power_capture_preserves_visible_switch_without_mutating_it(self):
+        config = MagicMock()
+        driver = MagicMock()
+        control = MagicMock()
+        control.get_attribute.side_effect = lambda name: "1" if name == "value" else None
+        driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state.json"
+            screenshot = Path(temporary) / "low-power.png"
+            with patch.dict("os.environ", {
+                "IOS_LOW_POWER_STATE_FILE": str(state),
+                "IOS_LOW_POWER_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver), \
+                    patch.object(qa_ios, "_settings_search_open"), \
+                    patch.object(qa_ios, "_setting_element", return_value=control):
+                document = qa_ios.capture_visible_low_power_mode(config)
+            self.assertEqual(document["status"], "CAPTURED")
+            self.assertIs(document["enabled"], True)
+            control.click.assert_not_called()
+
+    def test_ios_display_validators_match_points_native_pixels_ppi_and_ratio(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {
+                    "sw": 375, "sh": 812, "pxratio": 3,
+                }}},
+                "ext": {"plaintext": {"device": {
+                    "sw": 1125, "sh": 2436, "ppi": 458, "pxratio": 3,
+                }}},
+            }))
+            (folder / "ios-display-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "orientation": "PORTRAIT",
+                "product_type": "iPhone12,3",
+                "logical_points": {"width": 375, "height": 812},
+                "official_spec": {
+                    "native_width": 1125, "native_height": 2436, "physical_ppi": 458,
+                },
+                "screenshot_dimensions": {"width": 1124, "height": 2436},
+            }))
+            (folder / "ios-display-source.png").write_bytes(b"visible")
+            for key in ("screen-width", "screen-height", "screen-ppi", "pixel-ratio"):
+                (folder / f"{key}-evidence.png").write_bytes(b"card")
+                verdict = TC_DEFINITIONS[key].validate(folder)
+                self.assertEqual(verdict["status"], "PASS", key)
+
+    def test_ios_display_unknown_product_type_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"sw": 375}}},
+                "ext": {"plaintext": {"device": {"sw": 1125}}},
+            }))
+            (folder / "ios-display-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "orientation": "PORTRAIT",
+                "product_type": "iPhone99,9",
+                "logical_points": {"width": 375, "height": 812},
+                "official_spec": None,
+                "reason": "ProductType iPhone99,9 is not mapped",
+            }))
+            (folder / "ios-display-source.png").write_bytes(b"visible")
+            (folder / "screen-width-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["screen-width"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_ios_pixel_ratio_mismatch_fails_with_complete_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"pxratio": 2}}},
+                "ext": {"plaintext": {"device": {"pxratio": 2}}},
+            }))
+            (folder / "ios-display-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "orientation": "PORTRAIT",
+                "logical_points": {"width": 375, "height": 812},
+                "official_spec": {"native_width": 1125, "native_height": 2436},
+            }))
+            (folder / "ios-display-source.png").write_bytes(b"visible")
+            (folder / "pixel-ratio-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["pixel-ratio"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_ios_display_materializer_maps_official_spec_and_keeps_screenshot_dimensions_supporting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            state = root / "state.json"
+            screenshot = root / "source.png"
+            state.write_text(json.dumps({
+                "status": "CAPTURED", "orientation": "PORTRAIT",
+                "product_type": "iPhone12,3",
+                "logical_points": {"width": 375, "height": 812},
+            }))
+            screenshot.write_bytes(
+                b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" +
+                (1124).to_bytes(4, "big") + (2436).to_bytes(4, "big")
+            )
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"sw": 375, "sh": 812, "pxratio": 3}}},
+                "ext": {"plaintext": {"device": {"sw": 1125, "sh": 2436, "ppi": 458, "pxratio": 3}}},
+            }))
+
+            def render_cards(target, _info, _source):
+                for key in ("screen-width", "screen-height", "screen-ppi", "pixel-ratio"):
+                    (Path(target) / f"{key}-evidence.png").write_bytes(b"card")
+
+            with patch.dict("os.environ", {
+                "IOS_DISPLAY_STATE_FILE": str(state),
+                "IOS_DISPLAY_SCREENSHOT": str(screenshot),
+            }), patch.object(evidence_ios, "_render_ios_display_evidence", side_effect=render_cards):
+                evidence_ios.materialize_ios_display_status(folder)
+            document = json.loads((folder / "ios-display-status.json").read_text())
+            self.assertEqual(document["official_spec"]["physical_ppi"], 458)
+            self.assertEqual(document["actual"]["request"]["sw"], 375)
+            self.assertEqual(document["actual"]["extended"]["sw"], 1125)
+            self.assertEqual(document["screenshot_dimensions"], {"width": 1124, "height": 2436})
+            self.assertEqual(TC_DEFINITIONS["screen-width"].validate(folder)["status"], "PASS")
+
+    def test_ios_display_capture_preserves_points_product_type_and_visible_screen(self):
+        config = MagicMock()
+        config.bundle_id = "com.appier.Random"
+        driver = MagicMock()
+        driver.orientation = "PORTRAIT"
+        driver.get_window_size.return_value = {"width": 375, "height": 812}
+        driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state.json"
+            screenshot = Path(temporary) / "display.png"
+
+            def device_info(_config, key):
+                return {"ProductType": "iPhone12,3", "DeviceName": "QA iPhone"}.get(key, "")
+
+            with patch.dict("os.environ", {
+                "IOS_DISPLAY_STATE_FILE": str(state),
+                "IOS_DISPLAY_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver), \
+                    patch.object(qa_ios, "_settings_search_open"), \
+                    patch.object(qa_ios, "ideviceinfo", side_effect=device_info):
+                document = qa_ios.capture_visible_display_status(config)
+            self.assertEqual(document["status"], "CAPTURED")
+            self.assertEqual(document["logical_points"], {"width": 375, "height": 812})
+            self.assertEqual(document["product_type"], "iPhone12,3")
+
+    def test_about_parser_extracts_visible_model_name_from_native_cell(self):
+        source = """
+        <XCUIElementTypeCell name="Model Name, iPhone 11 Pro">
+          <XCUIElementTypeStaticText name="Model Name"/>
+          <XCUIElementTypeStaticText name="iPhone 11 Pro"/>
+        </XCUIElementTypeCell>
+        """
+        self.assertEqual(qa_ios._about_visible_model_name(source), "iPhone 11 Pro")
+
+    def test_device_make_passes_from_about_and_official_product_mapping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"make": "Apple"}}},
+            }))
+            (folder / "ios-device-identity-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "product_type": "iPhone12,3",
+                "visible_model_name": "iPhone 11 Pro", "official_make": "Apple",
+                "official_spec": {"model": "iPhone 11 Pro"},
+            }))
+            (folder / "ios-device-about.png").write_bytes(b"visible")
+            (folder / "device-make-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["device-make"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_device_make_payload_mismatch_fails_with_complete_identity_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"make": "apple"}}},
+            }))
+            (folder / "ios-device-identity-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "product_type": "iPhone12,3",
+                "visible_model_name": "iPhone 11 Pro", "official_make": "Apple",
+                "official_spec": {"model": "iPhone 11 Pro"},
+            }))
+            (folder / "ios-device-about.png").write_bytes(b"visible")
+            (folder / "device-make-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["device-make"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_device_model_passes_from_about_model_and_product_type(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"hwv": "iPhone12,3"}}},
+                "ext": {"plaintext": {"device": {
+                    "model": "iPhone 11 Pro", "hwv": "iPhone12,3",
+                }}},
+            }))
+            (folder / "ios-device-identity-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "product_type": "iPhone12,3",
+                "visible_model_name": "iPhone 11 Pro", "official_make": "Apple",
+                "official_spec": {"model": "iPhone 11 Pro"},
+            }))
+            (folder / "ios-device-about.png").write_bytes(b"visible")
+            (folder / "device-model-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["device-model"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_device_identity_materializer_joins_about_product_type_and_make(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            state = root / "display.json"
+            screenshot = root / "about.png"
+            state.write_text(json.dumps({
+                "status": "CAPTURED", "product_type": "iPhone12,3",
+                "visible_model_name": "iPhone 11 Pro",
+                "visual_source": "native Settings > General > About",
+            }))
+            screenshot.write_bytes(b"image")
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"make": "Apple"}}},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.dict("os.environ", {
+                "IOS_DISPLAY_STATE_FILE": str(state),
+                "IOS_DISPLAY_SCREENSHOT": str(screenshot),
+            }), patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_device_identity(folder)
+            document = json.loads((folder / "ios-device-identity-status.json").read_text())
+            self.assertEqual(document["official_make"], "Apple")
+            self.assertEqual(document["actual"]["extended_make"], "Apple")
+            self.assertTrue((folder / "device-make-evidence.png").is_file())
+
+    def test_screen_brightness_passes_against_visible_native_slider(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ext": {"screen_bright": .45}}}},
+                "ext": {"plaintext": {"device": {"ext": {"screen_bright": .45}}}},
+            }))
+            (folder / "ios-brightness-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "slider_accessibility_value": "45%",
+                "visible_percent": 45, "normalized_brightness": .45,
+            }))
+            (folder / "ios-brightness-settings.png").write_bytes(b"visible")
+            (folder / "screen-brightness-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["screen-brightness"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_screen_brightness_fails_when_payload_differs_from_visible_slider(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"screen_bright": .8}}}},
+            }))
+            (folder / "ios-brightness-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "slider_accessibility_value": "45%",
+                "visible_percent": 45, "normalized_brightness": .45,
+            }))
+            (folder / "ios-brightness-settings.png").write_bytes(b"visible")
+            (folder / "screen-brightness-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["screen-brightness"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_visible_brightness_capture_is_read_only(self):
+        config = MagicMock()
+        driver = MagicMock()
+        slider = MagicMock()
+        slider.get_attribute.side_effect = lambda name: {"name": "Brightness", "value": "45%"}.get(name)
+        driver.find_elements.return_value = [slider]
+        driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "brightness.json"
+            screenshot = Path(temporary) / "brightness.png"
+            with patch.dict("os.environ", {
+                "IOS_BRIGHTNESS_STATE_FILE": str(state),
+                "IOS_BRIGHTNESS_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver), \
+                    patch.object(qa_ios, "_settings_search_open"):
+                document = qa_ios.capture_visible_brightness(config)
+            self.assertEqual(document["status"], "CAPTURED")
+            self.assertEqual(document["normalized_brightness"], .45)
+            slider.click.assert_not_called()
+
+    def test_font_scale_visible_page_remains_blocked_without_numeric_bridge(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"fontscale": 1.24}}}},
+            }))
+            (folder / "ios-font-size-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "slider_accessibility_value": "62%",
+                "slider_position": .62, "increase_button_enabled": True,
+            }))
+            (folder / "ios-font-size-settings.png").write_bytes(b"visible")
+            (folder / "font-scale-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["font-scale"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertIn("no reviewed iOS API bridge", verdict["reason"])
+
+    def test_font_scale_invalid_payload_fails_with_visible_page(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"fontscale": 0}}}},
+            }))
+            (folder / "ios-font-size-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "slider_accessibility_value": "62%",
+                "slider_position": .62,
+            }))
+            (folder / "ios-font-size-settings.png").write_bytes(b"visible")
+            (folder / "font-scale-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["font-scale"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_visible_font_size_capture_opens_larger_text_without_mutation(self):
+        config = MagicMock()
+        driver = MagicMock()
+        slider = MagicMock()
+        slider.get_attribute.side_effect = lambda name: "62%" if name == "value" else None
+        driver.find_elements.return_value = [slider]
+        driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+        increase = MagicMock()
+        increase.is_enabled.return_value = True
+        decrease = MagicMock()
+        decrease.is_enabled.return_value = True
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "font-size.json"
+            screenshot = Path(temporary) / "font-size.png"
+            with patch.dict("os.environ", {
+                "IOS_FONT_SIZE_STATE_FILE": str(state),
+                "IOS_FONT_SIZE_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver), \
+                    patch.object(qa_ios, "_settings_search_open") as search, \
+                    patch.object(qa_ios, "_setting_element", side_effect=[increase, decrease]):
+                document = qa_ios.capture_visible_font_size(config)
+            self.assertEqual(document["status"], "CAPTURED")
+            self.assertEqual(document["slider_position"], .62)
+            search.assert_called_once_with(driver, "Larger Text")
+            slider.click.assert_not_called()
+
+    def test_brightness_materializer_joins_capture_and_payload_into_card(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            state = root / "state.json"
+            screenshot = root / "brightness.png"
+            state.write_text(json.dumps({
+                "status": "CAPTURED", "slider_accessibility_value": "45%",
+                "visible_percent": 45, "normalized_brightness": .45,
+            }))
+            screenshot.write_bytes(b"image")
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"screen_bright": .45}}}},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.dict("os.environ", {
+                "IOS_BRIGHTNESS_STATE_FILE": str(state),
+                "IOS_BRIGHTNESS_SCREENSHOT": str(screenshot),
+            }), patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_brightness_visible(folder)
+            document = json.loads((folder / "ios-brightness-status.json").read_text())
+            self.assertEqual(document["actual"]["extended"], .45)
+            self.assertTrue((folder / "screen-brightness-evidence.png").is_file())
+
+    def test_dark_mode_passes_against_visible_dark_appearance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ext": {"darkmode": True}}}},
+                "ext": {"plaintext": {"device": {"ext": {"darkmode": True}}}},
+            }))
+            (folder / "ios-dark-mode-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "selected_appearance": "Dark", "dark_mode": True,
+                "appearance_controls": {
+                    "Light": {"selected": False}, "Dark": {"selected": True},
+                },
+            }))
+            (folder / "ios-dark-mode-settings.png").write_bytes(b"visible")
+            (folder / "dark-mode-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["dark-mode"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_dark_mode_fails_when_payload_differs_from_visible_light_appearance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"darkmode": True}}}},
+            }))
+            (folder / "ios-dark-mode-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "selected_appearance": "Light", "dark_mode": False,
+                "appearance_controls": {
+                    "Light": {"selected": True}, "Dark": {"selected": False},
+                },
+            }))
+            (folder / "ios-dark-mode-settings.png").write_bytes(b"visible")
+            (folder / "dark-mode-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["dark-mode"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_visible_dark_mode_capture_reads_selected_appearance_without_mutation(self):
+        config = MagicMock()
+        driver = MagicMock()
+        driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
+        light = MagicMock()
+        dark = MagicMock()
+        light.get_attribute.side_effect = lambda name: {"selected": "false", "traits": "Button", "value": ""}.get(name)
+        dark.get_attribute.side_effect = lambda name: {"selected": "true", "traits": "Button, Selected", "value": "1"}.get(name)
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "dark-mode.json"
+            screenshot = Path(temporary) / "dark-mode.png"
+            with patch.dict("os.environ", {
+                "IOS_DARK_MODE_STATE_FILE": str(state),
+                "IOS_DARK_MODE_SCREENSHOT": str(screenshot),
+            }), patch.object(qa_ios, "create_driver", return_value=driver), \
+                    patch.object(qa_ios, "_settings_search_open") as search, \
+                    patch.object(qa_ios, "_setting_element", side_effect=[light, dark]):
+                document = qa_ios.capture_visible_dark_mode(config)
+            self.assertEqual(document["status"], "CAPTURED")
+            self.assertEqual(document["selected_appearance"], "Dark")
+            self.assertIs(document["dark_mode"], True)
+            search.assert_called_once_with(driver, "Display & Brightness")
+            light.click.assert_not_called()
+            dark.click.assert_not_called()
+
+    def test_dark_mode_materializer_joins_visible_state_and_payload(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "bundle"
+            folder.mkdir()
+            state = root / "dark-mode.json"
+            screenshot = root / "dark-mode.png"
+            state.write_text(json.dumps({
+                "status": "CAPTURED", "selected_appearance": "Light", "dark_mode": False,
+                "appearance_controls": {
+                    "Light": {"selected": True}, "Dark": {"selected": False},
+                },
+            }))
+            screenshot.write_bytes(b"image")
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"darkmode": False}}}},
+            }))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.dict("os.environ", {
+                "IOS_DARK_MODE_STATE_FILE": str(state),
+                "IOS_DARK_MODE_SCREENSHOT": str(screenshot),
+            }), patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_dark_mode_visible(folder)
+            document = json.loads((folder / "ios-dark-mode-status.json").read_text())
+            self.assertIs(document["actual"]["extended"], False)
+            self.assertTrue((folder / "dark-mode-evidence.png").is_file())
+
+    def test_ios_sensors_are_blocked_as_not_in_scope_for_empty_or_populated_payloads(self):
+        for payload in ([], [{"x": 0.1, "y": 0.2, "z": 0.3}]):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                (folder / "bid_decoded.json").write_text(json.dumps({
+                    "ext": {"plaintext": {"device": {"ext": {
+                        "gyroscope": payload, "accelerometer": payload,
+                    }}}},
+                }))
+                for key in ("gyroscope", "accelerometer"):
+                    verdict = TC_DEFINITIONS[key].validate(folder)
+                    self.assertEqual(verdict["status"], "BLOCKED")
+                    self.assertIn("Not In Scope", verdict["reason"])
+                    self.assertEqual(
+                        verdict["description"],
+                        "Sensor array is observed but not evaluated in this scope.",
+                    )
 
     def test_settings_provider_preserves_before_and_mutated_screenshots(self):
         with tempfile.TemporaryDirectory() as temporary:

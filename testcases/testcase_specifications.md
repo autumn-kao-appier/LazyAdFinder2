@@ -60,6 +60,26 @@ Evidence：`ads-settings.png`、`ads-settings-state.json`、`bid_raw.json`、
 PASS：新版 Ad privacy 頁顯示有效 GAID 與 `Delete advertising ID`（舊版才檢查 Opt out 關閉）；設定頁、req、ext 三份 GAID 都存在、完全相同、是全小寫 UUID，且不是
 全零。已執行但任一條件不符為 FAILED；設定頁或流量無法取得才是 BLOCKED。
 
+## Advertising Identifier (IDFA) — iOS
+
+- Key: `advertising-id`
+- Signal / R1 / iOS / P0
+- Field: `device.ia`
+
+目的：確認 SDK 傳送的 IDFA，與獨立 GetMyIDFA App 顯示的值完全相同。
+
+iOS 原生 Settings 不顯示完整 IDFA；Settings → Privacy & Security → Tracking 只能作為 ATT
+授權狀態的可見 Evidence。因此 R1 先開啟 `com.pag3dev.GetMyIDFA`，保存完整 IDFA 畫面與
+automation 讀值，再回到 Sample App 保存 ATT 狀態並擷取同輪 Bid。GetMyIDFA 顯示全零、權限提示、
+找不到唯一 UUID 或截圖失敗時，本 TC 為 BLOCKED，不得拿 Bid payload 自證。
+
+Evidence：`ios-idfa.png`、`ios-idfa-state.json`、`ios-settings-state.png`、
+`bid_raw.json`、`bid_decoded.json`、`verdicts.json`。
+
+PASS：Sample App ATT 為 authorized，GetMyIDFA 顯示非空、非全零 UUID，且該值與 req/ext
+`device.ia` 完全相同。獨立 IDFA 已取得但 Bid 缺值、格式錯誤或不一致為 FAILED；GetMyIDFA
+畫面、Sample App ATT 狀態或流量無法取得時為 BLOCKED。
+
 ## Vendor ID (App Set ID)
 
 - Key: `app-set-id`
@@ -81,11 +101,25 @@ PASS：新版 Ad privacy 頁顯示有效 GAID 與 `Delete advertising ID`（舊�
 顯示 App Set ID 與 scope 的測試入口；Evidence 保存該畫面截圖與讀值，並要求畫面值完全等於
 `ext.device.ifv`。在此能力完成前，不得宣稱本 TC 已獨立證明 Google API 原值。
 
+### iOS current scope
+
+iOS 沿用同一個 semantic key `app-set-id`，但報告顯示平台正確名稱「供應商識別碼（IDFV）」。
+目前只檢查解密後的 Extended `device.ifv` 存在，且為 UUID `8-4-4-4-12` 格式；接受
+iOS API 常見的大寫 canonical form，也接受等價的小寫格式。Evidence 使用 `app-set-id.json`、
+`bid_decoded.json` 與 `verdicts.json`；
+這是封包讀取結果，不是獨立來源對答案。
+
+若未來要求可截圖、可由人眼獨立核對的 iOS Evidence，必須請 RD 在 iOS Sample App 增加顯示
+該值的 QA 測試入口，保存畫面與 machine-readable 讀值，再要求 Sample App 顯示值完全等於
+`device.ifv`。在該入口完成前，報告不得宣稱已獨立證明來源值。
+
 ## Installed App List
 
 - Key: `installed-app-list`
 - Signal / R1 / AOS / P1
 - Field: `device.ext.applist`
+
+iOS 不適用：不納入 iOS Round，不產生 iOS verdict 或 Evidence。
 
 目的：確認 Extended payload 的 Installed App List 若有傳送，資料形狀可被正確使用；同時允許
 SDK／系統完全拿不到清單，以及使用者裝置經過 Android package visibility 與 Launcher 過濾後
@@ -123,6 +157,10 @@ PASS／FAILED。
 Evidence：`in-app-purchase-history.json` 顯示欄位狀態、數量及 product IDs，並保留 raw、decoded
 與 verdict。SDK 的非同步 Billing 查詢失敗也可能維持空陣列，所以不得把 `[]` 判成 PASS。
 
+iOS 比照同一判準：欄位缺少或陣列格式錯誤為 FAILED；合法陣列（包含 `[]`）
+因沒有購買流程與獨立 expected product IDs，維持 BLOCKED。Evidence 同樣產生
+`in-app-purchase-history.json`。
+
 ## System Boot Timestamps
 
 - Key: `boot-timestamps`
@@ -141,6 +179,10 @@ Evidence：`boot-time-calculation.png` 上半部是 About phone → Uptime 的�
 保留 Uptime 卡；含 IP、Wi-Fi MAC、Bluetooth address 的完整截圖不得寫入 Evidence。下半部
 列出「裝置目前時間 − Uptime = 推算開機時間」，再與最新 `pot` 比較並顯示毫秒誤差。
 `boot-timestamps.json` 保存精確計算資料。歷史舊值無法由當下系統狀態逐筆還原，只驗格式與順序。
+
+iOS 目前拿不到肉眼可見 Evidence，因此使用解碼後 payload 做技術驗證：`pot` 含
+1～5 筆嚴格遞增的正整數 epoch milliseconds 即 PASS；缺值、空陣列、數量超限、
+型別或順序錯誤為 FAILED。`boot-timestamps.json` 必須保留這個 Evidence 限制說明。
 
 ## Resource Status: RAM and Disk
 
@@ -163,10 +205,17 @@ PASS：值為正整數且不大於同包 payload 的 `mem_total`；與 request �
 `MemAvailable × 1024` 相差不超過 `max(RAM total 10%, 512 MiB)`。這是動態值，不要求逐 byte
 相等。
 
+iOS 的 RAM 兩張目前拿不到肉眼可見 Evidence，改用解碼後 payload 結案。`mem_total`
+為正整數 bytes 即 PASS；`mem_available` 為正整數 bytes 且不大於 `mem_total` 即 PASS。
+缺值、型別錯誤、非正數或數值關係不合法為 FAILED。Evidence 分別使用 `ram-total.json`
+與 `ram-available.json`，並保留無可視 Evidence 的限制說明。
+
 ### Disk Storage (Total)
 
 - Key: `disk-total`
 - Field: `device.ext.disk_total`
+
+iOS 不適用：不納入 iOS Round，不產生 iOS verdict 或 Evidence。
 
 PASS：值為正整數，且與 `df -k /data` 的 1 KiB blocks 換算所得 App data filesystem 總容量
 相差不超過 2%。
@@ -175,6 +224,8 @@ PASS：值為正整數，且與 `df -k /data` 的 1 KiB blocks 換算所得 App 
 
 - Key: `disk-free`
 - Field: `device.ext.disk_free`
+
+iOS 不適用：不納入 iOS Round，不產生 iOS verdict 或 Evidence。
 
 PASS：值為正整數且不大於同包 payload 的 `disk_total`；與 request 前讀取的 `/data` 可用容量
 相差不超過 `max(Disk total 2%, 512 MiB)`。capture 本身會寫檔，所以不要求逐 byte 相等。
@@ -199,6 +250,23 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   1。100% 顯示 Full／Charged 但仍接電源也視為 charging=1。Evidence：同一 Battery 原生頁。
 - `battery-saver` / `device.ext.battery_saver`：JSON boolean，與 Battery Saver 原生開關及
   `settings get global low_power` 完全一致。舊表 `disk.ext.batterysaver` 是錯誤路徑。
+
+iOS `battery-level` 在發送 Bid 前從右上角拉下控制中心，保存
+`ios-battery-level.png` 並從 accessibility tree 讀取可見百分比到
+`ios-battery-level.json`。Payload 值必須為 0～100 的有限數值，且與畫面值差異
+不超過 2% 才 PASS；有畫面答案但 payload 錯誤為 FAILED，無法取得控制中心證據為 BLOCKED。
+
+iOS `charging-status` 沿用同一次控制中心觀察，另外保存 `ios-charging-status.png` 與
+`ios-charging-status.json`。JSON 必須保留電池 accessibility 原文及解析出的 charging boolean；
+`device.charging` 必須是 0／1 或 boolean-compatible 值，且 req/ext（存在時）皆與可見狀態一致。
+控制中心沒有明確的電池語意、截圖缺少或無法唯一判讀時為 BLOCKED；有完整可視答案但 payload
+缺少、格式錯誤或不一致時為 FAILED。R1 只觀察，不為了測試而插拔電源。
+
+iOS `battery-saver` 在發送 Bid 前開啟原生 Settings 的 Low Power Mode 頁，以非破壞方式讀取
+目前 switch，保存 `ios-low-power-mode.png` 與 `ios-low-power-mode.json`。Payload
+`device.ext.battery_saver` 必須是 JSON boolean，且與可見開關完全一致。R1 不改變開關；需要驗證
+啟用狀態的 mutation 仍由 R5 `battery-saver-enabled` 獨立執行並還原。缺少可視 Evidence 為
+BLOCKED；Evidence 完整但 payload 錯誤為 FAILED。
 - `screen-width` / `device.sw`、`screen-height` / `device.sh`：正整數 pixels，等於直向 capture
   的 Android display size。Evidence 卡保留真實手機截圖並直接標出原圖 1080×2424 pixels，
   分別對照 payload width／height；`wm size` 保存精確 OS 答案。
@@ -206,22 +274,59 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
   面板物理 PPI。若裝置型號已有官方規格 mapping，再以 ±5% 比對 logical density 與官方物理
   PPI，作為合理性檢查；未收錄型號只略過輔助檢查，不 BLOCK。Pixel 10a 官方值為 422.2 PPI。
 - `pixel-ratio` / `device.pxratio`：等於 logical density ÷ 160；Pixel 10a 為 420 ÷ 160 = 2.625。
+
+iOS 四條沿用 AOS「Bid 前獨立抓系統狀態、Bid 後合併 payload、每條產一張比較卡」的模式，
+共用 `ios-display-status.json` 與 `ios-display-source.png`。R1 必須保持直向，Bid 前以 XCUITest
+保存 logical width／height points，以 `ideviceinfo ProductType` 對應附 Apple 官方 URL 的 native
+resolution 與 physical PPI。未收錄 ProductType、非直向、缺少可視截圖或任一直接來源無法取得時，
+四條皆不得從 payload 自證，應為 BLOCKED。
+
+- iOS `screen-width`／`screen-height`：Request `sw/sh` 分別等於 XCUITest logical points；Extended
+  `sw/sh` 分別等於 Apple native pixels。WDA PNG dimensions 僅作 supporting observation，不作唯一答案。
+- iOS `screen-ppi`：Extended `ppi` 直接等於 Apple physical PPI；Request 允許缺少，若存在亦須相等。
+  iOS 不套用 AOS logical density 對 physical PPI 的 ±5% 規則。
+- iOS `pixel-ratio`：expected 分別由 `native_width ÷ logical_width` 及
+  `native_height ÷ logical_height` 推導；兩軸須在 0.000001 內一致，req/ext `pxratio` 亦須一致。
+  Evidence 卡的角色等同 AOS `wm density ÷ 160` 公式卡。
+- iOS `screen-brightness` / `device.ext.screen_bright`：Bid 前以 read-only 方式開啟原生
+  Display & Brightness 頁，保存滑桿截圖與 accessibility 百分比。Expected 為百分比 ÷ 100，
+  payload 必須是 0～1 的有限數值並在 0.01 內相等；Request 若存在亦須相等。R1 不改變亮度。
+  缺少畫面或無法讀取滑桿為 BLOCKED；畫面完整但 payload 錯誤為 FAILED。
+- iOS `font-scale` / `device.ext.fontscale`：Bid 前以 read-only 方式開啟原生 Accessibility 的
+  Larger Text 頁，保存目前 Dynamic Type 滑桿狀態。該畫面是可視 Evidence，但滑桿位置不是
+  API 定義的 exact multiplier，不得直接把百分比映射成例如 `1.24`。在獨立 API bridge／QA probe
+  經 review 前，合法正數且 req/ext 一致仍為 BLOCKED；缺值、非正數或不一致為 FAILED。
+- iOS `dark-mode` / `device.ext.darkmode`：Bid 前以 read-only 方式開啟原生 Display & Brightness
+  的 Appearance 區塊，同時保存 Light／Dark 畫面與 accessibility selected state。Light 對應
+  `false`、Dark 對應 `true`；payload 必須是 JSON boolean 且與唯一可見選擇完全一致，Request
+  若存在亦須一致。無法唯一解析選取狀態或缺少畫面為 BLOCKED；Evidence 完整但 payload 錯誤為 FAILED。
 - `screen-brightness` / `device.ext.screen_bright`：原生 Display 頁顯示感知百分比；同時由
   `dumpsys display` 保存該狀態的 float brightness，並由 `BrightnessSynchronizer` 保存
   float ↔ legacy integer 對照。SDK 值驗證 integer ÷ 255，容許 1/255 誤差；不得直接宣稱
   UI 70% 等於 38÷255。
 - `font-scale` / `device.ext.fontscale`：與 Android `system font_scale` 相等；設定頁輔助人眼確認。
 - `dark-mode` / `device.ext.darkmode`：JSON boolean，與可見 Dark theme 開關及 UI night mode 一致。
-- `gyroscope`、`accelerometer`：P2 / BLOCKED / Not In Scope。本輪沒有感測器動作與獨立正確
-  樣本，即使 payload 是空陣列也不判 PASS。
+- AOS／iOS `gyroscope`、`accelerometer`：P2 / BLOCKED / Not In Scope。本輪沒有感測器動作與
+  reviewed expected samples；即使 payload 是空陣列或帶有樣本，也只觀察、不判 PASS。
 
 ## Audio, Device Identity, Timezone and Language
 
 - `output-volume` / `device.ext.volume`：Android Media volume 的 current ÷ max，正規化為 0～1；
   容許一個音量級距誤差。Sound & vibration 的 Media volume 滑桿是人眼 Evidence。
+- iOS `output-volume`：Bid 前以 read-only 方式保存控制中心的媒體音量滑桿及 accessibility
+  百分比，不使用 Sounds & Haptics 的鈴聲音量。Expected 為百分比 ÷ 100，payload 必須在 0～1
+  且於 0.01 內相等；Request 若存在亦須相等。無法唯一讀取滑桿或缺少截圖為 BLOCKED，
+  Evidence 完整但 payload 錯誤為 FAILED。
 - `device-make` / `device.make`：req/ext 均須等於 `ro.product.manufacturer`。
+- iOS `device-make`：Bid 前保存原生 Settings > General > About 的可見 Model Name，並將同輪
+  `ideviceinfo ProductType` 對應至 Apple-hosted 官方機型規格。三者一致時建立 manufacturer
+  expected=`Apple`；Extended `device.make` 必須精確相等，Request 若存在亦須相等。未收錄
+  ProductType、About 讀不到唯一 Model Name、兩者不一致或缺少截圖時為 BLOCKED。
 - `device-model` / `device.model`、`device.hwv`：req/ext 的 model 與 hwv 均須等於
   `ro.product.model`；About phone 是人眼 Evidence。
+- iOS `device-model`：與 device-make 共用 About／ProductType／Apple 官方 mapping。Extended
+  `device.model` 必須等於可見且官方的 Model Name，Extended `device.hwv` 必須等於 ProductType；
+  Request 欄位若存在亦須相等。Request `device.model` 允許不傳。
 - `default-timezone` / `device.utcoffset`：req/ext 均須等於 capture 當下 `date +%z` 轉換的
   UTC offset 分鐘數。答案隨系統時區改變，不固定為 480。
 - `default-language-iso` / `device.lang` / System Language Code：只驗 Settings 第一順位系統語言的 ISO-639-1 語言部分；例如 English (Japan) → `en`。
@@ -229,6 +334,12 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 
 共用 `device-context` capture 會保留 Sound、About phone、Date & time、Languages 四個原生頁面，
 並將 OS 精確值、換算式與 decoded bid 組合成各自可翻頁的 Evidence 卡。
+
+iOS R1 使用另一份 read-only `ios-system-context` capture 保存 Date & Time、Language & Region、
+Keyboards、Wi-Fi、Cellular、VPN & Device Management、Location Services 七個原生頁面。Timezone
+以 `ideviceinfo` 的 IANA timezone 在 capture 當下換算（含 DST）；`Locale` 正規化為 BCP 47，
+並與原生語言頁共同建立 `device.lang`／`device.langb` 的 expected。鍵盤則只接受已 review 的
+可見名稱到 tag 對照，保留畫面順序；遇到無法映射的鍵盤就 BLOCKED，不從 payload 補答案。
 
 ## Keyboard, Integrity, Network, Location and Session
 
@@ -260,6 +371,25 @@ Available 頁面，不拿 App 平均用量冒充答案。Disk 圖上半部保留
 - `foreground-session-duration`：BLOCKED。需 SampleApp 提供獨立 session start timestamp，並先
   確認 `user.session_duration` 單位；只檢查 payload 是正數不構成正確性驗證。
 
+iOS 對應規則：
+
+- `root-status` 保留卡片但 BLOCKED。原生 Settings 與 physical ProductType 無法證明「沒有 jailbreak」；
+  要 PASS 必須另有已 review 的 integrity probe。
+- `emulator-detection` 以 libimobiledevice 可取得的 iPhone／iPad／iPod ProductType 證明是實機；
+  req/ext `device.ext.emulator` 必須為 JSON boolean `false`。
+- `connection-type` 以 Settings > Wi-Fi 的已勾選網路作為 expected=`wifi`；`carrier`／`mcc-mnc`
+  在 Settings > Cellular 清楚顯示 No SIM 時只接受空字串或欄位不存在。active SIM 需另訂精確契約。
+- `vpn-status` 以 VPN & Device Management 的 Connected／Not Connected 分別對應 wire 字串
+  `"1"`／`"0"`；畫面不明確時 BLOCKED。
+- `connection-type-cellular` 在目前無 active SIM 的 R1 為 BLOCKED／Not executable；不可用 Wi-Fi
+  capture 宣稱 cellular 結果。
+- `precise-gps-latitude`／`precise-gps-longitude` 保留 Location Services 與 payload 卡片，但
+  BLOCKED。系統頁不顯示精確座標；需 Sample App 增加獨立 coordinate QA surface 才能比較。
+- `last-foreground-times`／`last-background-times` 保留 payload 可視化卡片但 BLOCKED；需 Sample App
+  輸出獨立 callback timeline 才能逐筆核對，不能只靠陣列格式判 PASS。
+- `force-gdpr-override`／`coppa-applies` 保留 Actual 卡片但 BLOCKED；需 Sample App 提供可視且可控的
+  configured input。Request 不能證明自身輸入設定。
+
 ## Advertising Tracking Allowed
 
 - Key: `tracking-allowed`
@@ -276,6 +406,12 @@ PASS：人眼可見的 Advertising ID 為可用狀態（新版顯示有效 GAID 
 Tracking，語意相反，所以 req/ext 各自必須是 JSON 整數 `0`（未限制）或欄位真正不存在。
 `null`、字串、布林或其他數字均為 FAILED；設定頁或 payload 無法取得才是 BLOCKED。
 
+iOS 沿用相同的反向 LAT 語意，但獨立來源改為原生
+Settings > Privacy & Security > Tracking 的 Sample App 開關，以及同輪 GetMyIDFA 顯示的非零
+IDFA。R1 僅觀察、不替使用者開啟追蹤：開關未開或可視來源缺失時，`tracking-allowed` 前提未成立，
+結果為 BLOCKED。開關為 authorized 且可見 IDFA 完整後，req/ext `device.ia` 必須與可見值完全相同，
+req/ext `device.lat` 各自只能是 JSON 整數 `0` 或欄位不存在；boolean、字串、`null` 或其他數字為 FAILED。
+
 ## SDK Version
 
 - Key: `sdk-version`
@@ -289,3 +425,7 @@ Evidence：`sdk-build-info.json`、`bid_raw.json`、`bid_decoded.json`、`verdic
 
 未輸入 Expected 時為 BLOCKED。輸入後，`req.plaintext.app.sdk_version` 存在、非空且完全相等
 為 PASS；不相等或缺值為 FAILED。
+
+iOS 的 `sdk-version` 與 `argus-sdk-version` 同樣不可從 payload 反推 Expected。R1 會把 Actual
+與缺少 reviewer/build-manifest expected 的原因做成獨立可視化卡片，並維持 BLOCKED；等 reviewer
+提供本次 build 的 Ads SDK／Argus SDK 版號後，才可做精確相等判定。

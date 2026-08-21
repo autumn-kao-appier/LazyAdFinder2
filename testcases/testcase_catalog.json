@@ -336,11 +336,15 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Advertising ID (GAID) 的 device.ia 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Advertising ID (GAID) (device.ia) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "title": "廣告識別碼（IDFA）",
+        "title_en": "Advertising Identifier (IDFA)",
+        "setup": "先開啟 GetMyIDFA（com.pag3dev.GetMyIDFA）並保存完整 IDFA 畫面，再保存 Sample App 的 ATT Settings 狀態並於同輪擷取 Bid Request。Settings 只證明 ATT 權限，不提供完整 IDFA。",
+        "setup_en": "Open GetMyIDFA (com.pag3dev.GetMyIDFA) and preserve its complete visible IDFA, then preserve the Sample App ATT Settings state and capture the Bid Request in the same round. Settings proves ATT authorization only and does not expose the complete IDFA.",
+        "expected": "GetMyIDFA 畫面顯示的 IDFA 必須是非全零 UUID，並與 Request／Extended 的 device.ia 完全相同；缺少獨立可見的 GetMyIDFA Evidence 不得 PASS。",
+        "expected_en": "The IDFA visibly displayed by GetMyIDFA must be a non-zero UUID and exactly match Request and Extended device.ia. The testcase cannot PASS without independent visible GetMyIDFA Evidence.",
+        "evidence": "ios-idfa.png、ios-idfa-state.json、ios-settings-state.png、bid_decoded.json、verdicts.json",
+        "evidence_note": "完整 IDFA 由獨立的 GetMyIDFA App 顯示；原生 Settings 只保存 Sample App 的 ATT 授權狀態，不能作為 IDFA 數值答案。若 GetMyIDFA 顯示全零或權限提示，本 TC 為 BLOCKED。",
+        "evidence_note_en": "The independent GetMyIDFA app displays the complete IDFA. Native Settings preserves the Sample App ATT authorization only and is not the source of the IDFA value. A zero IDFA or permission prompt in GetMyIDFA blocks the testcase."
       }
     },
     {
@@ -363,11 +367,15 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Vendor ID (App Set ID) 的 device.ifv 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Vendor ID (App Set ID) (device.ifv) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "title": "供應商識別碼（IDFV）",
+        "title_en": "Identifier for Vendor (IDFV)",
+        "setup": "免設定；沿用 iOS R1 的 Bid capture。IDFV 不可寫死為某一台裝置曾出現的值。",
+        "setup_en": "No setup is required; reuse the iOS R1 Bid capture. Do not hard-code an IDFV previously observed on one device.",
+        "expected": "Extended 的 device.ifv 必須存在，且為 UUID 8-4-4-4-12 格式；接受 iOS API 常見的大寫 canonical form。",
+        "expected_en": "Extended device.ifv must exist and be a UUID in 8-4-4-4-12 format; the uppercase canonical form commonly returned by iOS is valid.",
+        "evidence": "app-set-id.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "若未來需要可截圖、可由人眼獨立核對的 Evidence，必須請 RD 在 iOS Sample App 增加顯示 IDFV 的 QA 測試入口，保存該畫面後再要求與 device.ifv 完全相同。",
+        "evidence_note_en": "If independent human-visible Evidence is required later, RD must add an iOS Sample App QA surface that displays IDFV. Preserve that screen before requiring an exact comparison with device.ifv."
       }
     },
     {
@@ -389,12 +397,9 @@
         "evidence_note": "設定頁 App 清單截圖提供人眼可見的裝置狀態；payload 清單來自抓包解密。兩者因 Android package visibility 與顯示名稱不同，不進行完整一對一比對。"
       },
       "ios": {
-        "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "applicable": false,
+        "reason": "iOS 不執行已安裝 App 清單 TestCase。",
+        "reason_en": "The Installed App List testcase is not executed on iOS."
       }
     },
     {
@@ -417,11 +422,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "setup": "沿用本輪 capture；目前 Sample App 沒有購買流程。",
+        "setup_en": "Reuse this round's capture; the Sample App currently has no purchase flow.",
+        "expected": "欄位缺少或格式錯誤為 FAILED；合法陣列在 Sample App 尚無購買流程與 expected product IDs 時為 BLOCKED。",
+        "expected_en": "A missing or malformed field is FAILED. A valid array remains BLOCKED while the Sample App has no purchase flow or independent expected product IDs.",
+        "evidence": "in-app-purchase-history.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 Android：目前只能驗證欄位與 product ID 陣列格式，無法驗證內容正確性，因此合法陣列結果為 BLOCKED。",
+        "evidence_note_en": "Same as Android: only the field and product-ID array shape can be validated. Content correctness cannot be proven, so a valid array remains BLOCKED."
       }
     },
     {
@@ -444,11 +451,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "System Boot Timestamps 的 device.ext.pot 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "System Boot Timestamps (device.ext.pot) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "免設定；沿用 iOS R1 的 Bid capture。",
+        "setup_en": "No setup is required; reuse the iOS R1 Bid capture.",
+        "expected": "device.ext.pot 必須含 1～5 筆嚴格遞增的正整數 epoch milliseconds；格式正確為 PASS，格式錯誤為 FAILED。",
+        "expected_en": "device.ext.pot must contain 1 to 5 strictly increasing positive epoch-millisecond integers. Valid format is PASS; invalid format is FAILED.",
+        "evidence": "boot-timestamps.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式。",
+        "evidence_note_en": "Human-visible Evidence is currently unavailable on iOS; this testcase validates the decoded payload field format."
       }
     },
     {
@@ -470,11 +479,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "SDK Version (sdk_version) 的 app.sdk_version 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "SDK Version (sdk_version) (app.sdk_version) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 iOS R1 capture 擷取 Actual；由 reviewer 依本次 Sample App build manifest 提供 Expected Ads SDK 版號。",
+        "setup_en": "Reuse the iOS R1 capture for Actual and obtain the expected Ads SDK version independently from the reviewed Sample App build manifest.",
+        "expected": "未提供 reviewer Expected 時明確 BLOCKED；Expected 完成後 app.sdk_version 必須精確相等，且 Expected 不得由 payload 反推。",
+        "expected_en": "Explicitly BLOCK until a reviewer supplies Expected. Once supplied, app.sdk_version must match exactly, and Expected must never be inferred from the payload.",
+        "evidence": "sdk-version-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -497,11 +506,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "RAM Status (Total) 的 device.ext.mem_total 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "RAM Status (Total) (device.ext.mem_total) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "免設定；沿用 iOS R1 的 Bid capture。",
+        "setup_en": "No setup is required; reuse the iOS R1 Bid capture.",
+        "expected": "device.ext.mem_total 必須是正整數 bytes；格式正確為 PASS，格式錯誤為 FAILED。",
+        "expected_en": "device.ext.mem_total must be positive integer bytes. Valid format is PASS; invalid format is FAILED.",
+        "evidence": "ram-total.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式。",
+        "evidence_note_en": "Human-visible Evidence is currently unavailable on iOS; this testcase validates the decoded payload field format."
       }
     },
     {
@@ -524,11 +535,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "RAM Status (Available) 的 device.ext.mem_available 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "RAM Status (Available) (device.ext.mem_available) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "免設定；沿用 iOS R1 的 Bid capture。",
+        "setup_en": "No setup is required; reuse the iOS R1 Bid capture.",
+        "expected": "device.ext.mem_available 必須是正整數 bytes，且不得大於 mem_total；數值關係正確為 PASS，錯誤為 FAILED。",
+        "expected_en": "device.ext.mem_available must be positive integer bytes and must not exceed mem_total. A valid relationship is PASS; otherwise FAILED.",
+        "evidence": "ram-available.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式與數值關係。",
+        "evidence_note_en": "Human-visible Evidence is currently unavailable on iOS; this testcase validates the decoded payload field format and value relationship."
       }
     },
     {
@@ -550,12 +563,9 @@
         "evidence_note": "Evidence 上半部直接顯示 Android Storage 的 Total／Used 原生畫面；下半部以同一 /data filesystem 的精確 bytes 與 SDK 對答案。"
       },
       "ios": {
-        "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "applicable": false,
+        "reason": "iOS 不執行 Disk Storage (Total) TestCase。",
+        "reason_en": "The Disk Storage (Total) testcase is not executed on iOS."
       }
     },
     {
@@ -577,12 +587,9 @@
         "evidence_note": "Evidence 上半部直接顯示 Android Storage 原生畫面，下半部列 Total − Used ≈ Free，再用 /data 精確 bytes 與 SDK 對答案。"
       },
       "ios": {
-        "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "applicable": false,
+        "reason": "iOS 不執行 Disk Storage (Free) TestCase。",
+        "reason_en": "The Disk Storage (Free) testcase is not executed on iOS."
       }
     },
     {
@@ -605,11 +612,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Battery Level 的 device.batterylevel 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Battery Level (device.batterylevel) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "發送 Bid 前從右上角拉下 iOS 控制中心，保存電池百分比畫面與 accessibility 讀值。",
+        "setup_en": "Before sending the Bid, open iOS Control Center from the top-right and preserve its visible battery percentage and accessibility value.",
+        "expected": "device.batterylevel 必須是 0～100 的有限數值，且與同輪控制中心電量差異不超過 2%。",
+        "expected_en": "device.batterylevel must be a finite value from 0 to 100 and differ from the same-round visible Control Center percentage by no more than 2%.",
+        "evidence": "ios-battery-level.png、ios-battery-level.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "iOS 控制中心直接顯示當前電量百分比，作為肉眼可見的獨立 Evidence。",
+        "evidence_note_en": "iOS Control Center visibly displays the current battery percentage and serves as independent human-visible Evidence."
       }
     },
     {
@@ -632,11 +641,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Charging Status 的 device.charging 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Charging Status (device.charging) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "發送 Bid 前從右上角拉下 iOS 控制中心，保存可見的電池充電狀態與 accessibility 語意。不得為了讓 TC 通過而插拔電源。",
+        "setup_en": "Before sending the Bid, open iOS Control Center from the top-right and preserve the visible battery charging state and its accessibility semantics. Do not connect or disconnect power merely to make the testcase pass.",
+        "expected": "device.charging 必須是 boolean-compatible 的 0／1，並與同輪控制中心可見的 Charging／Charged 或未充電狀態完全一致。",
+        "expected_en": "device.charging must be boolean-compatible 0/1 and exactly match the same-round Control Center Charging/Charged or not-charging state.",
+        "evidence": "ios-charging-status.png、ios-charging-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "控制中心截圖是肉眼可見 Evidence；JSON 保存同一畫面的 battery accessibility 原文與解析結果。讀不到明確狀態時為 BLOCKED，不得用 payload 自證。",
+        "evidence_note_en": "The Control Center screenshot is human-visible Evidence. The JSON preserves the battery accessibility text and parsed result from the same screen. An ambiguous state is BLOCKED and must not be inferred from the payload."
       }
     },
     {
@@ -659,11 +670,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Battery Saver 的 device.ext.battery_saver 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Battery Saver (device.ext.battery_saver) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "發送 Bid 前開啟原生 iOS Settings 的 Low Power Mode 頁，非破壞性讀取並保存目前開關狀態；R1 不修改開關。",
+        "setup_en": "Before sending the Bid, open the native iOS Settings Low Power Mode page and non-destructively preserve the current switch state. R1 does not change the switch.",
+        "expected": "device.ext.battery_saver 必須是 JSON boolean，並與同輪原生 Low Power Mode 開關完全一致。",
+        "expected_en": "device.ext.battery_saver must be a JSON boolean and exactly match the same-round native Low Power Mode switch.",
+        "evidence": "ios-low-power-mode.png、ios-low-power-mode.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "以原生 Low Power Mode 開關畫面作為肉眼可見 Evidence，JSON 保存同一個 switch 的 accessibility value。缺少畫面或明確讀值時為 BLOCKED。",
+        "evidence_note_en": "The native Low Power Mode switch is the human-visible Evidence, while the JSON preserves the same switch's accessibility value. A missing screenshot or ambiguous value is BLOCKED."
       }
     },
     {
@@ -686,11 +699,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Screen Width 的 device.sw 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Screen Width (device.sw) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保持直向；Bid 前保存 XCUITest logical points、ideviceinfo ProductType 與可見的 iOS About／App 畫面，再由 ProductType 對應 Apple 官方 native resolution。",
+        "setup_en": "Keep portrait orientation. Before the Bid, preserve XCUITest logical points, ideviceinfo ProductType, and a visible iOS About/app screen, then map ProductType to the Apple native resolution.",
+        "expected": "Request device.sw 必須等於 XCUITest logical width points；Extended device.sw 必須等於該 ProductType 的 Apple 官方 native width pixels。",
+        "expected_en": "Request device.sw must equal the XCUITest logical width in points. Extended device.sw must equal the Apple native width in pixels mapped from ProductType.",
+        "evidence": "screen-width-evidence.png、ios-display-source.png、ios-display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 AOS 產生比較卡；WDA 截圖尺寸只作 supporting observation，不取代 logical points 或 Apple native pixels。",
+        "evidence_note_en": "An AOS-style comparison card is generated. WDA screenshot dimensions are supporting observations only and do not replace logical points or Apple native pixels."
       }
     },
     {
@@ -713,11 +728,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Screen Height 的 device.sh 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Screen Height (device.sh) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保持直向；沿用同輪 iOS display capture 的 XCUITest logical points、ProductType 與 Apple 官方 native resolution。",
+        "setup_en": "Keep portrait orientation and reuse the same-round iOS display capture with XCUITest logical points, ProductType, and Apple native resolution.",
+        "expected": "Request device.sh 必須等於 XCUITest logical height points；Extended device.sh 必須等於該 ProductType 的 Apple 官方 native height pixels。",
+        "expected_en": "Request device.sh must equal the XCUITest logical height in points. Extended device.sh must equal the Apple native height in pixels mapped from ProductType.",
+        "evidence": "screen-height-evidence.png、ios-display-source.png、ios-display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 AOS 產生比較卡；截圖 pixel dimensions 只輔助呈現，不作唯一 expected answer。",
+        "evidence_note_en": "An AOS-style comparison card is generated. Screenshot pixel dimensions are supporting presentation and are not the sole expected answer."
       }
     },
     {
@@ -740,11 +757,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Screen PPI 的 device.ppi 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Screen PPI (device.ppi) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 ideviceinfo ProductType，查閱內建且附 Apple 官方來源的顯示規格 mapping。",
+        "setup_en": "Reuse ideviceinfo ProductType and look up the built-in display-spec mapping with an Apple official source.",
+        "expected": "Extended device.ppi 必須直接等於該 ProductType 的 Apple 官方 physical PPI；Request ppi 允許不存在，存在時亦須相同。",
+        "expected_en": "Extended device.ppi must directly equal the Apple physical PPI mapped from ProductType. Request ppi may be absent; if present it must also match.",
+        "evidence": "screen-ppi-evidence.png、ios-display-source.png、ios-display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "iOS 欄位是 physical PPI，不沿用 AOS logical density 對 physical PPI 的 ±5% 輔助規則；未收錄 ProductType 時為 BLOCKED。",
+        "evidence_note_en": "The iOS field is physical PPI, so the AOS ±5% logical-density supporting rule does not apply. An unmapped ProductType is BLOCKED."
       }
     },
     {
@@ -767,11 +786,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Pixel Ratio 的 device.pxratio 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Pixel Ratio (device.pxratio) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用同輪 XCUITest logical points 與 Apple 官方 native resolution，分別計算 width pixels÷points 及 height pixels÷points。",
+        "setup_en": "Reuse the same-round XCUITest logical points and Apple native resolution, calculating width pixels/points and height pixels/points independently.",
+        "expected": "兩軸必須推導出同一 ratio；Request／Extended device.pxratio 都必須在 0.000001 容差內相等。",
+        "expected_en": "Both axes must derive the same ratio. Request and Extended device.pxratio must match it within a 0.000001 tolerance.",
+        "evidence": "pixel-ratio-evidence.png、ios-display-source.png、ios-display-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 AOS density÷160 的公式卡；iOS 使用 native pixels÷logical points，禁止直接用 payload sw/sh 自算 expected。",
+        "evidence_note_en": "This mirrors the AOS density/160 formula card. iOS uses native pixels/logical points and must not derive expected values from payload sw/sh."
       }
     },
     {
@@ -794,11 +815,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Screen Brightness 的 device.ext.screen_bright 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Screen Brightness (device.ext.screen_bright) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "發送 Bid 前以 read-only 方式開啟原生 Settings > Display & Brightness，保存亮度滑桿畫面與 accessibility 百分比；不改變滑桿。",
+        "setup_en": "Before the Bid, open native Settings > Display & Brightness read-only and preserve the visible slider plus its accessibility percentage without changing it.",
+        "expected": "將可見百分比除以 100 得到 0～1 expected；device.ext.screen_bright 必須在 0.01 容差內相等，Request 若存在亦須相等。",
+        "expected_en": "Normalize the visible percentage by 100. device.ext.screen_bright must match within 0.01, and the Request value must also match when present.",
+        "evidence": "screen-brightness-evidence.png、ios-brightness-settings.png、ios-brightness-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "原生滑桿是獨立答案，Evidence 卡合併同輪 payload；R1 僅觀察，不為測試改變亮度。",
+        "evidence_note_en": "The native slider is the independent source and the card joins the same-round payload. R1 observes without changing brightness."
       }
     },
     {
@@ -821,11 +844,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Font Scale 的 device.ext.fontscale 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Font Scale (device.ext.fontscale) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "發送 Bid 前以 read-only 方式開啟原生 Settings > Accessibility > Display & Text Size > Larger Text，保存字級頁面與目前滑桿狀態。",
+        "setup_en": "Before the Bid, open native Settings > Accessibility > Display & Text Size > Larger Text read-only and preserve the page and selected slider state.",
+        "expected": "畫面可證明當下 Dynamic Type 選擇；payload 必須是正數且 req/ext 一致，但在缺少經 review 的 iOS API 對 exact multiplier mapping 前維持 BLOCKED。格式錯誤或不一致為 FAILED。",
+        "expected_en": "The page proves the selected Dynamic Type state. The payload must be positive and req/ext-consistent, but remains BLOCKED until a reviewed iOS API bridge maps that state to the exact multiplier. Invalid or inconsistent values are FAILED.",
+        "evidence": "font-scale-evidence.png、ios-font-size-settings.png、ios-font-size-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "不可把 Larger Text 滑桿百分比直接當成 device.ext.fontscale；之後需補獨立 API bridge 或 QA probe 才能判精確 PASS。",
+        "evidence_note_en": "Do not treat the Larger Text slider percentage as device.ext.fontscale. An independent API bridge or QA probe is required for an exact PASS."
       }
     },
     {
@@ -848,11 +873,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Dark Mode 的 device.ext.darkmode 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Dark Mode (device.ext.darkmode) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "發送 Bid 前以 read-only 方式開啟原生 Settings > Display & Brightness，保存 Appearance 區塊中 Light／Dark 的可見選擇與 accessibility 狀態；不改變外觀。",
+        "setup_en": "Before the Bid, open native Settings > Display & Brightness read-only and preserve the visible Light/Dark Appearance selection plus its accessibility state without changing it.",
+        "expected": "Light 對應 false、Dark 對應 true；device.ext.darkmode 必須是 JSON boolean 且與可見選擇完全一致，Request 若存在亦須一致。",
+        "expected_en": "Light maps to false and Dark maps to true. device.ext.darkmode must be a JSON boolean matching the visible selection exactly; the Request value must also match when present.",
+        "evidence": "dark-mode-evidence.png、ios-dark-mode-settings.png、ios-dark-mode-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "必須唯一讀到 Light 或 Dark 被選取；無法解析選取狀態或缺少畫面為 BLOCKED，Evidence 完整但 payload 錯誤為 FAILED。",
+        "evidence_note_en": "Exactly one of Light or Dark must be readable as selected. An ambiguous selection or missing screenshot is BLOCKED; a complete visual source with an incorrect payload is FAILED."
       }
     },
     {
@@ -875,11 +902,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "setup": "Not In Scope；本輪不建立感測器動作。",
+        "setup_en": "Not In Scope; this round does not perform sensor motion.",
+        "expected": "BLOCKED；即使欄位存在且為 [] 或帶有樣本，也不宣稱內容正確。",
+        "expected_en": "BLOCKED. Do not claim correctness even when the field is present as [] or contains samples.",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 AOS：本輪沒有獨立感測器動作與 reviewed expected samples，因此只觀察、不評估。",
+        "evidence_note_en": "Same as AOS: this round has no independent sensor motion or reviewed expected samples, so the array is observed but not evaluated."
       }
     },
     {
@@ -902,11 +931,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "setup": "Not In Scope；本輪不建立感測器動作。",
+        "setup_en": "Not In Scope; this round does not perform sensor motion.",
+        "expected": "BLOCKED；即使欄位存在且為 [] 或帶有樣本，也不宣稱內容正確。",
+        "expected_en": "BLOCKED. Do not claim correctness even when the field is present as [] or contains samples.",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 AOS：本輪沒有獨立感測器動作與 reviewed expected samples，因此只觀察、不評估。",
+        "evidence_note_en": "Same as AOS: this round has no independent sensor motion or reviewed expected samples, so the array is observed but not evaluated."
       }
     },
     {
@@ -928,11 +959,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Advertising Tracking Allowed 的 device.lat（Limit Ad Tracking，反向旗標） 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Advertising Tracking Allowed (device.lat（Limit Ad Tracking，反向旗標）) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "Bid 前以 read-only 方式開啟原生 Settings > Privacy & Security > Tracking，保存 Sample App 開關；同輪以 GetMyIDFA 保存非零 IDFA。R1 不替使用者開啟追蹤。",
+        "setup_en": "Before the Bid, open native Settings > Privacy & Security > Tracking read-only and preserve the Sample App switch. Preserve a visible non-zero IDFA from GetMyIDFA in the same round. R1 does not enable tracking for the user.",
+        "expected": "Sample App 追蹤開關／ATT 必須為 authorized，GetMyIDFA、Request 與 Extended device.ia 必須是同一個非零 UUID；device.lat 是反向旗標，req/ext 各自只能是整數 0 或欄位不存在。",
+        "expected_en": "The Sample App tracking switch/ATT must be authorized. GetMyIDFA and Request/Extended device.ia must be the same non-zero UUID. Because device.lat is inverse, each req/ext value must be integer 0 or absent.",
+        "evidence": "tracking-allowed-evidence.png、tracking-allowed.png、ios-tracking-allowed-status.json、ios-idfa.png、bid_decoded.json、verdicts.json",
+        "evidence_note": "開關未開代表 tracking-allowed 前提未成立，因 R1 不改隱私設定而判 BLOCKED；可視來源完整後，IDFA／LAT payload 錯誤才判 FAILED。",
+        "evidence_note_en": "An OFF switch means the tracking-allowed precondition is not established, so the read-only R1 is BLOCKED. Once visual sources are complete, an incorrect IDFA or LAT payload is FAILED."
       }
     },
     {
@@ -959,11 +992,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Output Volume 的 device.ext.volume 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Output Volume (device.ext.volume) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "Bid 前以 read-only 方式拉出 iOS 控制中心，保存媒體音量滑桿畫面與 accessibility 百分比；不調整音量。",
+        "setup_en": "Before the Bid, open iOS Control Center read-only and preserve the media-volume slider plus its accessibility percentage without changing volume.",
+        "expected": "將可見百分比除以 100；device.ext.volume 必須是 0～1 的有限數值並在 0.01 容差內相等，Request 若存在亦須相等。",
+        "expected_en": "Normalize the visible percentage by 100. device.ext.volume must be finite, between 0 and 1, and match within 0.01; the Request value must also match when present.",
+        "evidence": "output-volume-evidence.png、ios-output-volume-control-center.png、ios-output-volume-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "控制中心的媒體音量滑桿是肉眼來源；不使用 Sounds & Haptics 的鈴聲音量。讀不到唯一滑桿為 BLOCKED，Evidence 完整但 payload 錯誤為 FAILED。",
+        "evidence_note_en": "The Control Center media-volume slider is the visual source; the Sounds & Haptics ringtone slider is not used. An ambiguous slider is BLOCKED, while a complete source with an incorrect payload is FAILED."
       }
     },
     {
@@ -986,11 +1021,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Device Make 的 device.make 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Device Make (device.make) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "Bid 前開啟原生 Settings > General > About，保存可見 Model Name；同輪讀取 ideviceinfo ProductType 並對應 Apple 官方機型規格。",
+        "setup_en": "Before the Bid, open native Settings > General > About and preserve the visible Model Name. Read ideviceinfo ProductType in the same round and map it to an Apple-hosted official specification.",
+        "expected": "About Model Name、ProductType 與 Apple 官方 model 必須一致；由官方 mapping 建立 manufacturer=Apple，Extended device.make 必須精確等於 Apple，Request 若存在亦須相等。",
+        "expected_en": "The About Model Name, ProductType, and Apple official model must agree. The official mapping establishes manufacturer=Apple; Extended device.make must equal Apple exactly, and Request must also match when present.",
+        "evidence": "device-make-evidence.png、ios-device-about.png、ios-device-identity-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "About 畫面與 ProductType mapping 是獨立來源；未收錄 ProductType、讀不到唯一 Model Name 或兩者不一致時為 BLOCKED。",
+        "evidence_note_en": "Native About and the ProductType mapping are independent sources. An unmapped ProductType, unreadable Model Name, or disagreement between them is BLOCKED."
       }
     },
     {
@@ -1013,11 +1050,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Device Model 的 device.model / device.hwv 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Device Model (device.model / device.hwv) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "與 device-make 共用原生 About 畫面、ideviceinfo ProductType 與 Apple 官方機型 mapping。",
+        "setup_en": "Reuse the native About screenshot, ideviceinfo ProductType, and Apple official model mapping captured for device-make.",
+        "expected": "Extended device.model 必須等於可見／官方 Model Name，Extended device.hwv 必須等於 ProductType；Request 欄位若存在亦須相等。",
+        "expected_en": "Extended device.model must equal the visible/official Model Name and Extended device.hwv must equal ProductType. Request fields must also match when present.",
+        "evidence": "device-model-evidence.png、ios-device-about.png、ios-device-identity-status.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "Request device.model 允許不傳；來源缺失為 BLOCKED，來源完整但 model／hwv 不一致為 FAILED。",
+        "evidence_note_en": "Request device.model may be absent. Missing independent sources are BLOCKED; a model/hwv mismatch with complete sources is FAILED."
       }
     },
     {
@@ -1040,11 +1079,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Default Timezone 的 device.utcoffset 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Default Timezone (device.utcoffset) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "Bid 前保存原生 Date & Time 頁與 ideviceinfo TimeZone。",
+        "setup_en": "Before the Bid, preserve native Date & Time and ideviceinfo TimeZone.",
+        "expected": "將 capture 當下 IANA timezone（含 DST）換算為 UTC offset 分鐘；Extended utcoffset 必須相等，Request 若存在亦須相等。",
+        "expected_en": "Convert the capture-time IANA timezone, including DST, to UTC-offset minutes. Extended utcoffset must match, as must Request when present.",
+        "evidence": "default-timezone-evidence.png、ios-date-time.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1069,11 +1108,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "System Language Code 的 device.lang 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "System Language Code (device.lang) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保存原生 Language & Region 頁與 ideviceinfo Locale。",
+        "setup_en": "Preserve native Language & Region and ideviceinfo Locale.",
+        "expected": "device.lang 必須等於 Locale 的小寫語言部分；Extended 必填，Request 若存在亦須相等。",
+        "expected_en": "device.lang must equal the lowercase language component of Locale. Extended is required; Request must match when present.",
+        "evidence": "default-language-iso-evidence.png、ios-language-region.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1098,11 +1137,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "System Language and Region Tag 的 device.langb 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "System Language and Region Tag (device.langb) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "與 language-iso 共用 Language & Region 與 Locale。",
+        "setup_en": "Reuse Language & Region and Locale from language-iso.",
+        "expected": "device.langb 必須等於將 Locale 正規化為連字號的完整 BCP 47 tag。",
+        "expected_en": "device.langb must equal the complete Locale normalized to a hyphenated BCP 47 tag.",
+        "evidence": "default-language-bcp47-evidence.png、ios-language-region.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1125,11 +1164,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Installed Keyboard Languages 的 device.input_lang 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Installed Keyboard Languages (device.input_lang) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保存原生 Keyboards 頁，依畫面順序將已 review 的名稱映射為 BCP 47 tags。",
+        "setup_en": "Preserve native Keyboards and map reviewed visible names to BCP 47 tags in displayed order.",
+        "expected": "Extended device.input_lang 必須與可見 keyboard tags 的順序完全一致；無法映射為 BLOCKED。",
+        "expected_en": "Extended device.input_lang must exactly match the ordered visible keyboard tags. An unmappable row is BLOCKED.",
+        "evidence": "keyboard-languages-evidence.png、ios-keyboards.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1152,11 +1191,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Root Status 的 device.ext.jailbreak 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Root Status (device.ext.jailbreak) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保存實體 iPhone Settings／ProductType 背景；本輪沒有已 review 的 jailbreak integrity probe。",
+        "setup_en": "Preserve physical-iPhone Settings/ProductType context; this round has no reviewed jailbreak integrity probe.",
+        "expected": "BLOCKED；實體裝置背景不能獨立證明未 jailbreak，payload boolean 不可自證。",
+        "expected_en": "BLOCKED. Physical-device context cannot independently prove absence of jailbreak, and the payload boolean cannot prove itself.",
+        "evidence": "root-status-evidence.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1179,11 +1218,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Emulator Detection 的 device.ext.emulator 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Emulator Detection (device.ext.emulator) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "由 libimobiledevice 連線並保存硬體 ProductType 與原生 Settings 畫面。",
+        "setup_en": "Use libimobiledevice and preserve the hardware ProductType plus native Settings context.",
+        "expected": "硬體 ProductType 建立實體裝置 expected=false；Extended emulator 必須為 JSON false，Request 若存在亦須為 false。",
+        "expected_en": "A hardware ProductType establishes physical-device expected=false. Extended emulator must be JSON false; Request must also be false when present.",
+        "evidence": "emulator-detection-evidence.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1377,11 +1416,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Connection Type 的 device.conntype 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Connection Type (device.conntype) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保存原生 Wi-Fi 頁及有 selected/checkmark 的目前網路。",
+        "setup_en": "Preserve native Wi-Fi with the currently selected/checkmarked network.",
+        "expected": "可見已連線 Wi-Fi 建立 expected=wifi；req/ext device.conntype 必須相等。",
+        "expected_en": "A visibly connected Wi-Fi network establishes expected=wifi; req/ext device.conntype must match.",
+        "evidence": "connection-type-evidence.png、ios-wifi.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1404,11 +1443,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Carrier 的 device.carrier 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Carrier (device.carrier) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保存原生 Cellular 頁；目前裝置若顯示 No SIM，建立空 carrier identity。",
+        "setup_en": "Preserve native Cellular. A visible No SIM state establishes an empty carrier identity.",
+        "expected": "No SIM 時 req/ext carrier 只能空字串或不存在；有 active SIM 則 BLOCKED，等待精確 carrier 契約。",
+        "expected_en": "With No SIM, req/ext carrier must be empty or absent. An active SIM is BLOCKED pending an exact carrier contract.",
+        "evidence": "carrier-evidence.png、ios-cellular.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1431,11 +1470,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "MCC/MNC 的 device.mccmnc 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "MCC/MNC (device.mccmnc) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "與 carrier 共用原生 Cellular／No SIM Evidence。",
+        "setup_en": "Reuse native Cellular/No SIM Evidence from carrier.",
+        "expected": "No SIM 時 req/ext mccmnc 只能空字串或不存在；有 active SIM 則 BLOCKED。",
+        "expected_en": "With No SIM, req/ext mccmnc must be empty or absent. An active SIM is BLOCKED.",
+        "evidence": "mcc-mnc-evidence.png、ios-cellular.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1458,11 +1497,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Precise GPS Latitude 的 ext.device.geo_lat 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Precise GPS Latitude (ext.device.geo_lat) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "保存原生 Location Services 權限頁；目前 Sample App 未顯示 exact coordinate。",
+        "setup_en": "Preserve native Location Services permission context; the Sample App does not currently display an exact coordinate.",
+        "expected": "BLOCKED；權限頁不能證明 exact latitude，需 Sample App coordinate QA surface。",
+        "expected_en": "BLOCKED. A permission page cannot prove exact latitude; a Sample App coordinate QA surface is required.",
+        "evidence": "precise-gps-latitude-evidence.png、ios-location-services.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1485,11 +1524,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Precise GPS Longitude 的 ext.device.geo_lon 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Precise GPS Longitude (ext.device.geo_lon) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "與 latitude 共用 Location Services 權限頁。",
+        "setup_en": "Reuse Location Services permission context from latitude.",
+        "expected": "BLOCKED；權限頁不能證明 exact longitude，需 Sample App coordinate QA surface。",
+        "expected_en": "BLOCKED. A permission page cannot prove exact longitude; a Sample App coordinate QA surface is required.",
+        "evidence": "precise-gps-longitude-evidence.png、ios-location-services.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1593,11 +1632,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Last Foreground Times 的 user.last_foreground_time 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Last Foreground Times (user.last_foreground_time) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 iOS R1 capture 顯示 payload 陣列；目前 Sample App 未提供可逐筆核對的 foreground callback 時間軸。",
+        "setup_en": "Reuse the iOS R1 capture to display the payload array; the Sample App currently exposes no foreground-callback timeline for item-by-item verification.",
+        "expected": "保留可視化卡片但結果為 BLOCKED；不得只檢查 payload 格式就宣稱 lifecycle timestamp 正確。",
+        "expected_en": "Keep a visible evidence card but report BLOCKED; payload shape alone cannot prove lifecycle timestamp correctness.",
+        "evidence": "last-foreground-times-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -1620,11 +1659,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Last Background Times 的 user.last_background_time 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Last Background Times (user.last_background_time) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 iOS R1 capture 顯示 payload 陣列；目前 Sample App 未提供可逐筆核對的 background callback 時間軸。",
+        "setup_en": "Reuse the iOS R1 capture to display the payload array; the Sample App currently exposes no background-callback timeline for item-by-item verification.",
+        "expected": "保留可視化卡片但結果為 BLOCKED；不得只檢查 payload 格式就宣稱 lifecycle timestamp 正確。",
+        "expected_en": "Keep a visible evidence card but report BLOCKED; payload shape alone cannot prove lifecycle timestamp correctness.",
+        "evidence": "last-background-times-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -1674,11 +1713,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "VPN Status 的 device.ext.vpn 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "VPN Status (device.ext.vpn) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "Bid 前以 read-only 方式保存 Settings > General > VPN & Device Management 的可見連線狀態。",
+        "setup_en": "Before the Bid, preserve the visible connection state from Settings > General > VPN & Device Management using read-only automation.",
+        "expected": "原生頁面 Connected 對應字串 \"1\"，Not Connected 對應字串 \"0\"；Extended 必須相等，Request 若存在亦須相等。畫面不明確時 BLOCKED。",
+        "expected_en": "Native Connected maps to string \"1\" and Not Connected maps to string \"0\". Extended must match; Request must also match when present. Ambiguous UI is BLOCKED.",
+        "evidence": "vpn-status-evidence.png、ios-vpn.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1701,11 +1740,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Argus SDK Version 的 device.argus_ver 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Argus SDK Version (device.argus_ver) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 iOS R1 capture 擷取 Actual；由 reviewer 依本次 Sample App build manifest 提供 Expected Argus SDK 版號。",
+        "setup_en": "Reuse the iOS R1 capture for Actual and obtain the expected Argus SDK version independently from the reviewed Sample App build manifest.",
+        "expected": "未提供 reviewer Expected 時明確 BLOCKED；Expected 完成後 device.argus_ver 必須精確相等，且 Expected 不得由 payload 反推。",
+        "expected_en": "Explicitly BLOCK until a reviewer supplies Expected. Once supplied, device.argus_ver must match exactly, and Expected must never be inferred from the payload.",
+        "evidence": "argus-sdk-version-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -1812,11 +1851,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Happy Path 擷取實際 wire 狀態；在 iOS 正確契約完成 review 前保留卡片並明確 BLOCK。",
-        "setup_en": "Capture the actual iOS Happy Path wire state. Keep the card visible and explicitly BLOCK it until the correct iOS contract is reviewed.",
-        "expected": "不得套用 Android 答案；待逐條確認 iOS 欄位是否應存在及其獨立 Evidence 後，才可定義 PASS／FAILED。",
-        "expected_en": "Do not reuse the Android answer. Define PASS/FAILED only after reviewing whether the iOS field should exist and its independent Evidence.",
-        "evidence": "bid_decoded.json、ios-device-context.json、verdicts.json"
+        "setup": "保存 Settings > Cellular 的原生前提畫面；本 R1 不切換網路，且目前裝置無 active SIM。",
+        "setup_en": "Preserve the native Settings > Cellular prerequisite screen. R1 does not switch transport, and the current device has no active SIM.",
+        "expected": "BLOCKED／Not executable：需要 active SIM 與 cellular data 的獨立 scenario，不能用 Wi-Fi capture 推論 cellular conntype。",
+        "expected_en": "BLOCKED/not executable: an active-SIM cellular-data scenario is required; a Wi-Fi capture cannot establish cellular conntype.",
+        "evidence": "connection-type-cellular-evidence.png、ios-cellular.png、ios-system-context.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1839,11 +1878,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "Force GDPR Override 的 compliance.force_gdpr_applies 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "Force GDPR Override (compliance.force_gdpr_applies) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 iOS R1 capture；目前 Sample App 沒有可視或可控的 Force GDPR 設定入口。",
+        "setup_en": "Reuse the iOS R1 capture; the Sample App currently has no visible or controllable Force GDPR configuration surface.",
+        "expected": "保留 Actual 可視化卡片但結果為 BLOCKED；request 不得作為自身 configured input 的獨立證據。",
+        "expected_en": "Keep an Actual evidence card but report BLOCKED; the request cannot independently prove its own configured input.",
+        "evidence": "force-gdpr-override-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {
@@ -1866,11 +1905,11 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "以 iOS Sample App 執行 Happy Path baseline；同輪保存獨立的 iOS 裝置／設定狀態與 Bid Request。",
-        "setup_en": "Run the iOS Sample App Happy Path baseline and preserve independent iOS device/Settings state with the Bid Request in the same round.",
-        "expected": "COPPA Applicability Flag 的 compliance.coppa_applies 必須符合 iOS wire contract，且需要裝置端獨立 Evidence 的欄位不得只靠 payload 判 PASS。",
-        "expected_en": "COPPA Applicability Flag (compliance.coppa_applies) must satisfy the iOS wire contract. A device-state field must not PASS from payload alone when independent iOS Evidence is required.",
-        "evidence": "ios-device-context.json、ios-settings-state.png（需要時）、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "沿用 iOS R1 capture；目前 Sample App 沒有可視或可控的 COPPA 設定入口。",
+        "setup_en": "Reuse the iOS R1 capture; the Sample App currently has no visible or controllable COPPA configuration surface.",
+        "expected": "保留 Actual 可視化卡片但結果為 BLOCKED；request 不得作為自身 configured input 的獨立證據。",
+        "expected_en": "Keep an Actual evidence card but report BLOCKED; the request cannot independently prove its own configured input.",
+        "evidence": "coppa-applies-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
     {

@@ -19,6 +19,7 @@ omitted only with --accept-request.
 import argparse
 import base64
 import getpass
+import html
 import json
 import os
 import re
@@ -26,17 +27,25 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
 from evidence_ios import collect as collect_evidence
 from evidence_bundle import finalize_bundle
-from testcases.ios_signal_testcases import TC_DEFINITIONS, ROUND_DEFINITIONS, R5_SCENARIOS
+from testcases.ios_signal_testcases import (
+    IOS_BATTERY_VISIBLE, IOS_BRIGHTNESS_VISIBLE, IOS_CHARGING_VISIBLE, IOS_DISPLAY_STATUS,
+    IOS_DARK_MODE_VISIBLE, IOS_DEVICE_IDENTITY, IOS_FONT_SIZE_VISIBLE, IOS_IDFA_VISIBLE, IOS_LOW_POWER_VISIBLE,
+    IOS_OUTPUT_VOLUME_VISIBLE,
+    IOS_SYSTEM_CONTEXT_VISIBLE,
+    TC_DEFINITIONS, ROUND_DEFINITIONS, R5_SCENARIOS,
+)
 from testcases.e2e.ios_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
 from testcases.e2e.ios_e2e_baseline import validate_bundle as validate_baseline_e2e
 from testcases.e2e.ios_admob_mediation_extensions import TESTCASES as ADMOB_E2E_EXTENSIONS
@@ -245,13 +254,13 @@ def clear_syslog_state():
         pass
 
 
-def create_driver(config, bundle_id=None):
+def create_driver(config, bundle_id=None, *, auto_accept_alerts=True):
     options = XCUITestOptions()
     options.bundle_id = bundle_id or config.bundle_id
     options.automation_name = "XCUITest"
     options.no_reset = True
     options.udid = config.udid
-    options.set_capability("autoAcceptAlerts", True)
+    options.set_capability("autoAcceptAlerts", auto_accept_alerts)
     if config.xcode_org_id:
         options.set_capability("xcodeOrgId", config.xcode_org_id)
         options.set_capability("xcodeSigningId", "Apple Development")
@@ -259,6 +268,662 @@ def create_driver(config, bundle_id=None):
     if config.wda_bundle_id:
         options.set_capability("updatedWDABundleId", config.wda_bundle_id)
     return webdriver.Remote(APPIUM_URL, options=options)
+
+
+def capture_visible_idfa(config):
+    """Capture independent, human-readable IDFA Evidence from GetMyIDFA."""
+    state_path = Path(os.environ.get("IOS_IDFA_STATE_FILE", "/tmp/laf2-ios-idfa-state.json"))
+    screenshot_path = Path(os.environ.get("IOS_IDFA_SCREENSHOT", "/tmp/laf2-ios-idfa.png"))
+    bundle_id = _env("IOS_IDFA_APP_BUNDLE_ID", "com.pag3dev.GetMyIDFA").strip()
+    zero = "00000000-0000-0000-0000-000000000000"
+    uuid_pattern = re.compile(
+        r"(?i)(?<![0-9a-f])[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?![0-9a-f])"
+    )
+    state = {
+        "status": "UNAVAILABLE",
+        "source": "GetMyIDFA visible application",
+        "bundle_id": bundle_id,
+        "value": None,
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        if not bundle_id:
+            raise CaptureError("IOS_IDFA_APP_BUNDLE_ID is empty")
+        driver = create_driver(config, bundle_id=bundle_id, auto_accept_alerts=False)
+        time.sleep(2)
+        page_source = driver.page_source or ""
+        values = tuple(dict.fromkeys(match.group(0) for match in uuid_pattern.finditer(page_source)))
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("GetMyIDFA screenshot was not saved")
+        if driver.find_elements("class name", "XCUIElementTypeAlert"):
+            raise CaptureError("GetMyIDFA has a visible permission/system alert; no choice was made")
+        usable = [value for value in values if value.lower() != zero]
+        if len(usable) != 1:
+            detail = "zero IDFA" if values and not usable else f"{len(usable)} usable UUID values"
+            raise CaptureError(f"GetMyIDFA does not expose exactly one usable IDFA ({detail})")
+        state.update({
+            "status": "CAPTURED",
+            "value": usable[0],
+            "screenshot_saved": True,
+        })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+def _control_center_battery_state(source):
+    """Extract level and charging semantics from the visible battery accessibility node."""
+    tags = re.findall(r"<[^>]+>", source or "")
+    candidates = []
+    for tag in tags:
+        attributes = re.findall(r'(?:name|label|value)="([^"]*)"', tag)
+        text = " | ".join(html.unescape(value) for value in attributes if value)
+        if "%" in text and re.search(r"battery|power|charging|charged|電池|充電", text, re.IGNORECASE):
+            candidates.append(text)
+    if not candidates:
+        percent_tags = []
+        for tag in tags:
+            attributes = re.findall(r'(?:name|label|value)="([^"]*)"', tag)
+            text = " | ".join(html.unescape(value) for value in attributes if value)
+            if re.search(r"(?<!\d)\d{1,3}\s*%", text):
+                percent_tags.append(text)
+        if len(percent_tags) == 1:
+            candidates = percent_tags
+    text = " || ".join(dict.fromkeys(candidates))
+    levels = {
+        int(match.group(1)) for match in re.finditer(r"(?<!\d)(\d{1,3})\s*%", text)
+        if 0 <= int(match.group(1)) <= 100
+    }
+    level = levels.pop() if len(levels) == 1 else None
+    lowered = text.lower()
+    if re.search(r"not charging|not connected|on battery|discharging|未充電|未連接電源", lowered):
+        charging = False
+    elif re.search(r"\bcharging\b|\bcharged\b|connected to power|充電中|已充電", lowered):
+        charging = True
+    elif text and re.search(r"battery|battery power|電池", lowered):
+        # Apple's battery accessibility value appends a charging qualifier only
+        # while external power is connected; a scoped battery value without it
+        # is the visible not-charging state.
+        charging = False
+    else:
+        charging = None
+    return level, charging, text or None
+
+
+def _control_center_volume_state(source):
+    """Extract one media-volume percentage from the scoped Control Center slider."""
+    candidates = []
+    for tag in re.findall(r"<[^>]+>", source or ""):
+        if "XCUIElementTypeSlider" not in tag:
+            continue
+        attributes = re.findall(r'(?:name|label|value)="([^"]*)"', tag)
+        text = " | ".join(html.unescape(value) for value in attributes if value)
+        if re.search(r"volume|audio|音量", text, re.IGNORECASE):
+            candidates.append(text)
+    text = " || ".join(dict.fromkeys(candidates))
+    values = {
+        int(match.group(1)) for match in re.finditer(r"(?<!\d)(\d{1,3})\s*%", text)
+        if 0 <= int(match.group(1)) <= 100
+    }
+    return (values.pop() if len(values) == 1 else None), (text or None)
+
+
+def capture_visible_battery_level(config):
+    """Capture battery, charging, and output-volume state in one Control Center observation."""
+    state_path = Path(os.environ.get("IOS_BATTERY_STATE_FILE", "/tmp/laf2-ios-battery-level.json"))
+    screenshot_path = Path(os.environ.get("IOS_BATTERY_SCREENSHOT", "/tmp/laf2-ios-battery-level.png"))
+    charging_state_path = Path(os.environ.get("IOS_CHARGING_STATE_FILE", "/tmp/laf2-ios-charging-status.json"))
+    charging_screenshot_path = Path(os.environ.get("IOS_CHARGING_SCREENSHOT", "/tmp/laf2-ios-charging-status.png"))
+    volume_state_path = Path(os.environ.get("IOS_OUTPUT_VOLUME_STATE_FILE", "/tmp/laf2-ios-output-volume-status.json"))
+    volume_screenshot_path = Path(os.environ.get("IOS_OUTPUT_VOLUME_SCREENSHOT", "/tmp/laf2-ios-output-volume-control-center.png"))
+    state = {"status": "UNAVAILABLE", "source": "iOS Control Center", "value": None}
+    charging_state = {
+        "status": "UNAVAILABLE", "source": "iOS Control Center",
+        "charging": None, "accessibility_text": None,
+    }
+    volume_state = {
+        "status": "UNAVAILABLE", "source": "iOS Control Center > Media Volume slider",
+        "visible_percent": None, "normalized_volume": None, "accessibility_text": None,
+    }
+    for path in (
+        state_path, screenshot_path, charging_state_path, charging_screenshot_path,
+        volume_state_path, volume_screenshot_path,
+    ):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        driver = create_driver(config, auto_accept_alerts=False)
+        size = driver.get_window_size()
+        driver.swipe(int(size["width"] * .95), 1, int(size["width"] * .95), int(size["height"] * .55), 600)
+        time.sleep(1)
+        source = driver.page_source or ""
+        level, charging, accessibility_text = _control_center_battery_state(source)
+        volume_percent, volume_text = _control_center_volume_state(source)
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("iOS Control Center screenshot was not saved")
+        shutil.copy2(screenshot_path, charging_screenshot_path)
+        shutil.copy2(screenshot_path, volume_screenshot_path)
+        if level is None:
+            state["reason"] = "Control Center does not expose one unambiguous battery percentage"
+        else:
+            state.update({
+                "status": "CAPTURED", "value": level,
+                "accessibility_text": accessibility_text, "screenshot_saved": True,
+            })
+        if type(charging) is not bool:
+            charging_state["reason"] = "Control Center battery accessibility does not expose an unambiguous charging state"
+        else:
+            charging_state.update({
+                "status": "CAPTURED", "charging": charging,
+                "accessibility_text": accessibility_text, "screenshot_saved": True,
+            })
+        if volume_percent is None:
+            volume_state["reason"] = "Control Center does not expose one unambiguous media-volume percentage"
+        else:
+            volume_state.update({
+                "status": "CAPTURED", "visible_percent": volume_percent,
+                "normalized_volume": volume_percent / 100,
+                "accessibility_text": volume_text, "screenshot_saved": True,
+            })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+        charging_state["reason"] = f"{type(exc).__name__}: {exc}"
+        charging_state["screenshot_saved"] = charging_screenshot_path.is_file() and charging_screenshot_path.stat().st_size > 0
+        volume_state["reason"] = f"{type(exc).__name__}: {exc}"
+        volume_state["screenshot_saved"] = volume_screenshot_path.is_file() and volume_screenshot_path.stat().st_size > 0
+    finally:
+        captured_at = datetime.now().astimezone().isoformat()
+        state["captured_at"] = captured_at
+        charging_state["captured_at"] = captured_at
+        volume_state["captured_at"] = captured_at
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        charging_state_path.write_text(json.dumps(charging_state, ensure_ascii=False, indent=2) + "\n")
+        volume_state_path.write_text(json.dumps(volume_state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+def capture_visible_low_power_mode(config):
+    """Read and visibly preserve the native Low Power Mode switch without changing it."""
+    state_path = Path(os.environ.get("IOS_LOW_POWER_STATE_FILE", "/tmp/laf2-ios-low-power-mode.json"))
+    screenshot_path = Path(os.environ.get("IOS_LOW_POWER_SCREENSHOT", "/tmp/laf2-ios-low-power-mode.png"))
+    state = {
+        "status": "UNAVAILABLE",
+        "source": "iOS Settings > Battery > Low Power Mode",
+        "enabled": None,
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        _settings_search_open(driver, "Low Power Mode")
+        control = _setting_element(driver, "Low Power Mode", "XCUIElementTypeSwitch")
+        if control is None:
+            raise CaptureError("native iOS Settings does not expose the Low Power Mode switch")
+        raw_value = _attribute(control, "value")
+        normalized = str(raw_value or "").strip().lower()
+        if normalized in {"1", "true", "on", "enabled", "yes"}:
+            enabled = True
+        elif normalized in {"0", "false", "off", "disabled", "no"}:
+            enabled = False
+        else:
+            raise CaptureError(f"Low Power Mode switch has an ambiguous accessibility value: {raw_value!r}")
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("Low Power Mode Settings screenshot was not saved")
+        state.update({
+            "status": "CAPTURED", "enabled": enabled,
+            "switch_value": raw_value, "screenshot_saved": True,
+        })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+def _about_visible_model_name(source):
+    """Extract the Model Name value from the native About accessibility tree."""
+    if not isinstance(source, str) or "Model Name" not in source:
+        return None
+    regions = re.findall(
+        r"<XCUIElementTypeCell\b[^>]*>.*?Model Name.*?</XCUIElementTypeCell>",
+        source, re.DOTALL,
+    )
+    regions.extend(tag for tag in re.findall(r"<[^>]+>", source) if "Model Name" in tag)
+    for region in regions:
+        values = [html.unescape(value).strip() for value in re.findall(
+            r'(?:name|label|value)="([^"]*)"', region,
+        )]
+        for value in values:
+            cleaned = re.sub(r"^Model Name\s*[,|:]?\s*", "", value, flags=re.IGNORECASE).strip()
+            if cleaned and cleaned.lower() != "model name" and re.match(r"^(?:iPhone|iPad|iPod)\b", cleaned):
+                return cleaned
+    return None
+
+
+def capture_visible_display_status(config):
+    """Capture independent logical display points, ProductType, and a visible native screen."""
+    state_path = Path(os.environ.get("IOS_DISPLAY_STATE_FILE", "/tmp/laf2-ios-display-status.json"))
+    screenshot_path = Path(os.environ.get("IOS_DISPLAY_SCREENSHOT", "/tmp/laf2-ios-display-source.png"))
+    state = {
+        "status": "UNAVAILABLE",
+        "source": ["XCUITest window size", "ideviceinfo ProductType", "visible iOS screen"],
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        size = driver.get_window_size()
+        orientation_value = getattr(driver, "orientation", None)
+        orientation = orientation_value if isinstance(orientation_value, str) else None
+        product_type = ideviceinfo(config, "ProductType").strip()
+        device_name = ideviceinfo(config, "DeviceName").strip()
+        visual_source = "native Settings > General > About"
+        try:
+            _settings_search_open(driver, "About")
+            state["visible_model_name"] = _about_visible_model_name(driver.page_source or "")
+        except Exception as exc:
+            visual_source = "Sample App visible-screen fallback"
+            state["visual_navigation_warning"] = f"{type(exc).__name__}: {exc}"
+            driver.activate_app(config.bundle_id)
+            time.sleep(1)
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("visible iOS display source screenshot was not saved")
+        if type(size.get("width")) is not int or type(size.get("height")) is not int:
+            raise CaptureError(f"XCUITest window size is invalid: {size!r}")
+        if not product_type:
+            raise CaptureError("ideviceinfo ProductType is unavailable")
+        if not orientation:
+            raise CaptureError("XCUITest orientation is unavailable")
+        state.update({
+            "status": "CAPTURED",
+            "product_type": product_type,
+            "device_name": device_name or None,
+            "orientation": orientation,
+            "logical_points": {"width": size["width"], "height": size["height"]},
+            "visual_source": visual_source,
+            "screenshot_saved": True,
+        })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+def capture_visible_brightness(config):
+    """Read and preserve the native Display & Brightness slider without changing it."""
+    state_path = Path(os.environ.get("IOS_BRIGHTNESS_STATE_FILE", "/tmp/laf2-ios-brightness-status.json"))
+    screenshot_path = Path(os.environ.get("IOS_BRIGHTNESS_SCREENSHOT", "/tmp/laf2-ios-brightness-settings.png"))
+    state = {
+        "status": "UNAVAILABLE",
+        "source": "iOS Settings > Display & Brightness > Brightness slider",
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        _settings_search_open(driver, "Display & Brightness")
+        sliders = driver.find_elements("class name", "XCUIElementTypeSlider")
+        control = next((item for item in sliders if "brightness" in str(
+            _attribute(item, "name") or _attribute(item, "label") or ""
+        ).lower()), sliders[0] if sliders else None)
+        if control is None:
+            raise CaptureError("native iOS Display & Brightness does not expose a brightness slider")
+        raw_value = _attribute(control, "value")
+        normalized = _slider_fraction(control)
+        if not 0 <= normalized <= 1:
+            raise CaptureError(f"brightness slider is outside 0...1: {normalized!r}")
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("Display & Brightness screenshot was not saved")
+        state.update({
+            "status": "CAPTURED",
+            "slider_accessibility_value": raw_value,
+            "visible_percent": round(normalized * 100, 3),
+            "normalized_brightness": normalized,
+            "screenshot_saved": True,
+        })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+def capture_visible_dark_mode(config):
+    """Read and preserve the selected native Light/Dark appearance without changing it."""
+    state_path = Path(os.environ.get("IOS_DARK_MODE_STATE_FILE", "/tmp/laf2-ios-dark-mode-status.json"))
+    screenshot_path = Path(os.environ.get("IOS_DARK_MODE_SCREENSHOT", "/tmp/laf2-ios-dark-mode-settings.png"))
+    state = {
+        "status": "UNAVAILABLE",
+        "source": "iOS Settings > Display & Brightness > Appearance",
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        _settings_search_open(driver, "Display & Brightness")
+        controls = {}
+        for label in ("Light", "Dark"):
+            item = _setting_element(driver, label)
+            if item is None:
+                controls[label] = {"available": False, "selected": False}
+                continue
+            selected_attribute = str(_attribute(item, "selected") or "").strip().lower()
+            traits = str(_attribute(item, "traits") or "").strip()
+            value = str(_attribute(item, "value") or "").strip()
+            selected = (
+                selected_attribute in {"1", "true", "yes", "selected"}
+                or "selected" in traits.lower()
+                or value.lower() in {"1", "true", "yes", "selected"}
+            )
+            controls[label] = {
+                "available": True, "selected": selected,
+                "selected_attribute": selected_attribute or None,
+                "traits": traits or None, "value": value or None,
+            }
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("Display & Brightness appearance screenshot was not saved")
+        state["appearance_controls"] = controls
+        selected = [label for label, details in controls.items() if details.get("selected")]
+        if len(selected) != 1:
+            raise CaptureError(
+                f"native iOS Settings did not expose exactly one selected Light/Dark appearance: {selected!r}"
+            )
+        appearance = selected[0]
+        state.update({
+            "status": "CAPTURED",
+            "selected_appearance": appearance,
+            "dark_mode": appearance == "Dark",
+            "screenshot_saved": True,
+        })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+def capture_visible_font_size(config):
+    """Preserve the native Larger Text page and selected slider state without changing it."""
+    state_path = Path(os.environ.get("IOS_FONT_SIZE_STATE_FILE", "/tmp/laf2-ios-font-size-status.json"))
+    screenshot_path = Path(os.environ.get("IOS_FONT_SIZE_SCREENSHOT", "/tmp/laf2-ios-font-size-settings.png"))
+    state = {
+        "status": "UNAVAILABLE",
+        "source": "iOS Settings > Accessibility > Display & Text Size > Larger Text",
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        _settings_search_open(driver, "Larger Text")
+        sliders = driver.find_elements("class name", "XCUIElementTypeSlider")
+        control = sliders[-1] if sliders else None
+        if control is None:
+            raise CaptureError("native iOS Larger Text does not expose the text-size slider")
+        raw_value = _attribute(control, "value")
+        slider_position = _slider_fraction(control)
+        if not 0 <= slider_position <= 1:
+            raise CaptureError(f"Larger Text slider is outside 0...1: {slider_position!r}")
+        increase = _setting_element(driver, "Increase font size")
+        decrease = _setting_element(driver, "Decrease font size")
+        driver.save_screenshot(str(screenshot_path))
+        if not screenshot_path.is_file() or not screenshot_path.stat().st_size:
+            raise CaptureError("Larger Text screenshot was not saved")
+        state.update({
+            "status": "CAPTURED",
+            "slider_accessibility_value": raw_value,
+            "slider_position": slider_position,
+            "increase_button_enabled": increase.is_enabled() if increase is not None else None,
+            "decrease_button_enabled": decrease.is_enabled() if decrease is not None else None,
+            "screenshot_saved": True,
+            "numeric_mapping": "UNAVAILABLE",
+            "numeric_mapping_reason": (
+                "The native slider position is visual state only; it is not an API-defined fontscale multiplier."
+            ),
+        })
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+        state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
+
+
+IOS_SYSTEM_CONTEXT_PAGES = {
+    "date_time": ("Date & Time", "/tmp/laf2-ios-date-time.png"),
+    "language_region": ("Language & Region", "/tmp/laf2-ios-language-region.png"),
+    "keyboards": ("Keyboards", "/tmp/laf2-ios-keyboards.png"),
+    "wifi": ("Wi-Fi", "/tmp/laf2-ios-wifi.png"),
+    "cellular": ("Cellular", "/tmp/laf2-ios-cellular.png"),
+    "vpn": ("VPN & Device Management", "/tmp/laf2-ios-vpn.png"),
+    "location": ("Location Services", "/tmp/laf2-ios-location-services.png"),
+}
+
+
+def _visible_accessibility_text(source):
+    if not isinstance(source, str):
+        return []
+    values = [html.unescape(value).strip() for value in re.findall(
+        r'(?:name|label|value)="([^"]+)"', source,
+    )]
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _visible_keyboard_tags(values):
+    joined = "\n".join(values)
+    candidates = []
+    mappings = (
+        (r"English\s*\(US\)|English \(United States\)", "en-US"),
+        (r"Traditional Chinese|Chinese,\s*Traditional|繁體中文", "zh-Hant"),
+        (r"Simplified Chinese|简体中文|簡體中文", "zh-Hans"),
+        (r"Emoji|表情符號", "emoji"),
+    )
+    positions = []
+    for pattern, tag in mappings:
+        match = re.search(pattern, joined, re.IGNORECASE)
+        if match:
+            positions.append((match.start(), tag))
+    for _, tag in sorted(positions):
+        if tag not in candidates:
+            candidates.append(tag)
+    return candidates
+
+
+def _visible_wifi_connected(source):
+    if not isinstance(source, str):
+        return None
+    normalized = source.replace("‑", "-").replace("–", "-").replace("—", "-")
+    switch_tags = [
+        tag for tag in re.findall(r"<[^>]+>", normalized)
+        if "XCUIElementTypeSwitch" in tag and re.search(r"Wi\s*-?\s*Fi", tag, re.IGNORECASE)
+    ]
+    enabled = any(re.search(r'value="(?:1|true|on)"', tag, re.IGNORECASE) for tag in switch_tags)
+    if not enabled:
+        return False if switch_tags else None
+    selected_network = bool(re.search(
+        r'<XCUIElementTypeCell\b[^>]*(?:selected="true"|value="(?:checkmark|selected)")',
+        normalized, re.IGNORECASE,
+    )) or "checkmark" in normalized.lower()
+    return True if selected_network else None
+
+
+def _visible_vpn_connected(values):
+    text = " | ".join(values).lower()
+    if re.search(r"not connected|未連線|未连接", text):
+        return False
+    if re.search(r"\bconnected\b|已連線|已连接", text):
+        return True
+    return None
+
+
+def capture_visible_system_context(config):
+    """Capture read-only native Settings pages used by system-context TCs."""
+    state_path = Path(os.environ.get("IOS_SYSTEM_CONTEXT_STATE_FILE", "/tmp/laf2-ios-system-context.json"))
+    state_path.unlink(missing_ok=True)
+    pages = {}
+    state = {
+        "status": "UNAVAILABLE",
+        "source": "native iOS Settings plus ideviceinfo",
+        "locale": ideviceinfo(config, "Locale").strip() or None,
+        "timezone": ideviceinfo(config, "TimeZone").strip() or None,
+        "product_type": ideviceinfo(config, "ProductType").strip() or None,
+        "pages": pages,
+    }
+    timezone_name = state.get("timezone")
+    if timezone_name:
+        try:
+            offset = datetime.now(ZoneInfo(timezone_name)).utcoffset()
+            state["timezone_offset_minutes"] = int(offset.total_seconds() / 60) if offset is not None else None
+        except ZoneInfoNotFoundError:
+            state["timezone_offset_minutes"] = None
+            state["timezone_reason"] = f"Unknown IANA timezone: {timezone_name}"
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        try:
+            wda_info = driver.execute_script("mobile: deviceInfo") or {}
+            state["wda_device_info"] = {
+                key: wda_info.get(key)
+                for key in ("currentLocale", "timeZone", "name", "model", "isSimulator")
+                if wda_info.get(key) is not None
+            }
+            state["locale"] = state.get("locale") or wda_info.get("currentLocale")
+            state["timezone"] = state.get("timezone") or wda_info.get("timeZone")
+            if not timezone_name and state.get("timezone"):
+                timezone_name = state["timezone"]
+                offset = datetime.now(ZoneInfo(timezone_name)).utcoffset()
+                state["timezone_offset_minutes"] = int(offset.total_seconds() / 60) if offset is not None else None
+        except Exception as exc:
+            state["wda_device_info_reason"] = f"{type(exc).__name__}: {exc}"
+        for key, (query, default_path) in IOS_SYSTEM_CONTEXT_PAGES.items():
+            screenshot = Path(os.environ.get(f"IOS_{key.upper()}_SCREENSHOT", default_path))
+            screenshot.unlink(missing_ok=True)
+            page = {"query": query, "status": "UNAVAILABLE", "screenshot_saved": False, "visible_text": []}
+            try:
+                _settings_search_open(driver, query)
+                if key == "keyboards":
+                    keyboard_list = _first_element(driver, ((
+                        "xpath",
+                        "//XCUIElementTypeCell[contains(@name,'Keyboards') or contains(@label,'Keyboards')]",
+                    ),))
+                    if keyboard_list is None:
+                        raise CaptureError("native iOS Keyboards page does not expose the installed-keyboard list")
+                    keyboard_list.click()
+                    time.sleep(.8)
+                source = driver.page_source or ""
+                page["visible_text"] = _visible_accessibility_text(source)
+                if key == "keyboards":
+                    page["keyboard_tags"] = _visible_keyboard_tags(page["visible_text"])
+                elif key == "wifi":
+                    page["connected"] = _visible_wifi_connected(source)
+                elif key == "cellular":
+                    text_value = " | ".join(page["visible_text"]).lower()
+                    page["no_sim"] = bool(re.search(r"no sim|sim missing|無 sim|未安裝 sim|未安装 sim", text_value))
+                elif key == "vpn":
+                    page["connected"] = _visible_vpn_connected(page["visible_text"])
+                driver.save_screenshot(str(screenshot))
+                if not screenshot.is_file() or not screenshot.stat().st_size:
+                    raise CaptureError(f"{query} screenshot was not saved")
+                page.update({"status": "CAPTURED", "screenshot_saved": True})
+            except Exception as exc:
+                page["reason"] = f"{type(exc).__name__}: {exc}"
+                page["screenshot_saved"] = screenshot.is_file() and screenshot.stat().st_size > 0
+            pages[key] = page
+        state["status"] = "CAPTURED"
+    except Exception as exc:
+        state["reason"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        state["captured_at"] = datetime.now().astimezone().isoformat()
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+    return state
 
 
 def dismiss_system_alert(driver):
@@ -299,50 +964,67 @@ def capture_tracking_settings(driver, config):
     """Read and visibly preserve the native iOS Tracking switch without mutating it."""
     state_path = Path(os.environ.get("IOS_SETTINGS_STATE_FILE", "/tmp/laf2-ios-settings-state.json"))
     screenshot_path = Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png"))
-    state = {"scenario": "TRACKING-ALLOWED", "confirmed_by_operator": False,
-             "screenshot_saved": False, "att": {"authorization": None}, "switches": []}
+    state = {
+        "status": "UNAVAILABLE",
+        "scenario": "TRACKING-ALLOWED",
+        "source": "iOS Settings > Privacy & Security > Tracking",
+        "confirmed_by_operator": False,
+        "screenshot_saved": False,
+        "att": {"authorization": None},
+        "app_switch": None,
+        "switches": [],
+    }
+    for path in (state_path, screenshot_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
     try:
-        driver.activate_app("com.apple.Preferences")
-        time.sleep(1)
-        privacy = _first_element(driver, (
-            ("accessibility id", "Privacy & Security"),
-            ("accessibility id", "Privacy"),
-        ))
-        if privacy is None:
-            for _ in range(5):
-                driver.swipe(180, 650, 180, 250, 500)
-                privacy = _first_element(driver, (("accessibility id", "Privacy & Security"), ("accessibility id", "Privacy")))
-                if privacy is not None:
-                    break
-        if privacy is None:
-            raise CaptureError("native Settings does not expose Privacy & Security")
-        privacy.click()
-        time.sleep(.8)
-        tracking = _first_element(driver, (("accessibility id", "Tracking"),))
-        if tracking is None:
-            raise CaptureError("native Privacy & Security does not expose Tracking")
-        tracking.click()
-        time.sleep(.8)
+        _settings_search_open(driver, "Tracking")
         switches = driver.find_elements("class name", "XCUIElementTypeSwitch")
         for switch in switches:
+            name = switch.get_attribute("name") or switch.get_attribute("label")
             state["switches"].append({
-                "name": switch.get_attribute("name") or switch.get_attribute("label"),
+                "name": name,
                 "value": switch.get_attribute("value"),
             })
-        selected = next(
-            (item for item in state["switches"] if item.get("name") == config.bundle_id),
-            None,
-        )
-        value = str((selected or {}).get("value") or "").lower()
+        explicit_label = os.environ.get("IOS_TRACKING_APP_LABEL")
+        labels = tuple(dict.fromkeys(filter(None, (
+            explicit_label, config.bundle_id, config.bundle_id.rsplit(".", 1)[-1],
+            "AppierAdsSwiftSample", "Random",
+        ))))
+        selected = next((
+            item for item in state["switches"]
+            if str(item.get("name") or "").strip().lower() in {label.lower() for label in labels}
+        ), None)
+        if selected is None:
+            app_switches = [
+                item for item in state["switches"]
+                if "allow apps to request to track" not in str(item.get("name") or "").lower()
+            ]
+            likely = [
+                item for item in app_switches
+                if any(token in str(item.get("name") or "").lower() for token in ("appier", "random"))
+            ]
+            selected = likely[0] if len(likely) == 1 else (app_switches[0] if len(app_switches) == 1 else None)
+        state["app_switch"] = selected
+        value = str((selected or {}).get("value") or "").strip().lower()
         if value in {"1", "true", "on"}:
             state["att"]["authorization"] = "authorized"
         elif value in {"0", "false", "off"}:
             state["att"]["authorization"] = "denied"
         driver.save_screenshot(str(screenshot_path))
         state["screenshot_saved"] = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
-        state["confirmed_by_operator"] = bool(selected and state["screenshot_saved"])
+        if not state["screenshot_saved"]:
+            raise CaptureError("native iOS Tracking screenshot was not saved")
+        if selected is None:
+            raise CaptureError("native iOS Tracking page does not uniquely expose the Sample App switch")
+        if state["att"]["authorization"] is None:
+            raise CaptureError(f"Sample App tracking switch has an ambiguous accessibility value: {value!r}")
+        state["status"] = "CAPTURED"
+        state["confirmed_by_operator"] = True
     except Exception as exc:
-        state["error"] = f"{type(exc).__name__}: {exc}"
+        state["reason"] = f"{type(exc).__name__}: {exc}"
     finally:
         state["captured_at"] = datetime.now().astimezone().isoformat()
         state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
@@ -447,10 +1129,48 @@ def round_directory(config):
     return config.evidence_dir / f"IOS_{mode}_{kind}_CID_{cid}_{label}_{run_label}"
 
 
+_COREDEVICE_DETAILS = {}
+
+
+def _coredevice_details(config):
+    """Read the modern CoreDevice inventory when lockdown tools cannot see iOS 17+ devices."""
+    if config.udid in _COREDEVICE_DETAILS:
+        return _COREDEVICE_DETAILS[config.udid]
+    details = {}
+    if shutil.which("xcrun"):
+        path = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="laf2-coredevice-", suffix=".json", delete=False) as stream:
+                path = Path(stream.name)
+            _run([
+                "xcrun", "devicectl", "device", "info", "details",
+                "--device", config.udid, "--json-output", str(path),
+            ], check=False)
+            document = _read_json(path) or {}
+            details = document.get("result") or {}
+        finally:
+            if path is not None:
+                path.unlink(missing_ok=True)
+    _COREDEVICE_DETAILS[config.udid] = details
+    return details
+
+
 def ideviceinfo(config, key):
-    if not shutil.which("ideviceinfo"):
-        return ""
-    return _run(["ideviceinfo", "-u", config.udid, "-k", key], check=False)
+    value = ""
+    if shutil.which("ideviceinfo"):
+        value = _run(["ideviceinfo", "-u", config.udid, "-k", key], check=False)
+    if value:
+        return value
+    details = _coredevice_details(config)
+    hardware = details.get("hardwareProperties") or {}
+    device = details.get("deviceProperties") or {}
+    fallback = {
+        "DeviceName": device.get("name"),
+        "ProductType": hardware.get("productType"),
+        "ProductVersion": device.get("osVersionNumber"),
+        "BuildVersion": device.get("osBuildUpdate"),
+    }
+    return str(fallback.get(key) or "")
 
 
 def create_capture_folder(config, capture_name):
@@ -1450,6 +2170,30 @@ def run_round(config, name):
     testcases = [TC_DEFINITIONS[key] for key in definition.testcase_keys]
     required = tuple(item for testcase in testcases for item in testcase.evidence)
     print(f"\n[round {name}] {definition.capture_name}")
+    if IOS_IDFA_VISIBLE in required:
+        print("[evidence] capture visible IDFA from GetMyIDFA")
+        capture_visible_idfa(config)
+    if any(key in required for key in (IOS_BATTERY_VISIBLE, IOS_CHARGING_VISIBLE, IOS_OUTPUT_VOLUME_VISIBLE)):
+        print("[evidence] capture visible battery, charging, and output-volume state from iOS Control Center")
+        capture_visible_battery_level(config)
+    if IOS_LOW_POWER_VISIBLE in required:
+        print("[evidence] capture visible Low Power Mode switch from native iOS Settings")
+        capture_visible_low_power_mode(config)
+    if IOS_DISPLAY_STATUS in required or IOS_DEVICE_IDENTITY in required:
+        print("[evidence] capture independent iOS display metrics and visible source")
+        capture_visible_display_status(config)
+    if IOS_BRIGHTNESS_VISIBLE in required:
+        print("[evidence] capture visible brightness slider from native iOS Settings")
+        capture_visible_brightness(config)
+    if IOS_FONT_SIZE_VISIBLE in required:
+        print("[evidence] capture visible text-size state from native iOS Larger Text")
+        capture_visible_font_size(config)
+    if IOS_DARK_MODE_VISIBLE in required:
+        print("[evidence] capture visibly selected Light/Dark appearance from native iOS Settings")
+        capture_visible_dark_mode(config)
+    if IOS_SYSTEM_CONTEXT_VISIBLE in required:
+        print("[evidence] capture read-only native iOS system context pages")
+        capture_visible_system_context(config)
     try:
         folder = collect_evidence(
             config,

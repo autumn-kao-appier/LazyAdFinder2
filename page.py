@@ -856,6 +856,10 @@ def _dynamic_bi(text, zh=None):
 
 
 def _tc_title(row):
+    if row.get("platform") == "ios" and row.get("tc") == "advertising-id":
+        return _bi("Advertising Identifier (IDFA)", "廣告識別碼（IDFA）")
+    if row.get("platform") == "ios" and row.get("tc") == "app-set-id":
+        return _bi("Identifier for Vendor (IDFV)", "供應商識別碼（IDFV）")
     return _bi(row["title"], TC_TITLES_ZH.get(row["tc"], row["title"]))
 
 
@@ -1133,8 +1137,9 @@ def _unexecuted_card(spec, platform, skip=None):
     decision = str(skip.get("decision") or "SKIP").upper()
     key = str(spec["key"])
     platform_spec = spec.get(platform, {})
-    title = str(spec.get("title") or key)
-    title_html = _bi(title, TC_TITLES_ZH.get(key, title))
+    title = str(platform_spec.get("title_en") or spec.get("title") or key)
+    title_zh = str(platform_spec.get("title") or TC_TITLES_ZH.get(key, title))
+    title_html = _bi(title, title_zh)
     priority = html.escape(str(spec.get("priority") or "—"))
     setup = _catalog_text(platform_spec, "setup")
     expected = _catalog_text(platform_spec, "expected")
