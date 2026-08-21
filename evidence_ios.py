@@ -921,6 +921,389 @@ def _decoded_path_values(folder, path):
     return result
 
 
+IOS_R5_VISUAL_CASES = {
+    "advertising-id-opt-out": {
+        "title": "Advertising ID — Tracking Denied",
+        "scenario": "PRIVACY-DENIED",
+        "path": "device.ia",
+        "rule": "ATT denied; IDFA must be absent, empty, or the zero UUID",
+    },
+    "tracking-denied": {
+        "title": "Advertising Tracking Denied",
+        "scenario": "PRIVACY-DENIED",
+        "path": "device.lat",
+        "rule": "ATT denied; LAT must be integer 1",
+    },
+    "dark-mode-enabled": {
+        "title": "Dark Mode — Enabled",
+        "scenario": "DISPLAY-DARK",
+        "path": "device.ext.darkmode",
+        "rule": "Visible Dark appearance; payload must be true",
+    },
+    "font-scale-maximum": {
+        "title": "Font Scale — Maximum",
+        "scenario": "TEXT-MAX",
+        "path": "device.ext.fontscale",
+        "rule": "Visible rightmost Dynamic Type state; payload must match the reviewed scale",
+    },
+    "screen-brightness-minimum": {
+        "title": "Screen Brightness — Minimum",
+        "scenario": "DISPLAY-LOW",
+        "path": "device.ext.screen_bright",
+        "rule": "Visible minimum brightness; payload must match the captured slider state",
+    },
+    "output-volume-muted": {
+        "title": "Output Volume — Muted",
+        "scenario": "AUDIO-MUTED",
+        "path": "device.ext.volume",
+        "rule": "Visible muted media volume; payload must be 0",
+    },
+    "battery-saver-enabled": {
+        "title": "Low Power Mode — Enabled",
+        "scenario": "LOW-POWER",
+        "path": "device.ext.battery_saver",
+        "rule": "Visible Low Power Mode ON; payload must be true",
+    },
+    "screen-brightness-maximum": {
+        "title": "Screen Brightness — Maximum",
+        "scenario": "DISPLAY-HIGH",
+        "path": "device.ext.screen_bright",
+        "rule": "Visible maximum brightness; payload must be approximately 1",
+    },
+    "output-volume-maximum": {
+        "title": "Output Volume — Maximum",
+        "scenario": "AUDIO-HIGH",
+        "path": "device.ext.volume",
+        "rule": "Visible maximum media volume; payload must be approximately 1",
+    },
+    "timezone-changed": {
+        "title": "Timezone — Changed",
+        "scenario": "TIMEZONE-ALT",
+        "path": "device.utcoffset",
+        "rule": "Visible alternate timezone; payload must match its capture-time UTC offset",
+    },
+    "location-permission-denied": {
+        "title": "Location Permission — Denied",
+        "scenario": "LOCATION-DENIED",
+        "path": "device.geo_lat / device.geo_lon",
+        "rule": "Visible Never permission; precise coordinate fields must be absent",
+    },
+}
+
+
+def _compact_evidence_value(value):
+    if value is None:
+        return "—"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return str(value)
+
+
+def _r5_payload_rows(folder, key, metadata):
+    folder = Path(folder)
+    if not (folder / "bid_decoded.json").is_file():
+        return (("Wire path", metadata["path"]), ("Decoded Bid", "NOT CAPTURED"))
+    if key in {"advertising-id-opt-out", "tracking-denied"}:
+        req_ia, ext_ia = _decoded_path_values(folder, "device.ia")
+        req_lat, ext_lat = _decoded_path_values(folder, "device.lat")
+        return (
+            ("Request device.ia", req_ia), ("Extended device.ia", ext_ia),
+            ("Request device.lat", req_lat), ("Extended device.lat", ext_lat),
+        )
+    if key == "location-permission-denied":
+        req_lat, ext_lat = _decoded_path_values(folder, "device.geo_lat")
+        req_lon, ext_lon = _decoded_path_values(folder, "device.geo_lon")
+        return (
+            ("Request geo_lat / geo_lon", f"{_compact_evidence_value(req_lat)} / {_compact_evidence_value(req_lon)}"),
+            ("Extended geo_lat / geo_lon", f"{_compact_evidence_value(ext_lat)} / {_compact_evidence_value(ext_lon)}"),
+        )
+    req, ext = _decoded_path_values(folder, metadata["path"])
+    return ((f"Request {metadata['path']}", req), (f"Extended {metadata['path']}", ext))
+
+
+def _r5_stage_image(folder, state, stage_name, fallback):
+    stage = ((state.get("stages") or {}).get(stage_name) or {}) if isinstance(state, dict) else {}
+    name = stage.get("screenshot") or fallback
+    path = Path(folder) / name if name else None
+    return path if path and path.is_file() and path.stat().st_size else None
+
+
+def _r5_visual_evidence_document(folder, key, metadata, state, verdict):
+    status = str(verdict.get("status") or "BLOCKED").upper()
+    if status not in {"PASS", "FAILED", "BLOCKED"}:
+        status = "BLOCKED"
+    color = {"PASS": "#287a3d", "FAILED": "#b9342b", "BLOCKED": "#a56516"}[status]
+    scenario = state.get("scenario") or metadata["scenario"]
+    restored = ((state.get("stages") or {}).get("restored") or {})
+    rows = (
+        ("Scenario", scenario),
+        ("State before", state.get("before")),
+        ("Requested negative state", state.get("desired")),
+        ("State after mutation", state.get("after")),
+        ("Restore verification", restored.get("status") or "NOT RUN"),
+        *_r5_payload_rows(folder, key, metadata),
+    )
+    row_html = "".join(
+        f'<div class="row"><span>{html.escape(label)}</span><b>{html.escape(_compact_evidence_value(value))}</b></div>'
+        for label, value in rows
+    )
+    stages = (
+        ("BEFORE", _r5_stage_image(folder, state, "before", "ios-settings-before.png")),
+        ("NEGATIVE STATE", _r5_stage_image(folder, state, "mutated", "ios-settings-state.png")),
+        ("RESTORED", _r5_stage_image(folder, state, "restored", "ios-settings-restored.png")),
+    )
+    visible_stages = []
+    for label, image_path in stages:
+        if image_path:
+            encoded = base64.b64encode(image_path.read_bytes()).decode()
+            visible_stages.append(
+                f'<div class="stage"><div>{label}</div><img src="data:image/png;base64,{encoded}"></div>'
+            )
+        else:
+            visible_stages.append(f'<div class="stage missing"><div>{label}</div><p>NO SCREENSHOT</p></div>')
+    reason = verdict.get("reason") or verdict.get("description") or "No verdict explanation was recorded."
+    styles = '''
+*{box-sizing:border-box}body{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:1400px;height:1000px;padding:36px 54px}.eyebrow{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}h1{font-size:38px;margin:7px 0 15px}.content{display:grid;grid-template-columns:620px 1fr;gap:34px}.visual{height:730px;background:#dfe5f5;border-radius:24px;padding:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stage{min-width:0;display:flex;flex-direction:column;align-items:center;gap:10px;color:#0e7c86;font:700 14px ui-monospace,monospace}.stage img{width:100%;height:650px;object-fit:contain;border-radius:12px;box-shadow:0 10px 24px #17233335;background:#fff}.stage.missing{justify-content:center;border:2px dashed #a9b7c2;border-radius:14px;color:#6b7c87}.stage.missing p{font-size:15px;text-align:center}.panel{padding-top:4px}.source{padding:19px 23px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 21px ui-monospace,monospace}.rule{font-size:16px;line-height:1.4;color:#526571;margin:14px 2px 16px}.rows{background:white;border-radius:18px;padding:7px 21px}.row{display:grid;grid-template-columns:225px 1fr;gap:15px;padding:10px 0;border-bottom:1px solid #e3e9ed}.row:last-child{border:0}.row span{color:#60717c}.row b{font:700 14px ui-monospace,monospace;overflow-wrap:anywhere}.reason{font-size:14px;line-height:1.35;color:#526571;margin:13px 3px}.conclusion{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:17px 22px;background:white;border-radius:16px;border-left:8px solid __RESULT_COLOR__}.conclusion b{font-size:28px;color:__RESULT_COLOR__}
+'''.replace("__RESULT_COLOR__", color)
+    return f'''<!doctype html><html><head><meta charset="utf-8"><style>{styles}</style></head><body><main>
+<div class="eyebrow">ALTERNATE / NEGATIVE STATE EVIDENCE · iOS R5</div><h1>{html.escape(metadata['title'])}</h1><div class="content"><div class="visual">{''.join(visible_stages)}</div><div class="panel"><div class="source">{html.escape(str(scenario))} · {html.escape(metadata['path'])}</div><p class="rule">{html.escape(metadata['rule'])}</p><div class="rows">{row_html}</div><p class="reason">{html.escape(str(reason))}</p><div class="conclusion"><span>Native state vs decoded Bid</span><b>{status}</b></div></div></div></main></body></html>'''
+
+
+def materialize_ios_r5_visual_evidence(folder):
+    """Build one reviewer-facing card per executed or blocked iOS R5 testcase."""
+    folder = Path(folder)
+    state = {}
+    try:
+        state = json.loads((folder / "ios-settings-state.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        pass
+    try:
+        verdict_document = json.loads((folder / "verdicts.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    verdicts = verdict_document.get("verdicts") or []
+    rendered = []
+    for verdict in verdicts:
+        key = verdict.get("tc")
+        metadata = IOS_R5_VISUAL_CASES.get(key)
+        if not metadata:
+            continue
+        document = folder / f"{key}-evidence.html"
+        card = folder / f"{key}-evidence.png"
+        document.write_text(
+            _r5_visual_evidence_document(folder, key, metadata, state, verdict),
+            encoding="utf-8",
+        )
+        _write_html_screenshot(document, card)
+        verdict["evidence"] = card.name
+        rendered.append(card.name)
+    if rendered:
+        (folder / "verdicts.json").write_text(
+            json.dumps(verdict_document, ensure_ascii=False, indent=2) + "\n"
+        )
+    return rendered
+
+
+IOS_AOS_ALIGNED_VISUAL_CASES = {
+    "app-set-id": {
+        "title": "Identifier for Vendor (IDFV)", "round": "R1",
+        "source": "Decoded Bid Request · payload-only contract", "path": "device.ifv",
+        "card": "app-set-id-evidence.png",
+        "scope": "AOS-aligned: validate the wire value. Independent Sample App IDFV display is unavailable.",
+    },
+    "in-app-purchase-history": {
+        "title": "In-App Purchase History", "round": "R1",
+        "source": "Decoded Bid Request · payload-only contract", "path": "device.ext.iaphistory",
+        "card": "in-app-purchase-history-evidence.png",
+        "scope": "AOS-aligned: validate array shape only. The Sample App has no purchase flow or reviewed product IDs.",
+    },
+    "boot-timestamps": {
+        "title": "System Boot Timestamps", "round": "R1",
+        "source": "Decoded Bid Request · payload-format contract", "path": "device.ext.pot",
+        "card": "boot-timestamps-evidence.png",
+        "scope": "Unlike AOS /proc/uptime, iOS has no independent visible uptime source in this harness.",
+    },
+    "ram-total": {
+        "title": "RAM Status — Total", "round": "R1",
+        "source": "Decoded Bid Request · payload-format contract", "path": "device.ext.mem_total",
+        "card": "mem-total-evidence.png",
+        "scope": "Unlike AOS /proc/meminfo, iOS has no independent system RAM source in this harness.",
+    },
+    "ram-available": {
+        "title": "RAM Status — Available", "round": "R1",
+        "source": "Decoded Bid Request · payload relationship", "path": "device.ext.mem_available",
+        "card": "mem-available-evidence.png",
+        "scope": "AOS-aligned shape/relationship review; no independent iOS MemAvailable source is claimed.",
+    },
+    "gyroscope": {
+        "title": "Gyroscope", "round": "R1", "source": "Design scope decision", "path": "device.ext.gyroscope",
+        "card": "gyroscope-evidence.png",
+        "scope": "Same as AOS: NOT IN SCOPE. No sensor motion or reviewed expected samples are executed.",
+    },
+    "accelerometer": {
+        "title": "Accelerometer", "round": "R1", "source": "Design scope decision", "path": "device.ext.accelerometer",
+        "card": "accelerometer-evidence.png",
+        "scope": "Same as AOS: NOT IN SCOPE. No sensor motion or reviewed expected samples are executed.",
+    },
+    "impression-history": {
+        "title": "Previous Impression History", "round": "R2",
+        "source": "Same-run impression record + second Bid", "card": "impression-history-evidence.png",
+        "scope": "AOS-aligned causal evidence: a proven first impression is compared with the later request.",
+        "supporting_image": "screenshot.png",
+    },
+    "network-latency": {
+        "title": "Connection Latency", "round": "R2",
+        "source": "Same-run proxy event + second Bid", "card": "network-latency-evidence.png",
+        "scope": "AOS-aligned causal evidence: the SDK HEAD probe and later payload share one automation run.",
+        "supporting_image": "screenshot.png",
+    },
+    "session-duration-continuous": {
+        "title": "Session Duration — Continuous", "round": "R3", "source": "Four-step lifecycle sequence",
+        "card": "session-duration-continuous-evidence.png", "sequence": "ios-lifecycle-sequence.json",
+        "scope": "Compare the start and continuous-foreground captures.",
+    },
+    "session-duration-background": {
+        "title": "Session Duration — Background", "round": "R3", "source": "Four-step lifecycle sequence",
+        "card": "session-duration-background-evidence.png", "sequence": "ios-lifecycle-sequence.json",
+        "scope": "Compare continuous foreground with Home/background/resume.",
+    },
+    "session-duration-termination": {
+        "title": "Session Duration — Termination", "round": "R3", "source": "Four-step lifecycle sequence",
+        "card": "session-duration-termination-evidence.png", "sequence": "ios-lifecycle-sequence.json",
+        "scope": "Compare the resumed process with the cold capture after termination.",
+    },
+    "app-initialization-time": {
+        "title": "App Initialization Time", "round": "R3", "source": "Four-step lifecycle sequence",
+        "card": "app-initialization-time-evidence.png", "sequence": "ios-lifecycle-sequence.json",
+        "scope": "The value must remain stable in one process and renew after termination.",
+    },
+    "app-duration-today": {
+        "title": "Total App Usage Time Today", "round": "R3", "source": "Four-step lifecycle sequence",
+        "card": "app-duration-today-evidence.png", "sequence": "ios-lifecycle-sequence.json",
+        "scope": "The daily duration must remain monotonic across all lifecycle steps.",
+    },
+}
+
+for _ipv6_key, _ipv6_title in (
+    ("ipv6-address", "IPv6 Address"),
+    ("ipv6-refresh-launch", "IPv6 Refresh — Launch"),
+    ("ipv6-refresh-wifi-switch", "IPv6 Refresh — Wi-Fi Switch"),
+    ("ipv6-refresh-recovery", "IPv6 Refresh — Recovery"),
+    ("ipv6-refresh-debounce", "IPv6 Refresh — Debounce"),
+    ("ipv6-refresh-slow-network", "IPv6 Refresh — Slow Network"),
+):
+    IOS_AOS_ALIGNED_VISUAL_CASES[_ipv6_key] = {
+        "title": _ipv6_title, "round": "R4", "source": "Five-step network sequence",
+        "card": f"{_ipv6_key}-evidence.png", "sequence": "r4-network-sequence.json",
+        "scope": "AOS-aligned sequence Evidence: show the captured transitions and decoded IPv6/conntype values.",
+    }
+
+
+def _aligned_sequence_images(folder, metadata):
+    """Return supporting screenshots without turning them into independent truth."""
+    folder = Path(folder)
+    labels = ("START", "CONTINUOUS", "BACKGROUND", "TERMINATED")
+    sequence_name = metadata.get("sequence")
+    if sequence_name == "r4-network-sequence.json":
+        labels = ("LAUNCH", "WI-FI SWITCH", "RECOVERY", "DEBOUNCE", "SLOW NETWORK")
+    if sequence_name:
+        try:
+            sequence = json.loads((folder / sequence_name).read_text())
+        except (OSError, json.JSONDecodeError):
+            sequence = {}
+        images = []
+        captures = sequence.get("captures") or []
+        for index, label in enumerate(labels):
+            image_path = Path(captures[index]) / "screenshot.png" if index < len(captures) else folder / f"missing-step-{index + 1}.png"
+            images.append((label, image_path))
+        return images
+    supporting = metadata.get("supporting_image")
+    return [("SUPPORTING CAPTURE", folder / supporting)] if supporting else []
+
+
+def _aligned_payload_rows(folder, key, metadata, verdict):
+    rows = [("Expected", verdict.get("expected")), ("Actual", verdict.get("actual"))]
+    path = metadata.get("path")
+    if path and (Path(folder) / "bid_decoded.json").is_file():
+        req, ext = _decoded_path_values(folder, path)
+        rows.extend(((f"Request {path}", req), (f"Extended {path}", ext)))
+    sequence_name = metadata.get("sequence")
+    if sequence_name:
+        try:
+            sequence = json.loads((Path(folder) / sequence_name).read_text())
+        except (OSError, json.JSONDecodeError):
+            sequence = {}
+        check = sequence.get(key) if isinstance(sequence.get(key), dict) else {}
+        if check:
+            rows.extend((("Sequence values", check.get("values")), ("Sequence rule", check.get("reason"))))
+        if sequence_name == "r4-network-sequence.json":
+            for index, capture in enumerate(sequence.get("captures") or []):
+                capture_folder = Path(capture)
+                if not (capture_folder / "bid_decoded.json").is_file():
+                    continue
+                req_ipv6, ext_ipv6 = _decoded_path_values(capture_folder, "device.ipv6")
+                req_type, ext_type = _decoded_path_values(capture_folder, "device.conntype")
+                rows.append((
+                    f"Network step {index + 1}",
+                    {"ipv6": ext_ipv6 if ext_ipv6 is not None else req_ipv6,
+                     "conntype": ext_type if ext_type is not None else req_type},
+                ))
+        rows.append(("Captured steps", len(sequence.get("captures") or [])))
+    return rows
+
+
+def _aligned_visual_evidence_document(folder, key, metadata, verdict):
+    status = str(verdict.get("status") or "BLOCKED").upper()
+    if status not in {"PASS", "FAILED", "BLOCKED"}:
+        status = "BLOCKED"
+    color = {"PASS": "#287a3d", "FAILED": "#b9342b", "BLOCKED": "#a56516"}[status]
+    row_html = "".join(
+        f'<div class="row"><span>{html.escape(label)}</span><b>{html.escape(_compact_evidence_value(value))}</b></div>'
+        for label, value in _aligned_payload_rows(folder, key, metadata, verdict)
+    )
+    images = _aligned_sequence_images(folder, metadata)
+    visual = []
+    for label, image_path in images:
+        if image_path.is_file() and image_path.stat().st_size:
+            encoded = base64.b64encode(image_path.read_bytes()).decode()
+            visual.append(f'<div class="stage"><div>{html.escape(label)}</div><img src="data:image/png;base64,{encoded}"></div>')
+        else:
+            visual.append(f'<div class="stage missing"><div>{html.escape(label)}</div><p>NO SCREENSHOT</p></div>')
+    if not visual:
+        placeholder = "NOT IN SCOPE" if key in {"gyroscope", "accelerometer"} else "NO INDEPENDENT SCREEN"
+        visual.append(f'<div class="stage missing only"><div>EVIDENCE SCOPE</div><p>{placeholder}</p></div>')
+    reason = verdict.get("reason") or "No verdict explanation was recorded."
+    styles = '''
+*{box-sizing:border-box}body{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:1400px;height:1000px;padding:36px 54px}.eyebrow{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}h1{font-size:38px;margin:7px 0 15px}.content{display:grid;grid-template-columns:650px 1fr;gap:32px}.visual{height:730px;background:#dfe5f5;border-radius:24px;padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.stage{min-width:0;display:flex;flex-direction:column;align-items:center;gap:9px;color:#0e7c86;font:700 13px ui-monospace,monospace}.stage img{width:100%;height:650px;object-fit:contain;border-radius:11px;box-shadow:0 10px 24px #17233335;background:#fff}.stage.missing{justify-content:center;border:2px dashed #a9b7c2;border-radius:14px;color:#6b7c87}.stage.missing.only{grid-column:1/-1}.stage.missing p{text-align:center;font-size:17px}.panel{padding-top:4px}.source{padding:19px 22px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 20px ui-monospace,monospace}.scope{font-size:16px;line-height:1.4;color:#526571;margin:14px 2px 16px}.rows{background:white;border-radius:18px;padding:7px 20px}.row{display:grid;grid-template-columns:190px 1fr;gap:14px;padding:10px 0;border-bottom:1px solid #e3e9ed}.row:last-child{border:0}.row span{color:#60717c}.row b{font:700 13px ui-monospace,monospace;overflow-wrap:anywhere}.reason{font-size:14px;line-height:1.35;color:#526571;margin:13px 3px}.conclusion{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:17px 21px;background:white;border-radius:16px;border-left:8px solid __COLOR__}.conclusion b{font-size:28px;color:__COLOR__}
+'''.replace("__COLOR__", color)
+    return f'''<!doctype html><html><head><meta charset="utf-8"><style>{styles}</style></head><body><main>
+<div class="eyebrow">AOS-ALIGNED EVIDENCE · iOS {html.escape(metadata['round'])}</div><h1>{html.escape(metadata['title'])}</h1><div class="content"><div class="visual">{''.join(visual)}</div><div class="panel"><div class="source">{html.escape(metadata['source'])}</div><p class="scope">{html.escape(metadata['scope'])}</p><div class="rows">{row_html}</div><p class="reason">{html.escape(str(reason))}</p><div class="conclusion"><span>Recorded contract result</span><b>{status}</b></div></div></div></main></body></html>'''
+
+
+def materialize_ios_aos_aligned_visual_evidence(folder):
+    """Render the remaining iOS contracts with the same evidence scope used by AOS."""
+    folder = Path(folder)
+    try:
+        verdict_document = json.loads((folder / "verdicts.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    rendered = []
+    for verdict in verdict_document.get("verdicts") or []:
+        key = verdict.get("tc")
+        metadata = IOS_AOS_ALIGNED_VISUAL_CASES.get(key)
+        if not metadata:
+            continue
+        card = folder / metadata["card"]
+        document = card.with_suffix(".html")
+        document.write_text(_aligned_visual_evidence_document(folder, key, metadata, verdict), encoding="utf-8")
+        _write_html_screenshot(document, card)
+        verdict["evidence"] = card.name
+        rendered.append(card.name)
+    if rendered:
+        (folder / "verdicts.json").write_text(json.dumps(verdict_document, ensure_ascii=False, indent=2) + "\n")
+    return rendered
+
+
 def _context_evidence_document(title, rows, note, result, source_image, source_label):
     color = {"PASS": "#287a3d", "FAILED": "#b9342b", "BLOCKED": "#a56516"}[result]
     encoded = base64.b64encode(Path(source_image).read_bytes()).decode()

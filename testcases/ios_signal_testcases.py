@@ -461,7 +461,7 @@ def _validate_no_sim_identity(folder, key, title, path, card):
     req, ext = _wire(folder, path); info = _system_context(folder); no_sim = _get(info, "pages.cellular.no_sim")
     actual = {"visible_no_sim": no_sim, "request": req, "extended": ext}
     if no_sim is not True or not _system_page_ready(folder, info, "cellular", "ios-cellular.png", card):
-        return _blocked(key, title, "An active SIM requires a separate exact iOS carrier contract; visible No SIM Evidence is unavailable.", actual, "ios-system-context.json")
+        return _blocked(key, title, "An active SIM requires a separate exact iOS carrier contract; visible No SIM Evidence is unavailable.", actual, card)
     passed = req in (None, "") and ext in (None, "")
     return _row(key, title, "empty/absent when No SIM", actual, passed, card, "The empty payload agrees with the visible No SIM state." if passed else f"FAILED: {path} must be empty or absent when native Settings visibly shows No SIM.")
 
@@ -944,15 +944,18 @@ def validate_tracking_denied(folder):
     ia = ia_ext if ia_ext is not None else ia_req
     lat = lat_ext if lat_ext is not None else lat_req
     if not att:
-        return _blocked("tracking-denied", "Advertising Tracking Denied", "ATT denied Evidence was not captured; payload alone cannot prove the privacy state.", {"ia": ia, "lat": lat}, "ios-settings-state.json")
+        return _blocked("tracking-denied", "Advertising Tracking Denied", "ATT denied Evidence was not captured; payload alone cannot prove the privacy state.", {"ia": ia, "lat": lat}, "tracking-denied-evidence.png")
     unusable = ia in (None, "", "00000000-0000-0000-0000-000000000000")
     passed = str(att).lower() in {"denied", "restricted", "0", "1", "2"} and unusable and lat == 1
-    return _row("tracking-denied", "Advertising Tracking Denied", {"ATT": "not authorized", "IDFA": "absent/zero", "LAT": 1}, {"ATT": att, "IDFA": ia, "LAT": lat}, passed, "ios-settings-state.json", "ATT, IDFA and LAT consistently prove tracking is denied." if passed else "FAILED: ATT state, IDFA and LAT violate the denied-tracking contract.")
+    return _row("tracking-denied", "Advertising Tracking Denied", {"ATT": "not authorized", "IDFA": "absent/zero", "LAT": 1}, {"ATT": att, "IDFA": ia, "LAT": lat}, passed, "tracking-denied-evidence.png", "ATT, IDFA and LAT consistently prove tracking is denied." if passed else "FAILED: ATT state, IDFA and LAT violate the denied-tracking contract.")
 
 
 def validate_advertising_id_opt_out(folder):
     row = validate_tracking_denied(folder)
-    row.update({"tc": "advertising-id-opt-out", "title": "Advertising ID — Tracking Denied"})
+    row.update({
+        "tc": "advertising-id-opt-out", "title": "Advertising ID — Tracking Denied",
+        "evidence": "advertising-id-opt-out-evidence.png",
+    })
     return row
 
 
@@ -1108,7 +1111,7 @@ def _alternate(key, title, path, predicate, expected, *, allow_missing=False):
         return _row(
             key, title, {"visible_native_settings_state": True, "wire_rule": expected},
             {"settings": state, "request": req, "extended": ext}, passed,
-            "ios-settings-state.png" if visible else "ios-settings-state.json",
+            f"{key}-evidence.png",
             "The visible native iOS state and decoded Bid value agree." if passed else
             "FAILED: visible native iOS Settings Evidence is missing or the decoded Bid does not match that state.",
         )

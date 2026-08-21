@@ -24,6 +24,14 @@ TC 擷取與判定。任一 restore 失敗時，後續 Scenario 必須停止並�
 REEN Static／Dynamic 的執行計畫、結果報告與總 TestCase 目錄不列出這兩條；其餘 R5 Scenario
 與 AIBID 共用並照常執行。
 
+iOS R5 每個 TestCase 必須產生同名的 `*-evidence.png` 可視化卡片。卡片固定包含原生設定的
+修改前、反面狀態、還原後三階段畫面（某階段無法執行時明確顯示 `NO SCREENSHOT`）、state
+read-back、Request／Extended payload、Comparison verdict 與 BLOCKED／FAILED 原因。原始檔
+`ios-settings-before.png`、`ios-settings-state.png`、`ios-settings-restored.png`、
+`ios-settings-state.json` 與 `bid_decoded.json` 必須保留；只有 payload 或只有通用設定頁截圖
+都不足以宣稱反面 Case PASS。若 mutation 在擷取前即不可執行，仍須產生 BLOCKED 證據卡，
+不得只留下 `verdicts.json`。
+
 在 AIBID Mediation 一般 R5 中，`PRIVACY-DENIED` 固定產生 BLOCKED verdict，Automation 不得
 刪除 GAID。完整 Mediation 與 E2E 結束後，suite 預設以 Standalone 執行獨立 `R5-1`；同一個
 run ID 的結果可作為共用 Android SDK Signal Evidence 回填 Mediation 卡片。`R5-1` Renew GAID
@@ -308,6 +316,28 @@ resolution 與 physical PPI。未收錄 ProductType、非直向、缺少可視�
 - `dark-mode` / `device.ext.darkmode`：JSON boolean，與可見 Dark theme 開關及 UI night mode 一致。
 - AOS／iOS `gyroscope`、`accelerometer`：P2 / BLOCKED / Not In Scope。本輪沒有感測器動作與
   reviewed expected samples；即使 payload 是空陣列或帶有樣本，也只觀察、不判 PASS。
+
+### iOS AOS-aligned visual cards
+
+其餘原本只有 JSON 的 iOS TC，也必須產生同名 `*-evidence.png`，但卡片只能可視化 AOS 已採用的
+證據範圍，不得把 payload 自己包裝成獨立裝置答案：
+
+- R1 `app-set-id`、`in-app-purchase-history`、`boot-timestamps`、`ram-total`、`ram-available`
+  顯示 wire-format／數值關係、Actual 與 verdict，並明確標示 `NO INDEPENDENT SCREEN`。IDFV／IAP
+  與 AOS 同為 payload contract；boot／RAM 在 iOS 沒有對等於 `/proc/uptime`、`/proc/meminfo` 的
+  harness source，因此卡片不提升其獨立性。
+- R1 `gyroscope`、`accelerometer` 固定顯示 `NOT IN SCOPE` 與 BLOCKED 原因；卡片只保存設計決策，
+  不代表曾執行感測器動作。
+- R2 `impression-history`、`network-latency` 將同一次 Automation 的第一則曝光、第二包 Bid 與
+  proxy event／probe verdict 整理成卡片；畫面是 supporting capture，因果答案仍來自原始事件檔。
+- R3 五條 lifecycle TC 各產一張卡，並列 START、CONTINUOUS、BACKGROUND、TERMINATED 四個 capture
+  及 `ios-lifecycle-sequence.json` 的 values/rule。原始各步 Bid 必須保留。
+- R4 六條 IPv6 TC 各產一張卡，並列 LAUNCH、WI-FI SWITCH、RECOVERY、DEBOUNCE、SLOW NETWORK
+  最多五個 capture，以及每步 decoded IPv6／conntype。`r4-network-sequence.json` 與各步 bundle
+  仍是可稽核原始來源；卡片不取代 Appier probe 契約。
+
+renderer 失敗不得改寫 Signal verdict；錯誤記錄於 `evidence-errors.json`，正常卡片產出後才把該
+verdict 的 `evidence` 指向 testcase-specific PNG。
 
 ## Audio, Device Identity, Timezone and Language
 

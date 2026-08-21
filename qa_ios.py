@@ -37,7 +37,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from appium import webdriver
 from appium.options.ios.xcuitest.base import XCUITestOptions
-from evidence_ios import collect as collect_evidence
+from evidence_ios import (
+    collect as collect_evidence,
+    materialize_ios_aos_aligned_visual_evidence,
+    materialize_ios_r5_visual_evidence,
+)
 from evidence_bundle import finalize_bundle
 from testcases.ios_signal_testcases import (
     IOS_BATTERY_VISIBLE, IOS_BRIGHTNESS_VISIBLE, IOS_CHARGING_VISIBLE, IOS_DISPLAY_STATUS,
@@ -1669,6 +1673,7 @@ def run_ipv6_refresh_round(config):
     (result_folder / "verdicts.json").write_text(
         json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
     )
+    _render_aos_aligned_cards(result_folder)
     return folders
 
 
@@ -1776,6 +1781,7 @@ def run_lifecycle_round(config):
     (result_folder / "ios-lifecycle-sequence.json").write_text(json.dumps(sequence, ensure_ascii=False, indent=2) + "\n")
     rows = [TC_DEFINITIONS[key].validate(result_folder) for key in ROUND_DEFINITIONS["R3"].testcase_keys]
     (result_folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    _render_aos_aligned_cards(result_folder)
     return folders
 
 
@@ -2050,6 +2056,42 @@ def _restore_ios_state(config, label, state, evidence_folder=None):
         driver.quit()
 
 
+def _render_r5_cards(folder):
+    folder = Path(folder)
+    try:
+        return materialize_ios_r5_visual_evidence(folder)
+    except Exception as exc:
+        errors_file = folder / "evidence-errors.json"
+        try:
+            document = json.loads(errors_file.read_text()) if errors_file.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            document = {}
+        document.setdefault("providers", {})["ios-r5-visual-evidence"] = {
+            "phase": "after_verdict", "error": f"{type(exc).__name__}: {exc}",
+        }
+        errors_file.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+        print(f"[warn] iOS R5 visual Evidence rendering failed: {exc}", file=sys.stderr)
+        return []
+
+
+def _render_aos_aligned_cards(folder):
+    folder = Path(folder)
+    try:
+        return materialize_ios_aos_aligned_visual_evidence(folder)
+    except Exception as exc:
+        errors_file = folder / "evidence-errors.json"
+        try:
+            document = json.loads(errors_file.read_text()) if errors_file.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            document = {}
+        document.setdefault("providers", {})["ios-aos-aligned-visual-evidence"] = {
+            "phase": "after_verdict", "error": f"{type(exc).__name__}: {exc}",
+        }
+        errors_file.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+        print(f"[warn] iOS AOS-aligned visual Evidence rendering failed: {exc}", file=sys.stderr)
+        return []
+
+
 def _record_blocked(config, round_name, label, keys, reason):
     folder = create_capture_folder(config, label)
     now = datetime.now().astimezone().isoformat()
@@ -2069,6 +2111,7 @@ def _record_blocked(config, round_name, label, keys, reason):
         row.update({"layer": "Signal", "title": testcase.title, "description": reason})
         rows.append(row)
     (folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    _render_r5_cards(folder)
     return folder
 
 
@@ -2105,22 +2148,26 @@ def run_r5_round(config):
             print("[R5 PRIVACY-DENIED] safety override: capture exactly one Standalone request; no Mediation request is allowed after ATT denial")
         testcases = [TC_DEFINITIONS[key] for key in keys]
         required = tuple(item for testcase in testcases for item in testcase.evidence)
+        evidence_folder = None
         try:
-            folder = collect_evidence(scenario_config, required, lambda setup: capture(scenario_config, label, setup=setup))
-            rows = [testcase.validate(folder) for testcase in testcases]
-            (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
-            folders.append(Path(folder))
+            evidence_folder = Path(collect_evidence(
+                scenario_config, required,
+                lambda setup: capture(scenario_config, label, setup=setup),
+            ))
+            rows = [testcase.validate(evidence_folder) for testcase in testcases]
+            (evidence_folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+            folders.append(evidence_folder)
         except Exception as exc:
-            evidence_folder = getattr(exc, "evidence_folder", None)
-            if evidence_folder:
-                folders.append(Path(evidence_folder))
+            failed_folder = getattr(exc, "evidence_folder", None)
+            if failed_folder:
+                evidence_folder = Path(failed_folder)
+                folders.append(evidence_folder)
                 _write_failed_verdicts(
                     evidence_folder, keys,
                     f"iOS R5 {label} failed after execution began: {type(exc).__name__}: {exc}",
                 )
             print(f"[warn] R5 {label} failed independently: {exc}", file=sys.stderr)
         finally:
-            evidence_folder = folders[-1] if folders else None
             restored, restore_reason = _restore_ios_state(config, label, state, evidence_folder)
             if not restored:
                 restore_failed = True
@@ -2128,6 +2175,8 @@ def run_r5_round(config):
                 if target and target.is_dir():
                     (target / "restore-error.txt").write_text(restore_reason + "\n")
                 print(f"[warn] R5 {label} restore failed independently: {restore_reason}", file=sys.stderr)
+            if evidence_folder:
+                _render_r5_cards(evidence_folder)
     return folders
 
 
@@ -2145,6 +2194,7 @@ def _run_e2e_round(config, name, validators):
         raise
     rows = [row for validator in validators for row in validator(folder)]
     (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+    _render_aos_aligned_cards(folder)
     return [Path(folder)]
 
 

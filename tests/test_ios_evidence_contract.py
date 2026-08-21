@@ -604,6 +604,22 @@ class IOSEvidenceContractTests(unittest.TestCase):
             verdict = TC_DEFINITIONS["charging-status"].validate(folder)
             self.assertEqual(verdict["status"], "BLOCKED")
 
+    def test_active_sim_carrier_block_points_to_existing_visual_card(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"carrier": "Orange France"}}},
+                "ext": {"plaintext": {"device": {"carrier": "Orange France"}}},
+            }))
+            (folder / "ios-system-context.json").write_text(json.dumps({
+                "pages": {"cellular": {"status": "CAPTURED", "no_sim": False}},
+            }))
+            (folder / "ios-cellular.png").write_bytes(b"settings")
+            (folder / "carrier-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["carrier"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertEqual(verdict["evidence"], "carrier-evidence.png")
+
     def test_battery_saver_matches_visible_low_power_switch(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -1156,6 +1172,179 @@ class IOSEvidenceContractTests(unittest.TestCase):
             rows = {row["tc"]: row for row in validate_ios_e2e(folder)}
             self.assertEqual(rows["standalone-appier-ad-request"]["status"], "FAILED")
             self.assertEqual(rows["standalone-native-render"]["status"], "FAILED")
+
+    def test_r5_materializer_builds_three_stage_visual_comparison_card(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ext": {"darkmode": True}}}},
+                "ext": {"plaintext": {"device": {"ext": {"darkmode": True}}}},
+            }))
+            (folder / "ios-settings-state.json").write_text(json.dumps({
+                "scenario": "DISPLAY-DARK", "automation": "Appium XCUITest native Settings UI",
+                "before": "Light", "desired": "Dark", "after": {"value": "selected"},
+                "stages": {
+                    "before": {"value": "Light", "screenshot": "ios-settings-before.png"},
+                    "mutated": {"value": "Dark", "screenshot": "ios-settings-state.png"},
+                    "restored": {"status": "VERIFIED", "value": "Light", "screenshot": "ios-settings-restored.png"},
+                },
+            }))
+            for name in ("ios-settings-before.png", "ios-settings-state.png", "ios-settings-restored.png"):
+                (folder / name).write_bytes(name.encode())
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "dark-mode-enabled", "status": "PASS",
+                "reason": "The visible native iOS state and decoded Bid value agree.",
+                "evidence": "ios-settings-state.png",
+            }]}))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                rendered = evidence_ios.materialize_ios_r5_visual_evidence(folder)
+            self.assertEqual(rendered, ["dark-mode-enabled-evidence.png"])
+            html = (folder / "dark-mode-enabled-evidence.html").read_text()
+            self.assertIn("BEFORE", html)
+            self.assertIn("NEGATIVE STATE", html)
+            self.assertIn("RESTORED", html)
+            self.assertIn("VERIFIED", html)
+            self.assertIn("Request device.ext.darkmode", html)
+            self.assertIn("PASS", html)
+            verdict = json.loads((folder / "verdicts.json").read_text())["verdicts"][0]
+            self.assertEqual(verdict["evidence"], "dark-mode-enabled-evidence.png")
+
+    def test_r5_blocked_case_still_gets_a_visual_reason_card_without_screenshot_or_bid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "output-volume-muted", "status": "BLOCKED",
+                "reason": "iOS cannot independently read back and restore media volume.",
+            }]}))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                evidence_ios.materialize_ios_r5_visual_evidence(folder)
+            html = (folder / "output-volume-muted-evidence.html").read_text()
+            self.assertIn("NO SCREENSHOT", html)
+            self.assertIn("NOT CAPTURED", html)
+            self.assertIn("BLOCKED", html)
+            self.assertIn("independently read back", html)
+            self.assertTrue((folder / "output-volume-muted-evidence.png").is_file())
+
+    def test_r5_validator_points_report_to_case_specific_visual_card(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {"ext": {"battery_saver": True}}}},
+                "ext": {"plaintext": {"device": {"ext": {"battery_saver": True}}}},
+            }))
+            (folder / "ios-settings-state.json").write_text(json.dumps({
+                "scenario": "LOW-POWER", "automation": "Appium XCUITest native Settings UI",
+                "screenshot_saved": True,
+            }))
+            (folder / "ios-settings-state.png").write_bytes(b"visible")
+            verdict = TC_DEFINITIONS["battery-saver-enabled"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["evidence"], "battery-saver-enabled-evidence.png")
+
+    def test_aos_aligned_payload_card_is_explicitly_not_independent_screen_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            value = "82BD86B3-8F29-0DA1-FC71-D24CE7C15F77"
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ifv": value}}},
+            }))
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "app-set-id", "status": "PASS", "expected": "canonical UUID",
+                "actual": {"ext_device_ifv": value}, "reason": "Wire-format contract passed.",
+                "evidence": "app-set-id.json",
+            }]}))
+
+            def render(_document, target, width=1400, height=1000):
+                target.write_bytes(b"card")
+
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=render):
+                rendered = evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
+            self.assertEqual(rendered, ["app-set-id-evidence.png"])
+            document = (folder / "app-set-id-evidence.html").read_text()
+            self.assertIn("payload-only contract", document)
+            self.assertIn("NO INDEPENDENT SCREEN", document)
+            self.assertIn("device.ifv", document)
+            verdict = json.loads((folder / "verdicts.json").read_text())["verdicts"][0]
+            self.assertEqual(verdict["evidence"], "app-set-id-evidence.png")
+
+    def test_aos_aligned_sensor_card_records_not_in_scope_block(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "gyroscope", "status": "BLOCKED", "expected": "Not In Scope",
+                "actual": {"value": []}, "reason": "No reviewed sensor action was executed.",
+            }]}))
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
+                evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
+            document = (folder / "gyroscope-evidence.html").read_text()
+            self.assertIn("NOT IN SCOPE", document)
+            self.assertIn("Same as AOS", document)
+            self.assertIn("BLOCKED", document)
+
+    def test_aos_aligned_lifecycle_card_shows_all_four_captures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            captures = []
+            for index in range(4):
+                capture = root / f"capture-{index}"
+                capture.mkdir()
+                (capture / "screenshot.png").write_bytes(f"image-{index}".encode())
+                captures.append(str(capture))
+            result = Path(captures[-1])
+            (result / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                "captures": captures,
+                "session-duration-continuous": {
+                    "values": [1, 11], "passed": True,
+                    "reason": "Continuous foreground session_duration must increase.",
+                },
+            }))
+            (result / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "session-duration-continuous", "status": "PASS",
+                "expected": "second > first", "actual": {"values": [1, 11]},
+                "reason": "Lifecycle rule passed.",
+            }]}))
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
+                evidence_ios.materialize_ios_aos_aligned_visual_evidence(result)
+            document = (result / "session-duration-continuous-evidence.html").read_text()
+            for label in ("START", "CONTINUOUS", "BACKGROUND", "TERMINATED"):
+                self.assertIn(label, document)
+            self.assertIn("[1,11]", document)
+
+    def test_aos_aligned_network_card_lists_each_decoded_transition(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            captures = []
+            for index in range(2):
+                capture = root / f"net-{index}"
+                capture.mkdir()
+                (capture / "screenshot.png").write_bytes(f"image-{index}".encode())
+                (capture / "bid_decoded.json").write_text(json.dumps({
+                    "ext": {"plaintext": {"device": {
+                        "ipv6": f"2001:db8::{index + 1}", "conntype": index + 1,
+                    }}},
+                }))
+                captures.append(str(capture))
+            result = Path(captures[-1])
+            (result / "r4-network-sequence.json").write_text(json.dumps({"captures": captures}))
+            (result / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "ipv6-refresh-wifi-switch", "status": "PASS",
+                "expected": "IPv6 refreshes", "actual": {"changed": True}, "reason": "Refreshed.",
+            }]}))
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
+                evidence_ios.materialize_ios_aos_aligned_visual_evidence(result)
+            document = (result / "ipv6-refresh-wifi-switch-evidence.html").read_text()
+            self.assertIn("LAUNCH", document)
+            self.assertIn("WI-FI SWITCH", document)
+            self.assertIn("2001:db8::1", document)
+            self.assertIn("2001:db8::2", document)
 
     def test_e2e_proxy_preflight_rejects_missing_charles_before_ui(self):
         with patch.object(qa_ios, "_tcp_listening", return_value=False):

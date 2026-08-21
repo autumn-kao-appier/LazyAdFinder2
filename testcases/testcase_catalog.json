@@ -28,7 +28,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ia 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ia must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "advertising-id-opt-out-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -58,7 +58,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.lat 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.lat must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "tracking-denied-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -86,7 +86,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.darkmode 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.darkmode must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "dark-mode-enabled-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -114,7 +114,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.fontscale 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.fontscale must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "font-scale-maximum-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -144,7 +144,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.screen_bright 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.screen_bright must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "screen-brightness-minimum-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -172,7 +172,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.volume 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.volume must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "output-volume-muted-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -200,7 +200,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.battery_saver 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.battery_saver must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "battery-saver-enabled-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -228,7 +228,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.screen_bright 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.screen_bright must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "screen-brightness-maximum-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -256,7 +256,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.ext.volume 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.ext.volume must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "output-volume-maximum-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -284,7 +284,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.utcoffset 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.utcoffset must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "timezone-changed-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -314,7 +314,7 @@
         "setup_en": "Set the requested state in native iOS Settings and save a visible screenshot, then cold-launch the Sample App and capture the Bid. Every Scenario runs independently.",
         "expected": "Settings 可見狀態與 Bid 的 device.geo_lat / device.geo_lon 必須一致；缺少可見 Evidence 不得 PASS。",
         "expected_en": "The visible Settings state and Bid device.geo_lat / device.geo_lon must agree. Missing visible Evidence cannot PASS.",
-        "evidence": "ios-settings-state.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
+        "evidence": "location-permission-denied-evidence.png、ios-settings-before.png、ios-settings-state.png、ios-settings-restored.png、ios-settings-state.json、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -373,9 +373,9 @@
         "setup_en": "No setup is required; reuse the iOS R1 Bid capture. Do not hard-code an IDFV previously observed on one device.",
         "expected": "Extended 的 device.ifv 必須存在，且為 UUID 8-4-4-4-12 格式；接受 iOS API 常見的大寫 canonical form。",
         "expected_en": "Extended device.ifv must exist and be a UUID in 8-4-4-4-12 format; the uppercase canonical form commonly returned by iOS is valid.",
-        "evidence": "app-set-id.json、bid_decoded.json、verdicts.json",
-        "evidence_note": "若未來需要可截圖、可由人眼獨立核對的 Evidence，必須請 RD 在 iOS Sample App 增加顯示 IDFV 的 QA 測試入口，保存該畫面後再要求與 device.ifv 完全相同。",
-        "evidence_note_en": "If independent human-visible Evidence is required later, RD must add an iOS Sample App QA surface that displays IDFV. Preserve that screen before requiring an exact comparison with device.ifv."
+        "evidence": "app-set-id-evidence.png、app-set-id.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "比照 AOS，以可視化卡呈現 payload contract；卡片明確標示沒有獨立 IDFV 畫面。若要升級成人眼獨立核對，仍須請 RD 在 iOS Sample App 增加 IDFV QA 入口。",
+        "evidence_note_en": "As on AOS, a visual card presents the payload contract and explicitly states that no independent IDFV screen exists. An iOS Sample App IDFV QA surface is still required before claiming independent visual comparison."
       }
     },
     {
@@ -426,7 +426,7 @@
         "setup_en": "Reuse this round's capture; the Sample App currently has no purchase flow.",
         "expected": "欄位缺少或格式錯誤為 FAILED；合法陣列在 Sample App 尚無購買流程與 expected product IDs 時為 BLOCKED。",
         "expected_en": "A missing or malformed field is FAILED. A valid array remains BLOCKED while the Sample App has no purchase flow or independent expected product IDs.",
-        "evidence": "in-app-purchase-history.json、bid_decoded.json、verdicts.json",
+        "evidence": "in-app-purchase-history-evidence.png、in-app-purchase-history.json、bid_decoded.json、verdicts.json",
         "evidence_note": "比照 Android：目前只能驗證欄位與 product ID 陣列格式，無法驗證內容正確性，因此合法陣列結果為 BLOCKED。",
         "evidence_note_en": "Same as Android: only the field and product-ID array shape can be validated. Content correctness cannot be proven, so a valid array remains BLOCKED."
       }
@@ -455,9 +455,9 @@
         "setup_en": "No setup is required; reuse the iOS R1 Bid capture.",
         "expected": "device.ext.pot 必須含 1～5 筆嚴格遞增的正整數 epoch milliseconds；格式正確為 PASS，格式錯誤為 FAILED。",
         "expected_en": "device.ext.pot must contain 1 to 5 strictly increasing positive epoch-millisecond integers. Valid format is PASS; invalid format is FAILED.",
-        "evidence": "boot-timestamps.json、bid_decoded.json、verdicts.json",
-        "evidence_note": "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式。",
-        "evidence_note_en": "Human-visible Evidence is currently unavailable on iOS; this testcase validates the decoded payload field format."
+        "evidence": "boot-timestamps-evidence.png、boot-timestamps.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "可視化卡呈現解碼後 payload 的格式判定，並明確標示 iOS 沒有對等於 AOS /proc/uptime 的獨立可見來源。",
+        "evidence_note_en": "The visual card presents the decoded payload format result and explicitly states that iOS has no independent visible source equivalent to AOS /proc/uptime."
       }
     },
     {
@@ -510,9 +510,9 @@
         "setup_en": "No setup is required; reuse the iOS R1 Bid capture.",
         "expected": "device.ext.mem_total 必須是正整數 bytes；格式正確為 PASS，格式錯誤為 FAILED。",
         "expected_en": "device.ext.mem_total must be positive integer bytes. Valid format is PASS; invalid format is FAILED.",
-        "evidence": "ram-total.json、bid_decoded.json、verdicts.json",
-        "evidence_note": "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式。",
-        "evidence_note_en": "Human-visible Evidence is currently unavailable on iOS; this testcase validates the decoded payload field format."
+        "evidence": "mem-total-evidence.png、ram-total.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "可視化卡呈現解碼後 payload 的格式判定，並明確標示 iOS 沒有對等於 AOS /proc/meminfo 的獨立系統來源。",
+        "evidence_note_en": "The visual card presents the decoded payload format result and explicitly states that iOS has no independent system source equivalent to AOS /proc/meminfo."
       }
     },
     {
@@ -539,9 +539,9 @@
         "setup_en": "No setup is required; reuse the iOS R1 Bid capture.",
         "expected": "device.ext.mem_available 必須是正整數 bytes，且不得大於 mem_total；數值關係正確為 PASS，錯誤為 FAILED。",
         "expected_en": "device.ext.mem_available must be positive integer bytes and must not exceed mem_total. A valid relationship is PASS; otherwise FAILED.",
-        "evidence": "ram-available.json、bid_decoded.json、verdicts.json",
-        "evidence_note": "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式與數值關係。",
-        "evidence_note_en": "Human-visible Evidence is currently unavailable on iOS; this testcase validates the decoded payload field format and value relationship."
+        "evidence": "mem-available-evidence.png、ram-available.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "可視化卡呈現 payload 格式與 mem_available ≤ mem_total 關係，並明確標示沒有獨立 iOS MemAvailable 來源。",
+        "evidence_note_en": "The visual card presents the payload format and mem_available ≤ mem_total relationship while explicitly stating that no independent iOS MemAvailable source is available."
       }
     },
     {
@@ -906,7 +906,7 @@
         "setup_en": "Not In Scope; this round does not perform sensor motion.",
         "expected": "BLOCKED；即使欄位存在且為 [] 或帶有樣本，也不宣稱內容正確。",
         "expected_en": "BLOCKED. Do not claim correctness even when the field is present as [] or contains samples.",
-        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence": "gyroscope-evidence.png、bid_decoded.json、verdicts.json",
         "evidence_note": "比照 AOS：本輪沒有獨立感測器動作與 reviewed expected samples，因此只觀察、不評估。",
         "evidence_note_en": "Same as AOS: this round has no independent sensor motion or reviewed expected samples, so the array is observed but not evaluated."
       }
@@ -935,7 +935,7 @@
         "setup_en": "Not In Scope; this round does not perform sensor motion.",
         "expected": "BLOCKED；即使欄位存在且為 [] 或帶有樣本，也不宣稱內容正確。",
         "expected_en": "BLOCKED. Do not claim correctness even when the field is present as [] or contains samples.",
-        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence": "accelerometer-evidence.png、bid_decoded.json、verdicts.json",
         "evidence_note": "比照 AOS：本輪沒有獨立感測器動作與 reviewed expected samples，因此只觀察、不評估。",
         "evidence_note_en": "Same as AOS: this round has no independent sensor motion or reviewed expected samples, so the array is observed but not evaluated."
       }
@@ -1253,7 +1253,7 @@
         "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
         "expected": "IPv6 Address 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
         "expected_en": "IPv6 Address must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
-        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+        "evidence": "ipv6-address-evidence.png、r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
       }
     },
     {
@@ -1281,7 +1281,7 @@
         "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
         "expected": "IPv6 on App Launch 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
         "expected_en": "IPv6 on App Launch must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
-        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+        "evidence": "ipv6-refresh-launch-evidence.png、r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
       }
     },
     {
@@ -1309,7 +1309,7 @@
         "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
         "expected": "IPv6 after Wi-Fi Switch 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
         "expected_en": "IPv6 after Wi-Fi Switch must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
-        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+        "evidence": "ipv6-refresh-wifi-switch-evidence.png、r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
       }
     },
     {
@@ -1337,7 +1337,7 @@
         "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
         "expected": "IPv6 after Network Recovery 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
         "expected_en": "IPv6 after Network Recovery must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
-        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+        "evidence": "ipv6-refresh-recovery-evidence.png、r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
       }
     },
     {
@@ -1365,7 +1365,7 @@
         "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
         "expected": "IPv6 after Rapid Wi-Fi Switching 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
         "expected_en": "IPv6 after Rapid Wi-Fi Switching must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
-        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+        "evidence": "ipv6-refresh-debounce-evidence.png、r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
       }
     },
     {
@@ -1393,7 +1393,7 @@
         "setup_en": "In one Appium session, execute launch, Wi-Fi switch, recovery, rapid switching, and slow-network steps in order.",
         "expected": "IPv6 Refresh on Slow Network 必須反映最後的實際網路，無 IPv6 環境才 BLOCK；已執行但值錯則 FAILED。",
         "expected_en": "IPv6 Refresh on Slow Network must reflect the actual final network. An unavailable IPv6 environment is BLOCKED; an executed mismatch is FAILED.",
-        "evidence": "r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
+        "evidence": "ipv6-refresh-slow-network-evidence.png、r4-network-sequence.json、各步 Bid、proxy session、verdicts.json"
       }
     },
     {
@@ -1555,7 +1555,7 @@
         "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
         "expected": "Session Duration — Continuous App Session 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
         "expected_en": "Session Duration — Continuous App Session must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "evidence": "session-duration-continuous-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1582,7 +1582,7 @@
         "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
         "expected": "Session Duration — Resume from Background 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
         "expected_en": "Session Duration — Resume from Background must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "evidence": "session-duration-background-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1609,7 +1609,7 @@
         "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
         "expected": "Session Duration — Reset after Termination 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
         "expected_en": "Session Duration — Reset after Termination must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "evidence": "session-duration-termination-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1690,7 +1690,7 @@
         "setup_en": "Complete one proven ad impression, wait for SDK initialization/probes, then capture the second request.",
         "expected": "第二次 request 的 user.impression_history 必須符合 Impression History 的因果與格式契約。",
         "expected_en": "The second request's user.impression_history must satisfy the causal and wire-format contract for Impression History.",
-        "evidence": "第一／第二次 Bid、proxy-events.jsonl、bid_decoded.json、verdicts.json"
+        "evidence": "impression-history-evidence.png、第一／第二次 Bid、proxy-events.jsonl、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1774,7 +1774,7 @@
         "setup_en": "Complete one proven ad impression, wait for SDK initialization/probes, then capture the second request.",
         "expected": "第二次 request 的 device.ext.latency 必須符合 Connection Latency 的因果與格式契約。",
         "expected_en": "The second request's device.ext.latency must satisfy the causal and wire-format contract for Connection Latency.",
-        "evidence": "第一／第二次 Bid、proxy-events.jsonl、bid_decoded.json、verdicts.json"
+        "evidence": "network-latency-evidence.png、第一／第二次 Bid、proxy-events.jsonl、bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1801,7 +1801,7 @@
         "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
         "expected": "App Initialization Time 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
         "expected_en": "App Initialization Time must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "evidence": "app-initialization-time-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
       }
     },
     {
@@ -1828,7 +1828,7 @@
         "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
         "expected": "Total App Usage Time Today 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
         "expected_en": "Total App Usage Time Today must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "evidence": "app-duration-today-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
       }
     },
     {
