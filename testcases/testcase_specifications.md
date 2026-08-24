@@ -45,6 +45,32 @@ run ID 的結果可作為共用 Android SDK Signal Evidence 回填 Mediation 卡
 - `E2E-S15`：以自動保存的 BidObjectId、CID、曝光與點擊時間查詢 MMP Click Action。
 - `E2E-S16`：沿用相同 correlation key 查詢歸因認列；AIBID 對 install，REEN 對 re-engagement。
 
+### iOS AOS-aligned E2E evidence
+
+iOS E2E 與 AOS 使用相同的證據責任邊界：serving／tracking／mediation 結果由保存的 request、
+response、proxy event 與 correlation IDs 判定；Native render、Privacy、CTA 與 Landing 才由
+實機畫面與完整操作錄影證明。畫面只能支援 network TC，不能取代缺少的 HTTP event。
+
+每個 iOS E2E TC 必須額外產生同名 `*-evidence.png`，作為 reviewer-facing 摘要入口：
+
+- Baseline 10 條分別保存 init、Appier flow、creative、render、impression、click、landing、privacy
+  與兩條 attribution 的 testcase-specific card。
+- Mediation 6 條分別保存 pubsetting、GMA routing、GMA→Appier、Google impression、fill result 與
+  Google click 的 testcase-specific card。
+- 卡片至少包含 Expected、Captured Actual、原 validator artifact、traffic session hash/event count、
+  共用 MP4 的 saved/valid/bytes、interaction timeline、相關階段截圖及原 verdict。
+- `standalone-privacy` 顯示 ad-before、privacy destination、return-to-ad 三階段；click／landing 顯示
+  before-click 與 final destination。缺少階段時明確顯示 `NO SCREENSHOT`。
+- Attribution 尚未執行授權的 MMP／backend query 時，仍產出包含 click destination 與 lookup IDs 的
+  BLOCKED 卡；不得把「查詢資料已備妥」顯示成 PASS。
+- 原始 `e2e-network-evidence.json`、`mediation-network-evidence.json`、`appier-ad-flow.json`、
+  `attribution-query.json`、互動截圖、`e2e-interactions.json`、`e2e-interactions.mp4`、raw bodies 與
+  `verdicts.json` 必須保留。卡片不取代這些可稽核來源。
+
+renderer 失敗不得改寫 E2E 判定，錯誤記錄於 `evidence-errors.json`；正常產出後才將該 verdict 的
+`evidence` 指向 testcase-specific PNG。中途失敗但已建立 evidence bundle 的 E2E round 亦須嘗試
+產生 FAILED／BLOCKED 卡片。
+
 ## Evidence contract
 
 所有 TC 的 Evidence 都必須依序呈現 `Expected`、`Captured Device State`、

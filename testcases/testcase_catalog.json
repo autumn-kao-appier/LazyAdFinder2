@@ -1940,7 +1940,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "SDK Initialization 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "SDK Initialization must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-sdk-init-evidence.png、e2e-network-evidence.json、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -1970,7 +1970,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Appier Direct Ad Request 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Appier Direct Ad Request must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-appier-ad-request-evidence.png、appier-ad-flow.json、proxy-events.jsonl、bid_raw.json、bid_response.json、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2002,7 +2002,7 @@
         "setup_en": "Reuse the same-run iOS ad response and preserve asset traffic. If NSURL cache avoids a new request, preserve the visible ad and accessibility tree.",
         "expected": "Response 指定的素材必須由本輪成功 image response 證明；若使用 cache，則 icon、main image、privacy icon 三個圖片元素都必須可見且有完整截圖。Report 必須標明 NETWORK 或 VISIBLE_CACHE，不得假裝 cache hit 是 HTTP Evidence。",
         "expected_en": "Response assets must be proven by successful same-run image responses. When cache is used, the icon, main image, and privacy icon must all be visible with a complete screenshot. The report identifies NETWORK or VISIBLE_CACHE and never presents a cache hit as HTTP Evidence.",
-        "evidence": "e2e-network-evidence.json、rendered-page-source.xml、ad-before-interactions.png"
+        "evidence": "standalone-creative-assets-evidence.png、e2e-network-evidence.json、rendered-page-source.xml、ad-before-interactions.png、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2032,7 +2032,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Native Ad Rendering 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Native Ad Rendering must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-native-render-evidence.png、ad-before-interactions.png、visual-review.json、rendered-page-source.xml、bid_response.json、e2e-interactions.mp4、e2e-interactions.json、verdicts.json"
       }
     },
     {
@@ -2062,7 +2062,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Appier Impression Tracking 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Appier Impression Tracking must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-impression-evidence.png、ad-before-interactions.png、e2e-network-evidence.json、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2094,7 +2094,7 @@
         "setup_en": "Reuse the CTA interaction documented by the shared E2E recording and preserve its xclk request and response.",
         "expected": "必須送出對應本次可見曝光的 xclk；bidobjid／CID／CRID 與曝光一致，HTTP response 或 redirect 成功。影片屬 E2E 共用 Evidence；Landing 由 S14 判定，不得拖累 S11。",
         "expected_en": "An xclk matching the visible impression must be emitted; bidobjid, CID, and CRID match, and the HTTP response or redirect succeeds. The video is shared E2E Evidence, while S14 independently validates landing and cannot affect S11.",
-        "evidence": "e2e-network-evidence.json（xclk URL、correlation IDs、HTTP status）"
+        "evidence": "standalone-click-evidence.png、ad-before-click.png、click-landing.png、e2e-network-evidence.json、e2e-interactions.mp4、e2e-interactions.json、verdicts.json"
       }
     },
     {
@@ -2126,7 +2126,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Campaign Destination 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Campaign Destination must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-landing-evidence.png、ad-before-click.png、click-landing.png、e2e-network-evidence.json、e2e-interactions.mp4、e2e-interactions.json、verdicts.json"
       }
     },
     {
@@ -2156,7 +2156,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Privacy Information 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Privacy Information must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-privacy-evidence.png、ad-before-interactions.png、privacy-landing.png、ad-after-privacy-return.png、bid_response.json、e2e-interactions.mp4、e2e-interactions.json、verdicts.json"
       }
     },
     {
@@ -2186,7 +2186,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "MMP Click Action 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "MMP Click Action must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-install-attribution-evidence.png、attribution-query.json、click-landing.png、e2e-network-evidence.json、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2216,7 +2216,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Attribution Recognition 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Attribution Recognition must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "standalone-attribution-reconciliation-evidence.png、attribution-query.json、click-landing.png、e2e-network-evidence.json、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2245,7 +2245,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "AdMob Pubsetting Mediation Config 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "AdMob Pubsetting Mediation Config must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "admob-pubsetting-evidence.png、mediation-network-evidence.json、admob-pubsetting-request.bin、admob-pubsetting-response.bin、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2274,7 +2274,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "AdMob GMA Request and Mediation Routing 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "AdMob GMA Request and Mediation Routing must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "admob-gma-request-evidence.png、mediation-network-evidence.json、admob-gma-request.bin、admob-gma-response.bin、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2303,7 +2303,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Appier Adapter Ad Request 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Appier Adapter Ad Request must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "admob-appier-ad-request-evidence.png、mediation-network-evidence.json、bid_raw.json、bid_response.json、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2332,7 +2332,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "AdMob Impression Reporting 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "AdMob Impression Reporting must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "admob-impression-evidence.png、ad-before-interactions.png、mediation-network-evidence.json、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2361,7 +2361,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "Mediation Fill Result 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "Mediation Fill Result must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "admob-fill-result-evidence.png、ad-before-interactions.png、mediation-network-evidence.json、proxy-events.jsonl、e2e-interactions.mp4、verdicts.json"
       }
     },
     {
@@ -2390,7 +2390,7 @@
         "setup_en": "Execute the complete iOS ad journey. Mediation additionally preserves Pubsetting, GMA, and Google tracking flows.",
         "expected": "AdMob Click Reporting 必須由同一輪 proxy transaction、可見截圖／操作與完整影片共同證明；缺 Evidence 為 FAILED。",
         "expected_en": "AdMob Click Reporting must be proven by same-round proxy transactions, visible screenshots/actions, and the complete recording. Missing Evidence is FAILED.",
-        "evidence": "e2e-interactions.mp4、互動截圖、proxy-events.jsonl、request/response bodies、verdicts.json"
+        "evidence": "admob-click-evidence.png、ad-before-click.png、click-landing.png、mediation-network-evidence.json、proxy-events.jsonl、e2e-interactions.mp4、e2e-interactions.json、verdicts.json"
       }
     }
   ]

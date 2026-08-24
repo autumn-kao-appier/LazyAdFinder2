@@ -1346,6 +1346,62 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertIn("2001:db8::1", document)
             self.assertIn("2001:db8::2", document)
 
+    def test_aos_aligned_e2e_card_combines_stage_images_traffic_and_recording(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for name in ("ad-before-interactions.png", "privacy-landing.png", "ad-after-privacy-return.png"):
+                (folder / name).write_bytes(name.encode())
+            (folder / "traffic-session.json").write_text(json.dumps({
+                "saved": True, "event_count": 19, "sha256": "abc123",
+            }))
+            (folder / "e2e-interactions.json").write_text(json.dumps({
+                "recording": {"saved": True, "valid_mp4": True, "bytes": 4096},
+                "timeline": [
+                    {"stage": "rendered-ad", "outcome": "CAPTURED"},
+                    {"stage": "privacy-destination", "outcome": "CAPTURED"},
+                    {"stage": "return-to-ad", "outcome": "COMPLETED"},
+                ],
+            }))
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "standalone-privacy", "status": "PASS",
+                "expected": {"privacy interaction": True, "return to ad": True},
+                "actual": {"interaction": {"attempted": True, "opened": True}},
+                "reason": "Privacy journey was preserved.", "evidence": "privacy-landing.png",
+            }]}))
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
+                evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
+            document = (folder / "standalone-privacy-evidence.html").read_text()
+            for label in ("BEFORE", "PRIVACY", "RETURNED"):
+                self.assertIn(label, document)
+            self.assertIn("privacy-landing.png", document)
+            self.assertIn("valid_mp4", document)
+            self.assertIn("rendered-ad=CAPTURED", document)
+            verdict = json.loads((folder / "verdicts.json").read_text())["verdicts"][0]
+            self.assertEqual(verdict["evidence"], "standalone-privacy-evidence.png")
+
+    def test_aos_aligned_e2e_attribution_card_keeps_external_query_block_visible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "click-landing.png").write_bytes(b"destination")
+            (folder / "traffic-session.json").write_text(json.dumps({"saved": True, "event_count": 12}))
+            (folder / "e2e-interactions.json").write_text(json.dumps({
+                "recording": {"saved": True, "valid_mp4": True, "bytes": 1024},
+                "timeline": [{"stage": "landing", "outcome": "CAPTURED"}],
+            }))
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "standalone-install-attribution", "status": "BLOCKED",
+                "expected": None, "actual": {"cid": "cid-1", "crpid": "creative-1"},
+                "reason": "Traffic lookup data is ready; query the MMP click action.",
+                "evidence": "attribution-query.json",
+            }]}))
+            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
+                evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
+            document = (folder / "standalone-install-attribution-evidence.html").read_text()
+            self.assertIn("external query pending", document)
+            self.assertIn("CLICK DESTINATION", document)
+            self.assertIn("BLOCKED", document)
+            self.assertIn("attribution-query.json", document)
+
     def test_e2e_proxy_preflight_rejects_missing_charles_before_ui(self):
         with patch.object(qa_ios, "_tcp_listening", return_value=False):
             with self.assertRaisesRegex(qa_ios.CaptureError, "Charles is not listening"):

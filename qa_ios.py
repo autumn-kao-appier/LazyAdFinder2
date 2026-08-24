@@ -2191,6 +2191,7 @@ def _run_e2e_round(config, name, validators):
         if folder and (Path(folder) / "summary.json").is_file():
             rows = [row for validator in validators for row in validator(folder)]
             (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
+            _render_aos_aligned_cards(folder)
         raise
     rows = [row for validator in validators for row in validator(folder)]
     (Path(folder) / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")

@@ -1199,9 +1199,44 @@ for _ipv6_key, _ipv6_title in (
     }
 
 
+IOS_E2E_VISUAL_CASES = {
+    "standalone-sdk-init": ("SDK Initialization", "Initialization traffic", (("RENDERED AD", "ad-before-interactions.png"),)),
+    "standalone-appier-ad-request": ("Appier Direct Ad Request", "Same-flow request / response", (("RENDERED AD", "ad-before-interactions.png"),)),
+    "standalone-creative-assets": ("Creative Asset Loading", "Asset traffic or visible cached render", (("VISIBLE CREATIVE", "ad-before-interactions.png"),)),
+    "standalone-native-render": ("Native Ad Rendering", "Response-to-view comparison", (("RENDERED AD", "ad-before-interactions.png"),)),
+    "standalone-impression": ("Appier Impression Tracking", "show_cb + winshowimg traffic", (("VISIBLE IMPRESSION", "ad-before-interactions.png"),)),
+    "standalone-click": ("Appier Click Tracking", "Visible CTA action + matching xclk", (("BEFORE CLICK", "ad-before-click.png"), ("DESTINATION", "click-landing.png"))),
+    "standalone-landing": ("Campaign Destination", "Tracked click + visible final destination", (("BEFORE CLICK", "ad-before-click.png"), ("DESTINATION", "click-landing.png"))),
+    "standalone-privacy": ("Privacy Information", "Privacy action + destination + return", (("BEFORE", "ad-before-interactions.png"), ("PRIVACY", "privacy-landing.png"), ("RETURNED", "ad-after-privacy-return.png"))),
+    "standalone-install-attribution": ("MMP Click Action", "Captured lookup IDs · external query pending", (("CLICK DESTINATION", "click-landing.png"),)),
+    "standalone-attribution-reconciliation": ("Attribution Recognition", "Captured lookup IDs · backend reconciliation pending", (("CLICK DESTINATION", "click-landing.png"),)),
+    "admob-pubsetting": ("AdMob Pubsetting Mediation Config", "Pubsetting request / response", (("MEDIATED AD", "ad-before-interactions.png"),)),
+    "admob-gma-request": ("AdMob GMA Request and Routing", "GMA request / response", (("MEDIATED AD", "ad-before-interactions.png"),)),
+    "admob-appier-ad-request": ("Appier Adapter Ad Request", "Ordered GMA → Appier flow", (("MEDIATED AD", "ad-before-interactions.png"),)),
+    "admob-impression": ("AdMob Impression Reporting", "Google impression event", (("VISIBLE IMPRESSION", "ad-before-interactions.png"),)),
+    "admob-fill-result": ("Mediation Fill Result", "Fill-result event + GMA/Appier timeline", (("MEDIATED AD", "ad-before-interactions.png"),)),
+    "admob-click": ("AdMob Click Reporting", "Visible CTA action + Google click event", (("BEFORE CLICK", "ad-before-click.png"), ("DESTINATION", "click-landing.png"))),
+}
+
+for _e2e_key, (_e2e_title, _e2e_source, _e2e_images) in IOS_E2E_VISUAL_CASES.items():
+    IOS_AOS_ALIGNED_VISUAL_CASES[_e2e_key] = {
+        "title": _e2e_title,
+        "round": "E2E",
+        "source": _e2e_source,
+        "card": f"{_e2e_key}-evidence.png",
+        "scope": (
+            "AOS-aligned: the card summarizes the testcase's original traffic, interaction, screenshot and recording artifacts. "
+            "A supporting screenshot never replaces the required network or causal contract."
+        ),
+        "supporting_images": _e2e_images,
+    }
+
+
 def _aligned_sequence_images(folder, metadata):
     """Return supporting screenshots without turning them into independent truth."""
     folder = Path(folder)
+    if metadata.get("supporting_images"):
+        return [(label, folder / name) for label, name in metadata["supporting_images"]]
     labels = ("START", "CONTINUOUS", "BACKGROUND", "TERMINATED")
     sequence_name = metadata.get("sequence")
     if sequence_name == "r4-network-sequence.json":
@@ -1249,7 +1284,42 @@ def _aligned_payload_rows(folder, key, metadata, verdict):
                      "conntype": ext_type if ext_type is not None else req_type},
                 ))
         rows.append(("Captured steps", len(sequence.get("captures") or [])))
+    if key in IOS_E2E_VISUAL_CASES:
+        interactions = {}
+        try:
+            interactions = json.loads((Path(folder) / "e2e-interactions.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            pass
+        recording = interactions.get("recording") if isinstance(interactions, dict) else {}
+        timeline = interactions.get("timeline") if isinstance(interactions, dict) else []
+        stages = [
+            f"{item.get('stage')}={item.get('outcome')}"
+            for item in timeline if isinstance(item, dict) and item.get("stage")
+        ]
+        traffic = {}
+        try:
+            traffic = json.loads((Path(folder) / "traffic-session.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            pass
+        rows.extend((
+            ("Original validator artifact", verdict.get("evidence")),
+            ("Traffic session", {
+                "saved": traffic.get("saved"), "event_count": traffic.get("event_count"),
+                "sha256": traffic.get("sha256"),
+            }),
+            ("Shared recording", {
+                "saved": recording.get("saved") if isinstance(recording, dict) else None,
+                "valid_mp4": recording.get("valid_mp4") if isinstance(recording, dict) else None,
+                "bytes": recording.get("bytes") if isinstance(recording, dict) else None,
+            }),
+            ("Interaction timeline", stages),
+        ))
     return rows
+
+
+def _compact_card_value(value, limit=520):
+    rendered = _compact_evidence_value(value)
+    return rendered if len(rendered) <= limit else rendered[:limit - 1] + "…"
 
 
 def _aligned_visual_evidence_document(folder, key, metadata, verdict):
@@ -1258,7 +1328,7 @@ def _aligned_visual_evidence_document(folder, key, metadata, verdict):
         status = "BLOCKED"
     color = {"PASS": "#287a3d", "FAILED": "#b9342b", "BLOCKED": "#a56516"}[status]
     row_html = "".join(
-        f'<div class="row"><span>{html.escape(label)}</span><b>{html.escape(_compact_evidence_value(value))}</b></div>'
+        f'<div class="row"><span>{html.escape(label)}</span><b>{html.escape(_compact_card_value(value))}</b></div>'
         for label, value in _aligned_payload_rows(folder, key, metadata, verdict)
     )
     images = _aligned_sequence_images(folder, metadata)
@@ -1280,7 +1350,7 @@ def _aligned_visual_evidence_document(folder, key, metadata, verdict):
 <div class="eyebrow">AOS-ALIGNED EVIDENCE · iOS {html.escape(metadata['round'])}</div><h1>{html.escape(metadata['title'])}</h1><div class="content"><div class="visual">{''.join(visual)}</div><div class="panel"><div class="source">{html.escape(metadata['source'])}</div><p class="scope">{html.escape(metadata['scope'])}</p><div class="rows">{row_html}</div><p class="reason">{html.escape(str(reason))}</p><div class="conclusion"><span>Recorded contract result</span><b>{status}</b></div></div></div></main></body></html>'''
 
 
-def materialize_ios_aos_aligned_visual_evidence(folder):
+def materialize_ios_aos_aligned_visual_evidence(folder, skip_existing=False):
     """Render the remaining iOS contracts with the same evidence scope used by AOS."""
     folder = Path(folder)
     try:
@@ -1295,8 +1365,9 @@ def materialize_ios_aos_aligned_visual_evidence(folder):
             continue
         card = folder / metadata["card"]
         document = card.with_suffix(".html")
-        document.write_text(_aligned_visual_evidence_document(folder, key, metadata, verdict), encoding="utf-8")
-        _write_html_screenshot(document, card)
+        if not (skip_existing and card.is_file() and card.stat().st_size > 1000):
+            document.write_text(_aligned_visual_evidence_document(folder, key, metadata, verdict), encoding="utf-8")
+            _write_html_screenshot(document, card)
         verdict["evidence"] = card.name
         rendered.append(card.name)
     if rendered:
