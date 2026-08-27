@@ -11,6 +11,50 @@ from testcases.ios_signal_testcases import TC_DEFINITIONS
 
 
 class IOSEvidenceContractTests(unittest.TestCase):
+    def test_ios_recording_uses_appium_camel_case_h264_contract(self):
+        driver = MagicMock()
+        qa_ios._start_screen_recording(driver)
+        driver.start_recording_screen.assert_called_once_with(
+            videoType="libx264",
+            videoQuality="medium",
+            videoFps=10,
+            pixelFormat="yuv420p",
+        )
+
+    def test_mjpeg_recording_is_preserved_and_transcoded_for_browser(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = Path(temporary) / "e2e-interactions.mp4"
+            raw.write_bytes(b"raw-mjpeg")
+            browser = raw.with_name("e2e-interactions-browser.mp4")
+
+            def probe(path):
+                if Path(path) == raw:
+                    return {"path": raw.name, "codec": "mjpeg", "pixel_format": "yuvj420p", "duration_seconds": 4.0}
+                return {"path": browser.name, "codec": "h264", "pixel_format": "yuv420p", "duration_seconds": 10.0}
+
+            def transcode(command, **_kwargs):
+                browser.write_bytes(b"derived-h264")
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                result.stdout = ""
+                return result
+
+            with patch.object(qa_ios, "_recording_metadata", side_effect=probe), \
+                    patch.object(qa_ios.shutil, "which", return_value="/usr/local/bin/ffmpeg"), \
+                    patch.object(qa_ios.subprocess, "run", side_effect=transcode) as run:
+                metadata = qa_ios.materialize_browser_recording(raw, expected_duration=10.0)
+
+            self.assertEqual(raw.read_bytes(), b"raw-mjpeg")
+            self.assertEqual(browser.read_bytes(), b"derived-h264")
+            self.assertTrue(metadata["browser_compatible"])
+            self.assertTrue(metadata["transcoded"])
+            self.assertEqual(metadata["browser_path"], browser.name)
+            command = run.call_args.args[0]
+            self.assertIn("libx264", command)
+            self.assertIn("yuv420p", command)
+            self.assertIn("setpts=2.50000000*PTS", " ".join(command))
+
     def test_idfa_cannot_pass_without_visible_get_my_idfa_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -392,6 +436,42 @@ class IOSEvidenceContractTests(unittest.TestCase):
         self.assertEqual(level, 67)
         self.assertIs(charging, True)
         self.assertIn("Battery Power", text)
+
+    def test_control_center_battery_ocr_accepts_one_visible_percentage(self):
+        result = MagicMock(returncode=0, stdout="No Service\n100%\n", stderr="")
+        with tempfile.TemporaryDirectory() as temporary:
+            screenshot = Path(temporary) / "control-center.png"
+            screenshot.write_bytes(b"image")
+            with patch.object(qa_ios.subprocess, "run", return_value=result):
+                level, text = qa_ios._visible_battery_level_from_screenshot(screenshot)
+        self.assertEqual(level, 100)
+        self.assertIn("100%", text)
+
+    def test_control_center_battery_ocr_rejects_ambiguous_percentages(self):
+        result = MagicMock(returncode=0, stdout="100%\n50%\n", stderr="")
+        with tempfile.TemporaryDirectory() as temporary:
+            screenshot = Path(temporary) / "control-center.png"
+            screenshot.write_bytes(b"image")
+            with patch.object(qa_ios.subprocess, "run", return_value=result):
+                level, _ = qa_ios._visible_battery_level_from_screenshot(screenshot)
+        self.assertIsNone(level)
+
+    def test_control_center_screenshot_detects_green_battery_and_white_lightning(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temporary:
+            screenshot = Path(temporary) / "control-center.png"
+            image = Image.new("RGB", (100, 100), (40, 40, 40))
+            for x in range(70, 90):
+                for y in range(5, 15):
+                    image.putpixel((x, y), (30, 210, 70))
+            for x in range(77, 83):
+                for y in range(8, 12):
+                    image.putpixel((x, y), (255, 255, 255))
+            image.save(screenshot)
+            charging, metrics = qa_ios._visible_charging_indicator_from_screenshot(screenshot)
+        self.assertIs(charging, True)
+        self.assertGreater(metrics["white_glyph_pixels"], 0)
 
     def test_control_center_volume_parser_scopes_media_slider_away_from_brightness(self):
         source = """
@@ -891,6 +971,7 @@ class IOSEvidenceContractTests(unittest.TestCase):
             (folder / "ios-brightness-status.json").write_text(json.dumps({
                 "status": "CAPTURED", "slider_accessibility_value": "45%",
                 "visible_percent": 45, "normalized_brightness": .45,
+                "slider_visible_in_screenshot": True,
             }))
             (folder / "ios-brightness-settings.png").write_bytes(b"visible")
             (folder / "screen-brightness-evidence.png").write_bytes(b"card")
@@ -906,17 +987,40 @@ class IOSEvidenceContractTests(unittest.TestCase):
             (folder / "ios-brightness-status.json").write_text(json.dumps({
                 "status": "CAPTURED", "slider_accessibility_value": "45%",
                 "visible_percent": 45, "normalized_brightness": .45,
+                "slider_visible_in_screenshot": True,
             }))
             (folder / "ios-brightness-settings.png").write_bytes(b"visible")
             (folder / "screen-brightness-evidence.png").write_bytes(b"card")
             verdict = TC_DEFINITIONS["screen-brightness"].validate(folder)
             self.assertEqual(verdict["status"], "FAILED")
 
+    def test_screen_brightness_blocks_when_slider_is_not_confirmed_in_screenshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {"screen_bright": .45}}}},
+            }))
+            (folder / "ios-brightness-status.json").write_text(json.dumps({
+                "status": "CAPTURED", "slider_accessibility_value": "45%",
+                "visible_percent": 45, "normalized_brightness": .45,
+            }))
+            (folder / "ios-brightness-settings.png").write_bytes(b"missing-slider")
+            (folder / "screen-brightness-evidence.png").write_bytes(b"card")
+            verdict = TC_DEFINITIONS["screen-brightness"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+
     def test_visible_brightness_capture_is_read_only(self):
         config = MagicMock()
         driver = MagicMock()
         slider = MagicMock()
         slider.get_attribute.side_effect = lambda name: {"name": "Brightness", "value": "45%"}.get(name)
+        slider.rect = {"x": 30, "y": 810, "width": 330, "height": 44}
+        driver.get_window_size.return_value = {"width": 390, "height": 844}
+
+        def scroll(_name, _arguments):
+            slider.rect = {"x": 30, "y": 600, "width": 330, "height": 44}
+
+        driver.execute_script.side_effect = scroll
         driver.find_elements.return_value = [slider]
         driver.save_screenshot.side_effect = lambda path: Path(path).write_bytes(b"image") or True
         with tempfile.TemporaryDirectory() as temporary:
@@ -930,6 +1034,8 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 document = qa_ios.capture_visible_brightness(config)
             self.assertEqual(document["status"], "CAPTURED")
             self.assertEqual(document["normalized_brightness"], .45)
+            self.assertTrue(document["slider_visible_in_screenshot"])
+            driver.execute_script.assert_called()
             slider.click.assert_not_called()
 
     def test_font_scale_visible_page_remains_blocked_without_numeric_bridge(self):
@@ -999,6 +1105,7 @@ class IOSEvidenceContractTests(unittest.TestCase):
             state.write_text(json.dumps({
                 "status": "CAPTURED", "slider_accessibility_value": "45%",
                 "visible_percent": 45, "normalized_brightness": .45,
+                "slider_visible_in_screenshot": True,
             }))
             screenshot.write_bytes(b"image")
             (folder / "bid_decoded.json").write_text(json.dumps({
@@ -1172,6 +1279,53 @@ class IOSEvidenceContractTests(unittest.TestCase):
             rows = {row["tc"]: row for row in validate_ios_e2e(folder)}
             self.assertEqual(rows["standalone-appier-ad-request"]["status"], "FAILED")
             self.assertEqual(rows["standalone-native-render"]["status"], "FAILED")
+            flow = json.loads((folder / "appier-ad-flow.json").read_text())
+            self.assertEqual(flow["expected"]["path"], "/v2/sdk/ios/ad")
+            self.assertIn("actual", flow)
+            self.assertIn("note", flow)
+
+    def test_ios_sdk_init_requires_same_flow_request_and_http_200_response(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "summary.json").write_text(json.dumps({"test_type": "aibid", "cid": "cid"}))
+            (folder / "bid_response.json").write_text(json.dumps({}))
+            (folder / "bid_raw.json").write_text(json.dumps({}))
+            (folder / "bid_decoded.json").write_text(json.dumps({}))
+            events = [
+                {"flow_id": "init-1", "timestamp": "2026-08-26T01:00:00Z", "phase": "request",
+                 "kind": "sdk-init", "method": "GET", "url": "https://adx.apx.appier.net/v1/sdk/ios/init?"},
+                {"flow_id": "init-1", "timestamp": "2026-08-26T01:00:00.1Z", "phase": "response",
+                 "kind": "sdk-init", "method": "GET", "url": "https://adx.apx.appier.net/v1/sdk/ios/init?",
+                 "status": 200, "content_type": "application/json", "content_length": 76},
+            ]
+            (folder / "proxy-events.jsonl").write_text("\n".join(json.dumps(row) for row in events) + "\n")
+
+            rows = {row["tc"]: row for row in validate_ios_e2e(folder)}
+
+            init = rows["standalone-sdk-init"]
+            self.assertEqual(init["status"], "PASS")
+            self.assertEqual(init["evidence"], "sdk-init-flow.json")
+            self.assertEqual(init["actual"]["successful_transaction_count"], 1)
+            flow = json.loads((folder / "sdk-init-flow.json").read_text())
+            self.assertEqual(flow["actual"]["transactions"][0]["request"]["flow_id"], "init-1")
+            self.assertEqual(flow["actual"]["transactions"][0]["response"]["status"], 200)
+
+    def test_ios_sdk_init_does_not_pass_from_unpaired_response(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "summary.json").write_text(json.dumps({"test_type": "aibid", "cid": "cid"}))
+            (folder / "bid_response.json").write_text(json.dumps({}))
+            (folder / "bid_raw.json").write_text(json.dumps({}))
+            (folder / "bid_decoded.json").write_text(json.dumps({}))
+            (folder / "proxy-events.jsonl").write_text(json.dumps({
+                "flow_id": "response-only", "phase": "response", "kind": "sdk-init", "method": "GET",
+                "url": "https://adx.apx.appier.net/v1/sdk/ios/init?", "status": 200,
+            }) + "\n")
+
+            rows = {row["tc"]: row for row in validate_ios_e2e(folder)}
+
+            self.assertEqual(rows["standalone-sdk-init"]["status"], "FAILED")
+            self.assertEqual(rows["standalone-sdk-init"]["actual"]["successful_transaction_count"], 0)
 
     def test_r5_materializer_builds_three_stage_visual_comparison_card(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1286,7 +1440,7 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
             document = (folder / "gyroscope-evidence.html").read_text()
             self.assertIn("NOT IN SCOPE", document)
-            self.assertIn("Same as AOS", document)
+            self.assertNotIn("AOS", document)
             self.assertIn("BLOCKED", document)
 
     def test_aos_aligned_lifecycle_card_shows_all_four_captures(self):
@@ -1346,61 +1500,43 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertIn("2001:db8::1", document)
             self.assertIn("2001:db8::2", document)
 
-    def test_aos_aligned_e2e_card_combines_stage_images_traffic_and_recording(self):
+    def test_all_ios_e2e_verdicts_keep_validator_evidence_without_materialized_png(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
-            for name in ("ad-before-interactions.png", "privacy-landing.png", "ad-after-privacy-return.png"):
-                (folder / name).write_bytes(name.encode())
-            (folder / "traffic-session.json").write_text(json.dumps({
-                "saved": True, "event_count": 19, "sha256": "abc123",
-            }))
-            (folder / "e2e-interactions.json").write_text(json.dumps({
-                "recording": {"saved": True, "valid_mp4": True, "bytes": 4096},
-                "timeline": [
-                    {"stage": "rendered-ad", "outcome": "CAPTURED"},
-                    {"stage": "privacy-destination", "outcome": "CAPTURED"},
-                    {"stage": "return-to-ad", "outcome": "COMPLETED"},
-                ],
-            }))
-            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
-                "tc": "standalone-privacy", "status": "PASS",
-                "expected": {"privacy interaction": True, "return to ad": True},
-                "actual": {"interaction": {"attempted": True, "opened": True}},
-                "reason": "Privacy journey was preserved.", "evidence": "privacy-landing.png",
-            }]}))
-            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
-                evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
-            document = (folder / "standalone-privacy-evidence.html").read_text()
-            for label in ("BEFORE", "PRIVACY", "RETURNED"):
-                self.assertIn(label, document)
-            self.assertIn("privacy-landing.png", document)
-            self.assertIn("valid_mp4", document)
-            self.assertIn("rendered-ad=CAPTURED", document)
-            verdict = json.loads((folder / "verdicts.json").read_text())["verdicts"][0]
-            self.assertEqual(verdict["evidence"], "standalone-privacy-evidence.png")
+            evidence_by_tc = {
+                "standalone-sdk-init": "sdk-init-flow.json",
+                "standalone-appier-ad-request": "appier-ad-flow.json",
+                "standalone-creative-assets": "e2e-network-evidence.json",
+                "standalone-native-render": "ad-before-interactions.png",
+                "standalone-impression": "e2e-network-evidence.json",
+                "standalone-click": "e2e-network-evidence.json",
+                "standalone-landing": "click-landing.png",
+                "standalone-privacy": "privacy-landing.png",
+                "standalone-install-attribution": "attribution-query.json",
+                "standalone-attribution-reconciliation": "attribution-query.json",
+                "admob-pubsetting": "mediation-network-evidence.json",
+                "admob-gma-request": "mediation-network-evidence.json",
+                "admob-appier-ad-request": "mediation-network-evidence.json",
+                "admob-impression": "mediation-network-evidence.json",
+                "admob-fill-result": "mediation-network-evidence.json",
+                "admob-click": "mediation-network-evidence.json",
+            }
+            verdicts = [
+                {"tc": key, "status": "PASS", "evidence": evidence}
+                for key, evidence in evidence_by_tc.items()
+            ]
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": verdicts}))
 
-    def test_aos_aligned_e2e_attribution_card_keeps_external_query_block_visible(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            folder = Path(temporary)
-            (folder / "click-landing.png").write_bytes(b"destination")
-            (folder / "traffic-session.json").write_text(json.dumps({"saved": True, "event_count": 12}))
-            (folder / "e2e-interactions.json").write_text(json.dumps({
-                "recording": {"saved": True, "valid_mp4": True, "bytes": 1024},
-                "timeline": [{"stage": "landing", "outcome": "CAPTURED"}],
-            }))
-            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
-                "tc": "standalone-install-attribution", "status": "BLOCKED",
-                "expected": None, "actual": {"cid": "cid-1", "crpid": "creative-1"},
-                "reason": "Traffic lookup data is ready; query the MMP click action.",
-                "evidence": "attribution-query.json",
-            }]}))
-            with patch.object(evidence_ios, "_write_html_screenshot", side_effect=lambda _d, target, **_k: target.write_bytes(b"card")):
-                evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
-            document = (folder / "standalone-install-attribution-evidence.html").read_text()
-            self.assertIn("external query pending", document)
-            self.assertIn("CLICK DESTINATION", document)
-            self.assertIn("BLOCKED", document)
-            self.assertIn("attribution-query.json", document)
+            rendered = evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
+
+            self.assertEqual(rendered, [])
+            document = json.loads((folder / "verdicts.json").read_text())
+            self.assertEqual(
+                {row["tc"]: row["evidence"] for row in document["verdicts"]},
+                evidence_by_tc,
+            )
+            for key in evidence_by_tc:
+                self.assertFalse((folder / f"{key}-evidence.png").exists(), key)
 
     def test_e2e_proxy_preflight_rejects_missing_charles_before_ui(self):
         with patch.object(qa_ios, "_tcp_listening", return_value=False):

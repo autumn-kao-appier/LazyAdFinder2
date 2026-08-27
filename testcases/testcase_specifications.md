@@ -323,7 +323,8 @@ resolution 與 physical PPI。未收錄 ProductType、非直向、缺少可視�
   `native_height ÷ logical_height` 推導；兩軸須在 0.000001 內一致，req/ext `pxratio` 亦須一致。
   Evidence 卡的角色等同 AOS `wm density ÷ 160` 公式卡。
 - iOS `screen-brightness` / `device.ext.screen_bright`：Bid 前以 read-only 方式開啟原生
-  Display & Brightness 頁，保存滑桿截圖與 accessibility 百分比。Expected 為百分比 ÷ 100，
+  Display & Brightness 頁，將頁面往下捲到滑桿完整位於 screenshot viewport 內，再保存截圖與
+  accessibility 百分比。Expected 為百分比 ÷ 100，
   payload 必須是 0～1 的有限數值並在 0.01 內相等；Request 若存在亦須相等。R1 不改變亮度。
   缺少畫面或無法讀取滑桿為 BLOCKED；畫面完整但 payload 錯誤為 FAILED。
 - iOS `font-scale` / `device.ext.fontscale`：Bid 前以 read-only 方式開啟原生 Accessibility 的

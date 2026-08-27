@@ -646,7 +646,12 @@ def validate_screen_brightness(folder):
         "normalized_brightness": expected,
         "slider_accessibility_value": info.get("slider_accessibility_value"),
     }
-    if type(expected) not in (int, float) or not screenshot.is_file() or not card.is_file():
+    if (
+        type(expected) not in (int, float)
+        or info.get("slider_visible_in_screenshot") is not True
+        or not screenshot.is_file()
+        or not card.is_file()
+    ):
         return _blocked(
             "screen-brightness", "Screen Brightness",
             info.get("reason") or "The native iOS Display & Brightness slider was not captured with complete visual Evidence.",

@@ -63,6 +63,7 @@ APPIUM_URL = "http://127.0.0.1:4723"
 CHARLES_PORT = 8888
 MITMDUMP_PORT = 8081
 MITMDUMP_LOG = Path("/tmp/lazyadfinder2_mitmdump.log")
+E2E_RETURN_TO_AD_TIMEOUT = 20.0
 DEFAULT_TRIGGER_TEXT = "Native - basic format"
 MODE_TABS = {
     "standalone": "Appier SDK",
@@ -674,6 +675,23 @@ def _capture_native_visual_review(driver, config, folder):
     return review
 
 
+def _wait_for_visible_element(driver, by, value, *, timeout, poll_interval=0.5):
+    """Wait for a view to be recreated after Android returns to the sample app."""
+    attempts = max(1, int(timeout / poll_interval) + 1)
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            element = driver.find_element(by, value)
+            if element.is_displayed():
+                return element
+        except Exception as exc:
+            last_error = exc
+        if attempt + 1 < attempts:
+            time.sleep(poll_interval)
+    detail = f": {type(last_error).__name__}: {last_error}" if last_error else ""
+    raise CaptureError(f"Timed out waiting for visible Android view {value}{detail}")
+
+
 def _capture_e2e_interactions(driver, config, folder):
     """Exercise Privacy first, then CTA, preserving human-readable evidence."""
     folder = Path(folder)
@@ -711,14 +729,17 @@ def _capture_e2e_interactions(driver, config, folder):
         driver.save_screenshot(str(folder / "privacy-landing.png"))
 
         driver.back()
-        time.sleep(2)
+        return_timeout = min(config.phase_timeout, E2E_RETURN_TO_AD_TIMEOUT) \
+            if config.phase_timeout else E2E_RETURN_TO_AD_TIMEOUT
+        cta = _wait_for_visible_element(
+            driver,
+            AppiumBy.ID,
+            f"{config.app_package}:id/native_cta",
+            timeout=return_timeout,
+        )
         result["returned_to_ad"] = driver.current_package == config.app_package
         driver.save_screenshot(str(folder / "ad-before-click.png"))
 
-        cta = driver.find_element(
-            AppiumBy.ID,
-            f"{config.app_package}:id/native_cta",
-        )
         result["click"]["attempted"] = True
         cta.click()
         time.sleep(5)

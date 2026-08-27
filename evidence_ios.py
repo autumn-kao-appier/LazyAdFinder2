@@ -577,6 +577,8 @@ def _settings_slider_card_result(kind, info):
     if info.get("status") != "CAPTURED":
         return "BLOCKED"
     if kind == "brightness":
+        if info.get("slider_visible_in_screenshot") is not True:
+            return "BLOCKED"
         expected = info.get("normalized_brightness")
         valid = type(expected) in (int, float) and 0 <= expected <= 1
         passed = (
@@ -1109,13 +1111,13 @@ IOS_AOS_ALIGNED_VISUAL_CASES = {
         "title": "Identifier for Vendor (IDFV)", "round": "R1",
         "source": "Decoded Bid Request · payload-only contract", "path": "device.ifv",
         "card": "app-set-id-evidence.png",
-        "scope": "AOS-aligned: validate the wire value. Independent Sample App IDFV display is unavailable.",
+        "scope": "Wire-value contract: validate the payload value. Independent Sample App IDFV display is unavailable.",
     },
     "in-app-purchase-history": {
         "title": "In-App Purchase History", "round": "R1",
         "source": "Decoded Bid Request · payload-only contract", "path": "device.ext.iaphistory",
         "card": "in-app-purchase-history-evidence.png",
-        "scope": "AOS-aligned: validate array shape only. The Sample App has no purchase flow or reviewed product IDs.",
+        "scope": "Payload-shape contract: validate array shape only. The Sample App has no purchase flow or reviewed product IDs.",
     },
     "boot-timestamps": {
         "title": "System Boot Timestamps", "round": "R1",
@@ -1133,28 +1135,28 @@ IOS_AOS_ALIGNED_VISUAL_CASES = {
         "title": "RAM Status — Available", "round": "R1",
         "source": "Decoded Bid Request · payload relationship", "path": "device.ext.mem_available",
         "card": "mem-available-evidence.png",
-        "scope": "AOS-aligned shape/relationship review; no independent iOS MemAvailable source is claimed.",
+        "scope": "Shape and relationship review; no independent iOS MemAvailable source is claimed.",
     },
     "gyroscope": {
         "title": "Gyroscope", "round": "R1", "source": "Design scope decision", "path": "device.ext.gyroscope",
         "card": "gyroscope-evidence.png",
-        "scope": "Same as AOS: NOT IN SCOPE. No sensor motion or reviewed expected samples are executed.",
+        "scope": "NOT IN SCOPE. No sensor motion or reviewed expected samples are executed.",
     },
     "accelerometer": {
         "title": "Accelerometer", "round": "R1", "source": "Design scope decision", "path": "device.ext.accelerometer",
         "card": "accelerometer-evidence.png",
-        "scope": "Same as AOS: NOT IN SCOPE. No sensor motion or reviewed expected samples are executed.",
+        "scope": "NOT IN SCOPE. No sensor motion or reviewed expected samples are executed.",
     },
     "impression-history": {
         "title": "Previous Impression History", "round": "R2",
         "source": "Same-run impression record + second Bid", "card": "impression-history-evidence.png",
-        "scope": "AOS-aligned causal evidence: a proven first impression is compared with the later request.",
+        "scope": "Causal Evidence: a proven first impression is compared with the later request.",
         "supporting_image": "screenshot.png",
     },
     "network-latency": {
         "title": "Connection Latency", "round": "R2",
         "source": "Same-run proxy event + second Bid", "card": "network-latency-evidence.png",
-        "scope": "AOS-aligned causal evidence: the SDK HEAD probe and later payload share one automation run.",
+        "scope": "Causal Evidence: the SDK HEAD probe and later payload share one automation run.",
         "supporting_image": "screenshot.png",
     },
     "session-duration-continuous": {
@@ -1195,40 +1197,7 @@ for _ipv6_key, _ipv6_title in (
     IOS_AOS_ALIGNED_VISUAL_CASES[_ipv6_key] = {
         "title": _ipv6_title, "round": "R4", "source": "Five-step network sequence",
         "card": f"{_ipv6_key}-evidence.png", "sequence": "r4-network-sequence.json",
-        "scope": "AOS-aligned sequence Evidence: show the captured transitions and decoded IPv6/conntype values.",
-    }
-
-
-IOS_E2E_VISUAL_CASES = {
-    "standalone-sdk-init": ("SDK Initialization", "Initialization traffic", (("RENDERED AD", "ad-before-interactions.png"),)),
-    "standalone-appier-ad-request": ("Appier Direct Ad Request", "Same-flow request / response", (("RENDERED AD", "ad-before-interactions.png"),)),
-    "standalone-creative-assets": ("Creative Asset Loading", "Asset traffic or visible cached render", (("VISIBLE CREATIVE", "ad-before-interactions.png"),)),
-    "standalone-native-render": ("Native Ad Rendering", "Response-to-view comparison", (("RENDERED AD", "ad-before-interactions.png"),)),
-    "standalone-impression": ("Appier Impression Tracking", "show_cb + winshowimg traffic", (("VISIBLE IMPRESSION", "ad-before-interactions.png"),)),
-    "standalone-click": ("Appier Click Tracking", "Visible CTA action + matching xclk", (("BEFORE CLICK", "ad-before-click.png"), ("DESTINATION", "click-landing.png"))),
-    "standalone-landing": ("Campaign Destination", "Tracked click + visible final destination", (("BEFORE CLICK", "ad-before-click.png"), ("DESTINATION", "click-landing.png"))),
-    "standalone-privacy": ("Privacy Information", "Privacy action + destination + return", (("BEFORE", "ad-before-interactions.png"), ("PRIVACY", "privacy-landing.png"), ("RETURNED", "ad-after-privacy-return.png"))),
-    "standalone-install-attribution": ("MMP Click Action", "Captured lookup IDs · external query pending", (("CLICK DESTINATION", "click-landing.png"),)),
-    "standalone-attribution-reconciliation": ("Attribution Recognition", "Captured lookup IDs · backend reconciliation pending", (("CLICK DESTINATION", "click-landing.png"),)),
-    "admob-pubsetting": ("AdMob Pubsetting Mediation Config", "Pubsetting request / response", (("MEDIATED AD", "ad-before-interactions.png"),)),
-    "admob-gma-request": ("AdMob GMA Request and Routing", "GMA request / response", (("MEDIATED AD", "ad-before-interactions.png"),)),
-    "admob-appier-ad-request": ("Appier Adapter Ad Request", "Ordered GMA → Appier flow", (("MEDIATED AD", "ad-before-interactions.png"),)),
-    "admob-impression": ("AdMob Impression Reporting", "Google impression event", (("VISIBLE IMPRESSION", "ad-before-interactions.png"),)),
-    "admob-fill-result": ("Mediation Fill Result", "Fill-result event + GMA/Appier timeline", (("MEDIATED AD", "ad-before-interactions.png"),)),
-    "admob-click": ("AdMob Click Reporting", "Visible CTA action + Google click event", (("BEFORE CLICK", "ad-before-click.png"), ("DESTINATION", "click-landing.png"))),
-}
-
-for _e2e_key, (_e2e_title, _e2e_source, _e2e_images) in IOS_E2E_VISUAL_CASES.items():
-    IOS_AOS_ALIGNED_VISUAL_CASES[_e2e_key] = {
-        "title": _e2e_title,
-        "round": "E2E",
-        "source": _e2e_source,
-        "card": f"{_e2e_key}-evidence.png",
-        "scope": (
-            "AOS-aligned: the card summarizes the testcase's original traffic, interaction, screenshot and recording artifacts. "
-            "A supporting screenshot never replaces the required network or causal contract."
-        ),
-        "supporting_images": _e2e_images,
+        "scope": "Sequence Evidence: show the captured transitions and decoded IPv6/conntype values.",
     }
 
 
@@ -1284,36 +1253,6 @@ def _aligned_payload_rows(folder, key, metadata, verdict):
                      "conntype": ext_type if ext_type is not None else req_type},
                 ))
         rows.append(("Captured steps", len(sequence.get("captures") or [])))
-    if key in IOS_E2E_VISUAL_CASES:
-        interactions = {}
-        try:
-            interactions = json.loads((Path(folder) / "e2e-interactions.json").read_text())
-        except (OSError, json.JSONDecodeError):
-            pass
-        recording = interactions.get("recording") if isinstance(interactions, dict) else {}
-        timeline = interactions.get("timeline") if isinstance(interactions, dict) else []
-        stages = [
-            f"{item.get('stage')}={item.get('outcome')}"
-            for item in timeline if isinstance(item, dict) and item.get("stage")
-        ]
-        traffic = {}
-        try:
-            traffic = json.loads((Path(folder) / "traffic-session.json").read_text())
-        except (OSError, json.JSONDecodeError):
-            pass
-        rows.extend((
-            ("Original validator artifact", verdict.get("evidence")),
-            ("Traffic session", {
-                "saved": traffic.get("saved"), "event_count": traffic.get("event_count"),
-                "sha256": traffic.get("sha256"),
-            }),
-            ("Shared recording", {
-                "saved": recording.get("saved") if isinstance(recording, dict) else None,
-                "valid_mp4": recording.get("valid_mp4") if isinstance(recording, dict) else None,
-                "bytes": recording.get("bytes") if isinstance(recording, dict) else None,
-            }),
-            ("Interaction timeline", stages),
-        ))
     return rows
 
 
@@ -1347,7 +1286,7 @@ def _aligned_visual_evidence_document(folder, key, metadata, verdict):
 *{box-sizing:border-box}body{margin:0;background:#eef1f4;color:#14202a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:1400px;height:1000px;padding:36px 54px}.eyebrow{color:#0e7c86;font:700 17px ui-monospace,monospace;letter-spacing:.08em}h1{font-size:38px;margin:7px 0 15px}.content{display:grid;grid-template-columns:650px 1fr;gap:32px}.visual{height:730px;background:#dfe5f5;border-radius:24px;padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.stage{min-width:0;display:flex;flex-direction:column;align-items:center;gap:9px;color:#0e7c86;font:700 13px ui-monospace,monospace}.stage img{width:100%;height:650px;object-fit:contain;border-radius:11px;box-shadow:0 10px 24px #17233335;background:#fff}.stage.missing{justify-content:center;border:2px dashed #a9b7c2;border-radius:14px;color:#6b7c87}.stage.missing.only{grid-column:1/-1}.stage.missing p{text-align:center;font-size:17px}.panel{padding-top:4px}.source{padding:19px 22px;background:#14202a;color:#8ee0e6;border-radius:17px;font:700 20px ui-monospace,monospace}.scope{font-size:16px;line-height:1.4;color:#526571;margin:14px 2px 16px}.rows{background:white;border-radius:18px;padding:7px 20px}.row{display:grid;grid-template-columns:190px 1fr;gap:14px;padding:10px 0;border-bottom:1px solid #e3e9ed}.row:last-child{border:0}.row span{color:#60717c}.row b{font:700 13px ui-monospace,monospace;overflow-wrap:anywhere}.reason{font-size:14px;line-height:1.35;color:#526571;margin:13px 3px}.conclusion{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:17px 21px;background:white;border-radius:16px;border-left:8px solid __COLOR__}.conclusion b{font-size:28px;color:__COLOR__}
 '''.replace("__COLOR__", color)
     return f'''<!doctype html><html><head><meta charset="utf-8"><style>{styles}</style></head><body><main>
-<div class="eyebrow">AOS-ALIGNED EVIDENCE · iOS {html.escape(metadata['round'])}</div><h1>{html.escape(metadata['title'])}</h1><div class="content"><div class="visual">{''.join(visual)}</div><div class="panel"><div class="source">{html.escape(metadata['source'])}</div><p class="scope">{html.escape(metadata['scope'])}</p><div class="rows">{row_html}</div><p class="reason">{html.escape(str(reason))}</p><div class="conclusion"><span>Recorded contract result</span><b>{status}</b></div></div></div></main></body></html>'''
+<div class="eyebrow">CAPTURED EVIDENCE · iOS {html.escape(metadata['round'])}</div><h1>{html.escape(metadata['title'])}</h1><div class="content"><div class="visual">{''.join(visual)}</div><div class="panel"><div class="source">{html.escape(metadata['source'])}</div><p class="scope">{html.escape(metadata['scope'])}</p><div class="rows">{row_html}</div><p class="reason">{html.escape(str(reason))}</p><div class="conclusion"><span>Recorded contract result</span><b>{status}</b></div></div></div></main></body></html>'''
 
 
 def materialize_ios_aos_aligned_visual_evidence(folder, skip_existing=False):

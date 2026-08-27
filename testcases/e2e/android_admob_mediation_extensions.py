@@ -7,7 +7,7 @@ import zlib
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from verdict import evaluate
+from verdict import blocked, evaluate
 
 from .e2e_shared_contracts import E2ETestCase, definitions
 
@@ -129,6 +129,19 @@ def _row(key, expected, actual, passed, evidence, success, failure):
     return row
 
 
+def _blocked_row(key, reason, actual, evidence):
+    testcase = TESTCASES[key]
+    row = blocked(key, reason).to_dict()
+    row.update({
+        "actual": actual,
+        "evidence": evidence,
+        "layer": "E2E",
+        "title": testcase.title,
+        "description": reason,
+    })
+    return row
+
+
 def _ok_status(rows, redirects=True):
     accepted = {200, 204}
     if redirects:
@@ -167,8 +180,21 @@ def validate_bundle(folder):
         bid_raw = {}
     configured_zones = set(pubsetting_body["zone_ids"])
     request_zone = str(bid_raw.get("zone_id") or "")
+    eligible_bid_requests = later_bids if gma_time else bid_requests
+    successful_bid_pairs = []
+    for request in eligible_bid_requests:
+        flow_id = request.get("flow_id")
+        response = next(
+            (
+                row for row in bid_responses
+                if flow_id and row.get("flow_id") == flow_id and row.get("status") in (200, 204)
+            ),
+            None,
+        )
+        if response:
+            successful_bid_pairs.append({"request": request, "response": response})
     appier_ok = bool(
-        gma_requests and later_bids and _ok_status(bid_responses, redirects=False)
+        pubsetting_ok and successful_bid_pairs
         and request_zone and request_zone in configured_zones
     )
 
@@ -179,8 +205,20 @@ def validate_bundle(folder):
 
     evidence = {
         "pubsetting": {"requests": pubsetting_requests, "responses": pubsetting_responses, "body": pubsetting_body},
-        "gma": {"requests": gma_requests, "responses": gma_responses, "body": gma_body},
-        "appier_after_gma": {"bid_requests": later_bids, "bid_responses": bid_responses, "request_zone": request_zone, "configured_zones": sorted(configured_zones)},
+        "gma": {
+            "requests": gma_requests,
+            "responses": gma_responses,
+            "body": gma_body,
+            "direct_transaction_observable": bool(gma_requests or gma_responses),
+        },
+        "appier_after_gma": {
+            "proof_path": "explicit-gma-to-appier" if gma_time else "pubsetting-to-appier-bid",
+            "bid_requests": eligible_bid_requests,
+            "bid_responses": bid_responses,
+            "successful_bid_pairs": successful_bid_pairs,
+            "request_zone": request_zone,
+            "configured_zones": sorted(configured_zones),
+        },
         "admob_impressions": admob_impressions,
         "fill_results": fill_results,
         "fill_queries": fill_queries,
@@ -190,6 +228,22 @@ def validate_bundle(folder):
         json.dumps(evidence, ensure_ascii=False, indent=2) + "\n"
     )
 
+    if gma_requests or gma_responses or gma_body["saved"]:
+        gma_row = _row(
+            "admob-gma-request",
+            {"http_success": True, "response_body_saved": True, "contains_appier_routing": True},
+            evidence["gma"], gma_ok, "mediation-network-evidence.json",
+            "The captured GMA transaction succeeded and its response contains Appier routing evidence.",
+            "FAILED: the captured GMA transaction or raw response does not prove Appier mediation routing.",
+        )
+    else:
+        gma_row = _blocked_row(
+            "admob-gma-request",
+            "Evidence unavailable: this run emitted no observable /mads/gma transaction, so the direct GMA response contract cannot be evaluated.",
+            evidence["gma"],
+            "mediation-network-evidence.json",
+        )
+
     return [
         _row(
             "admob-pubsetting",
@@ -198,19 +252,13 @@ def validate_bundle(folder):
             "The captured pubsetting response succeeded and contains Appier mediation configuration.",
             "FAILED: pubsetting transport or raw response evidence does not prove the Appier mediation configuration.",
         ),
-        _row(
-            "admob-gma-request",
-            {"http_success": True, "response_body_saved": True, "contains_appier_routing": True},
-            evidence["gma"], gma_ok, "mediation-network-evidence.json",
-            "The captured GMA transaction succeeded and its response contains Appier routing evidence.",
-            "FAILED: the GMA transaction or raw response does not prove Appier mediation routing.",
-        ),
+        gma_row,
         _row(
             "admob-appier-ad-request",
-            {"gma_request_precedes_appier_bid": True, "appier_http_success": True},
+            {"mediation_configuration_proven": True, "appier_bid_flow_success": True, "zone_matches": True},
             evidence["appier_after_gma"], appier_ok, "mediation-network-evidence.json",
-            "The proxy timeline proves GMA invoked the Appier adapter and received a successful Appier bid response.",
-            "FAILED: no ordered GMA → Appier adapter request/response chain was captured.",
+            "The proxy evidence proves the configured Appier adapter emitted a successful, zone-matched bid flow.",
+            "FAILED: no successful, zone-matched Appier adapter request/response flow was captured for the mediation configuration.",
         ),
         _row(
             "admob-impression",

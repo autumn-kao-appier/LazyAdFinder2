@@ -1,3 +1,4 @@
+import html
 import json
 import tempfile
 import types
@@ -18,6 +19,7 @@ from campaign_testcases import CAMPAIGN_TESTCASES
 from testcases import android_signal_testcases
 from testcases import ios_signal_testcases
 from testcases.e2e.android_e2e_baseline import validate_bundle as validate_android_e2e
+from testcases.e2e.android_admob_mediation_extensions import validate_bundle as validate_android_admob_e2e
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -250,6 +252,44 @@ class CampaignContractTests(unittest.TestCase):
         for reason in reasons:
             self.assertIn(reason, page.DYNAMIC_ZH)
 
+    def test_ios_payload_only_result_reasons_have_chinese_translations(self):
+        reasons = (
+            "device.ext.pot has the valid iOS wire format; human-visible Evidence is currently unavailable.",
+            "FAILED: device.ext.pot must contain 1 to 5 strictly increasing positive epoch-millisecond integers.",
+            "device.ext.mem_total is a positive integer byte value; human-visible Evidence is currently unavailable.",
+            "FAILED: device.ext.mem_total must be a positive integer byte value.",
+            "device.ext.mem_available is positive and does not exceed mem_total; human-visible Evidence is currently unavailable.",
+            "FAILED: device.ext.mem_available must be positive integer bytes not exceeding mem_total.",
+        )
+        for reason in reasons:
+            rendered = page._dynamic_bi(reason)
+            self.assertIn(f'<span class="lang-en">{reason}</span>', rendered)
+            self.assertIn('<span class="lang-zh">', rendered)
+            self.assertNotIn(f'<span class="lang-zh">{reason}</span>', rendered)
+
+    def test_current_ios_r1_result_notes_are_bilingual(self):
+        reasons = (
+            "The visible GetMyIDFA value exactly matches Request and Extended device.ia under authorized ATT.",
+            "The visible iOS Control Center battery percentage was not captured.",
+            "Request sw matches captured XCUITest points and Extended sw matches the mapped Apple native pixels.",
+            "FAILED: device.ext.screen_bright is invalid or differs from the visible native iOS brightness slider by more than 0.01.",
+            "The Larger Text page visibly proves the selected Dynamic Type state, but no reviewed iOS API bridge maps that slider state to the exact payload scale yet.",
+            "The payload language matches native Language & Region and ideviceinfo Locale.",
+            "Location Services is visible, but it does not expose exact coordinates; the Sample App still needs an independent coordinate QA surface.",
+            "The visible Sample App tracking switch, visible IDFA, Request/Extended IDFA, and inverse LAT flag consistently prove tracking is allowed.",
+        )
+        for reason in reasons:
+            rendered = page._dynamic_bi(reason)
+            escaped = html.escape(reason)
+            self.assertIn(f'<span class="lang-en">{escaped}</span>', rendered)
+            self.assertNotIn(f'<span class="lang-zh">{escaped}</span>', rendered)
+
+    def test_legacy_ios_evidence_notes_are_bilingual(self):
+        note = "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式與數值關係。"
+        rendered = page._dynamic_bi(note)
+        self.assertIn('<span class="lang-en">Human-visible iOS Evidence is currently unavailable;', rendered)
+        self.assertIn(f'<span class="lang-zh">{note}</span>', rendered)
+
     def test_capture_limit_reasons_have_parameterized_chinese_translations(self):
         interrupted = page._dynamic_bi(
             "Standalone R5-1 was stopped by the user after 21 attempts without capturing "
@@ -428,6 +468,26 @@ class CampaignContractTests(unittest.TestCase):
             self.assertFalse(qa_aos._mp4_has_moov_atom(incomplete))
             self.assertFalse(qa_aos._mp4_has_moov_atom(truncated))
 
+    def test_report_prefers_browser_compatible_e2e_derivative(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            source = folder / "verdicts.json"
+            source.write_text("{}")
+            (folder / "e2e-interactions.mp4").write_bytes(b"raw-mjpeg")
+            browser_video = folder / "e2e-interactions-browser.mp4"
+            browser_video.write_bytes(b"h264")
+            (folder / "e2e-interactions.json").write_text(json.dumps({
+                "recording": {
+                    "browser_compatible": True,
+                    "browser_path": browser_video.name,
+                },
+            }))
+            rows = [{"layer": "e2e", "captured_at": "2026-08-24", "source": str(source)}]
+            with patch.object(page, "_register_report_asset", return_value="assets/browser.mp4") as register:
+                document = page._e2e_run_recording(rows)
+            register.assert_called_once_with(browser_video)
+            self.assertIn("assets/browser.mp4", document)
+
     def test_mediation_requires_explicit_test_device_confirmation(self):
         environment = {}
         self.assertFalse(qa_aos.confirm_mediation_test_device(
@@ -565,6 +625,110 @@ class CampaignContractTests(unittest.TestCase):
             rows = {row["tc"]: row for row in validate_android_e2e(folder)}
 
         self.assertEqual("FAILED", rows["standalone-appier-ad-request"]["status"])
+
+    def test_aos_e2e_accepts_visible_cached_creative_asset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            asset_urls = {
+                "iconImage": "https://cdn.example/icon.png",
+                "mainImage": "https://cdn.example/main.png",
+                "privacyInformationIcon": "https://cdn.example/privacy.png",
+            }
+            (folder / "summary.json").write_text(json.dumps({
+                "test_type": "aibid", "cid": "target-cid",
+                "app_package": "com.example.app",
+            }))
+            (folder / "bid_raw.json").write_text(json.dumps({"zone_id": "12345"}))
+            (folder / "bid_response.json").write_text(json.dumps({
+                "adUnits": [{"ad": {"native": {
+                    key: {"url": url} for key, url in asset_urls.items()
+                }}}],
+            }))
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"app": {
+                    "bundle": "com.example.app", "sdk_version": "1.0",
+                }}},
+            }))
+            events = [
+                {"kind": "bid", "phase": "request", "method": "POST", "flow_id": "flow-1", "url": "https://adx.apx.appier.net/v2/sdk/aos/ad"},
+                {"kind": "bid", "phase": "response", "flow_id": "flow-1", "status": 200},
+                *(
+                    {"kind": "asset", "phase": "response", "method": "GET", "url": asset_urls[key], "status": 200, "content_type": "image/png", "content_length": 20}
+                    for key in ("iconImage", "mainImage")
+                ),
+            ]
+            (folder / "proxy-events.jsonl").write_text(
+                "".join(json.dumps(event) + "\n" for event in events)
+            )
+            (folder / "ad-before-interactions.png").write_bytes(b"visible-ad")
+            (folder / "visual-review.json").write_text(json.dumps({
+                "actual": {"rendered_views": {
+                    key: {"resource_id": f"com.example.app:id/{key}"}
+                    for key in asset_urls
+                }},
+            }))
+
+            rows = {row["tc"]: row for row in validate_android_e2e(folder)}
+
+        creative = rows["standalone-creative-assets"]
+        self.assertEqual("PASS", creative["status"])
+        privacy = creative["actual"]["asset_proofs"]["privacyInformationIcon"]
+        self.assertFalse(privacy["network_transport"])
+        self.assertTrue(privacy["visible_cached_render"])
+
+    def test_aos_mediation_does_not_cascade_missing_gma_to_appier_bid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "admob-pubsetting-response.bin").write_text(json.dumps({
+                "status": 1,
+                "ad_unit_settings": [{
+                    "is_mediation": True,
+                    "mediation_config": {"ad_networks": [{
+                        "data": {"class_name": "APRAdAdapter", "zone_id": "12345"},
+                    }]},
+                }],
+            }))
+            (folder / "bid_raw.json").write_text(json.dumps({"zone_id": "12345"}))
+            events = (
+                {"kind": "admob-pubsetting", "phase": "request", "flow_id": "pub-1"},
+                {"kind": "admob-pubsetting", "phase": "response", "flow_id": "pub-1", "status": 200},
+                {"kind": "bid", "phase": "request", "flow_id": "bid-1", "timestamp": "2026-08-24T12:00:00Z"},
+                {"kind": "bid", "phase": "response", "flow_id": "bid-1", "status": 200},
+            )
+            (folder / "proxy-events.jsonl").write_text(
+                "".join(json.dumps(event) + "\n" for event in events)
+            )
+
+            rows = {row["tc"]: row for row in validate_android_admob_e2e(folder)}
+
+        self.assertEqual("BLOCKED", rows["admob-gma-request"]["status"])
+        self.assertEqual("PASS", rows["admob-appier-ad-request"]["status"])
+        self.assertEqual(
+            "pubsetting-to-appier-bid",
+            rows["admob-appier-ad-request"]["actual"]["proof_path"],
+        )
+
+    def test_wait_for_visible_element_retries_until_android_view_returns(self):
+        element = types.SimpleNamespace(is_displayed=lambda: True)
+
+        class Driver:
+            calls = 0
+
+            def find_element(self, _by, _value):
+                self.calls += 1
+                if self.calls < 3:
+                    raise RuntimeError("view is still rebuilding")
+                return element
+
+        driver = Driver()
+        with patch.object(qa_aos.time, "sleep") as pause:
+            found = qa_aos._wait_for_visible_element(
+                driver, "id", "native_cta", timeout=1.0, poll_interval=0.5,
+            )
+
+        self.assertIs(element, found)
+        self.assertEqual(3, driver.calls)
+        self.assertEqual(2, pause.call_count)
 
     def test_report_translates_common_execution_failures(self):
         appium = page._dynamic_bi(

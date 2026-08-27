@@ -176,6 +176,134 @@ def _run(command, check=True):
     return result.stdout.strip()
 
 
+def _start_screen_recording(driver):
+    """Start an iOS recording with Appium's exact, camelCase option contract."""
+    return driver.start_recording_screen(
+        videoType="libx264",
+        videoQuality="medium",
+        videoFps=10,
+        pixelFormat="yuv420p",
+    )
+
+
+def _recording_metadata(path):
+    """Return codec facts needed to decide whether a browser can play a recording."""
+    path = Path(path)
+    executable = shutil.which("ffprobe")
+    if not executable:
+        return {"path": path.name, "probe_error": "ffprobe is unavailable"}
+    result = subprocess.run(
+        [
+            executable, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,pix_fmt,width,height:format=duration,size",
+            "-of", "json", str(path),
+        ],
+        text=True, capture_output=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "ffprobe failed"
+        return {"path": path.name, "probe_error": detail}
+    try:
+        document = json.loads(result.stdout)
+        stream = (document.get("streams") or [{}])[0]
+        media = document.get("format") or {}
+        return {
+            "path": path.name,
+            "codec": stream.get("codec_name"),
+            "pixel_format": stream.get("pix_fmt"),
+            "width": stream.get("width"),
+            "height": stream.get("height"),
+            "duration_seconds": float(media.get("duration")) if media.get("duration") is not None else None,
+            "bytes": int(media.get("size")) if media.get("size") is not None else path.stat().st_size,
+        }
+    except (IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        return {"path": path.name, "probe_error": f"invalid ffprobe output: {exc}"}
+
+
+def _browser_compatible_recording(metadata):
+    return bool(
+        metadata.get("codec") == "h264"
+        and metadata.get("pixel_format") == "yuv420p"
+        and (metadata.get("duration_seconds") or 0) > 0
+    )
+
+
+def materialize_browser_recording(raw_path, expected_duration=None):
+    """Preserve Appium's raw MP4 and derive H.264/yuv420p report media when needed."""
+    raw_path = Path(raw_path)
+    browser_path = raw_path.with_name("e2e-interactions-browser.mp4")
+    raw = _recording_metadata(raw_path)
+    expected_duration = float(expected_duration) if expected_duration else None
+    if _browser_compatible_recording(raw):
+        return {
+            "saved": True,
+            "bytes": raw_path.stat().st_size,
+            "valid_mp4": True,
+            "browser_compatible": True,
+            "transcoded": False,
+            "raw": raw,
+            "browser": raw,
+            "browser_path": raw_path.name,
+            "expected_duration_seconds": expected_duration,
+        }
+
+    executable = shutil.which("ffmpeg")
+    if not executable:
+        return {
+            "saved": True,
+            "bytes": raw_path.stat().st_size,
+            "valid_mp4": False,
+            "browser_compatible": False,
+            "transcoded": False,
+            "raw": raw,
+            "browser_path": None,
+            "expected_duration_seconds": expected_duration,
+            "error": "ffmpeg is unavailable; browser-compatible recording was not produced",
+        }
+
+    command = [executable, "-y", "-v", "error", "-i", str(raw_path), "-an"]
+    filters = ["scale=in_range=pc:out_range=tv", "format=yuv420p"]
+    raw_duration = raw.get("duration_seconds")
+    if expected_duration and raw_duration and raw_duration > 0:
+        ratio = expected_duration / raw_duration
+        if 0.25 <= ratio <= 4 and abs(ratio - 1) > 0.05:
+            filters.append(f"setpts={ratio:.8f}*PTS")
+    command += ["-vf", ",".join(filters)]
+    command += [
+        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+        "-color_range", "tv", "-movflags", "+faststart", str(browser_path),
+    ]
+    result = subprocess.run(command, text=True, capture_output=True)
+    if result.returncode or not browser_path.is_file() or not browser_path.stat().st_size:
+        detail = result.stderr.strip() or result.stdout.strip() or "ffmpeg did not create output"
+        return {
+            "saved": True,
+            "bytes": raw_path.stat().st_size,
+            "valid_mp4": False,
+            "browser_compatible": False,
+            "transcoded": False,
+            "raw": raw,
+            "browser_path": None,
+            "expected_duration_seconds": expected_duration,
+            "error": f"browser-compatible transcode failed: {detail}",
+        }
+    browser = _recording_metadata(browser_path)
+    compatible = _browser_compatible_recording(browser)
+    return {
+        "saved": True,
+        "bytes": browser_path.stat().st_size,
+        "raw_bytes": raw_path.stat().st_size,
+        "valid_mp4": compatible,
+        "browser_compatible": compatible,
+        "transcoded": True,
+        "raw": raw,
+        "browser": browser,
+        "browser_path": browser_path.name if compatible else None,
+        "expected_duration_seconds": expected_duration,
+        **({} if compatible else {"error": "transcoded recording is not H.264/yuv420p"}),
+    }
+
+
 def connected_udids():
     if shutil.which("idevice_id"):
         return [line.strip() for line in _run(["idevice_id", "-l"]).splitlines() if line.strip()]
@@ -369,6 +497,74 @@ def _control_center_battery_state(source):
     return level, charging, text or None
 
 
+def _visible_battery_level_from_screenshot(path):
+    """Read one visible percentage from the saved Control Center screenshot."""
+    script = Path(__file__).with_name("ios_visible_text.swift")
+    if not script.is_file() or not Path(path).is_file():
+        return None, None
+    result = subprocess.run(
+        [
+            "swift", "-module-cache-path",
+            str(Path(tempfile.gettempdir()) / "laf2-swift-module-cache"),
+            str(script), str(path),
+        ],
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None, None
+    values = {
+        int(match.group(1))
+        for match in re.finditer(r"(?<!\d)(\d{1,3})\s*%", result.stdout)
+        if 0 <= int(match.group(1)) <= 100
+    }
+    return (values.pop(), result.stdout.strip()) if len(values) == 1 else (None, result.stdout.strip() or None)
+
+
+def _visible_charging_indicator_from_screenshot(path):
+    """Detect the green battery with its white lightning glyph in the top-right status area."""
+    try:
+        from PIL import Image
+
+        image = Image.open(path).convert("RGB")
+    except Exception:
+        return None, None
+    width, height = image.size
+    pixels = image.load()
+    green = []
+    for y in range(0, int(height * .2)):
+        for x in range(int(width * .6), width):
+            red, channel_green, blue = pixels[x, y]
+            if (
+                channel_green > 130
+                and channel_green > red * 1.25
+                and channel_green > blue * 1.08
+            ):
+                green.append((x, y))
+    minimum_green = max(40, int(width * height * .00015))
+    if len(green) < minimum_green:
+        return None, {"green_pixels": len(green), "minimum_green_pixels": minimum_green}
+    left = min(x for x, _ in green)
+    top = min(y for _, y in green)
+    right = max(x for x, _ in green)
+    bottom = max(y for _, y in green)
+    white = 0
+    for y in range(top, bottom + 1):
+        for x in range(left, right + 1):
+            red, channel_green, blue = pixels[x, y]
+            if min(red, channel_green, blue) > 220 and max(red, channel_green, blue) - min(red, channel_green, blue) < 20:
+                white += 1
+    area = max(1, (right - left + 1) * (bottom - top + 1))
+    minimum_white = max(20, int(area * .08))
+    metrics = {
+        "green_pixels": len(green),
+        "green_bounds": {"x": left, "y": top, "width": right - left + 1, "height": bottom - top + 1},
+        "white_glyph_pixels": white,
+        "minimum_white_glyph_pixels": minimum_white,
+    }
+    return (True if white >= minimum_white else None), metrics
+
+
 def _control_center_volume_state(source):
     """Extract one media-volume percentage from the scoped Control Center slider."""
     candidates = []
@@ -426,6 +622,19 @@ def capture_visible_battery_level(config):
             raise CaptureError("iOS Control Center screenshot was not saved")
         shutil.copy2(screenshot_path, charging_screenshot_path)
         shutil.copy2(screenshot_path, volume_screenshot_path)
+        if level is None:
+            level, ocr_text = _visible_battery_level_from_screenshot(screenshot_path)
+            if level is not None:
+                accessibility_text = accessibility_text or f"Vision OCR: {level}%"
+                state["visual_read_method"] = "macOS Vision OCR of saved Control Center screenshot"
+                state["ocr_text"] = ocr_text
+        charging_metrics = None
+        if type(charging) is not bool:
+            charging, charging_metrics = _visible_charging_indicator_from_screenshot(screenshot_path)
+            if charging is True:
+                accessibility_text = accessibility_text or "Visible green battery with white lightning glyph"
+                charging_state["visual_read_method"] = "saved Control Center screenshot color/glyph analysis"
+                charging_state["visual_metrics"] = charging_metrics
         if level is None:
             state["reason"] = "Control Center does not expose one unambiguous battery percentage"
         else:
@@ -626,6 +835,7 @@ def capture_visible_brightness(config):
         ).lower()), sliders[0] if sliders else None)
         if control is None:
             raise CaptureError("native iOS Display & Brightness does not expose a brightness slider")
+        _scroll_control_into_screenshot(driver, control, "Brightness slider")
         raw_value = _attribute(control, "value")
         normalized = _slider_fraction(control)
         if not 0 <= normalized <= 1:
@@ -638,6 +848,9 @@ def capture_visible_brightness(config):
             "slider_accessibility_value": raw_value,
             "visible_percent": round(normalized * 100, 3),
             "normalized_brightness": normalized,
+            "slider_rect": control.rect,
+            "viewport": driver.get_window_size(),
+            "slider_visible_in_screenshot": True,
             "screenshot_saved": True,
         })
     except Exception as exc:
@@ -1341,9 +1554,12 @@ def _capture_e2e_interactions(driver, config, folder):
         })
 
     recording_started = False
+    recording_started_at = None
+    recording_details = {"saved": False, "bytes": 0, "valid_mp4": False, "browser_compatible": False}
     try:
-        driver.start_recording_screen(video_type="h264", video_quality="medium")
+        _start_screen_recording(driver)
         recording_started = True
+        recording_started_at = time.monotonic()
         mark("recording", "STARTED")
     except Exception as exc:
         result["errors"].append(f"recording-start: {exc}")
@@ -1438,20 +1654,16 @@ def _capture_e2e_interactions(driver, config, folder):
                 encoded = driver.stop_recording_screen()
                 payload = base64.b64decode(encoded) if encoded else b""
                 if payload:
-                    (folder / "e2e-interactions.mp4").write_bytes(payload)
+                    raw_recording = folder / "e2e-interactions.mp4"
+                    raw_recording.write_bytes(payload)
                     mark("recording", "SAVED", bytes=len(payload))
+                    elapsed = time.monotonic() - recording_started_at if recording_started_at else None
+                    recording_details = materialize_browser_recording(raw_recording, elapsed)
                 else:
                     result["errors"].append("recording-stop: empty video")
             except Exception as exc:
                 result["errors"].append(f"recording-stop: {exc}")
-        result["recording"] = {
-            "saved": (folder / "e2e-interactions.mp4").is_file(),
-            "bytes": (folder / "e2e-interactions.mp4").stat().st_size if (folder / "e2e-interactions.mp4").is_file() else 0,
-            "valid_mp4": (
-                (folder / "e2e-interactions.mp4").is_file()
-                and b"moov" in (folder / "e2e-interactions.mp4").read_bytes()
-            ),
-        }
+        result["recording"] = recording_details
         (folder / "e2e-interactions.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -1798,6 +2010,48 @@ def _setting_element(driver, label, element_type=None):
         queries.append(("xpath", f"//{element_type}[@name={json.dumps(label)} or @label={json.dumps(label)}]"))
     queries.extend((("accessibility id", label), ("xpath", f"//*[@name={json.dumps(label)} or @label={json.dumps(label)}]")))
     return _first_element(driver, queries)
+
+
+def _control_is_fully_visible(driver, control, margin=8):
+    """Return whether a native control fits inside the screenshot viewport."""
+    try:
+        rect = control.rect
+        viewport = driver.get_window_size()
+        x = float(rect["x"])
+        y = float(rect["y"])
+        width = float(rect["width"])
+        height = float(rect["height"])
+        viewport_width = float(viewport["width"])
+        viewport_height = float(viewport["height"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (
+        x >= margin
+        and y >= margin
+        and x + width <= viewport_width - margin
+        and y + height <= viewport_height - margin
+    )
+
+
+def _scroll_control_into_screenshot(driver, control, label):
+    """Scroll Settings content without changing the control, then verify its bounds."""
+    if _control_is_fully_visible(driver, control):
+        return
+    try:
+        driver.execute_script("mobile: scroll", {
+            "elementId": control.id,
+            "toVisible": True,
+        })
+        time.sleep(.5)
+    except Exception:
+        pass
+    for _ in range(3):
+        if _control_is_fully_visible(driver, control):
+            return
+        driver.execute_script("mobile: scroll", {"direction": "down"})
+        time.sleep(.5)
+    if not _control_is_fully_visible(driver, control):
+        raise CaptureError(f"{label} did not enter the screenshot viewport")
 
 
 def _settings_home(driver):

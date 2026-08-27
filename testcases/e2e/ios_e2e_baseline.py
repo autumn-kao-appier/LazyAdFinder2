@@ -122,14 +122,70 @@ def validate_bundle(folder):
                       and request_actual["request_body_saved"] and request_actual["response_body_saved"]
                       and request_actual["bundle"] and request_actual["sdk_version"]
                       and request_actual["zone_id"] and request_actual["valid_ad_unit"])
-    (folder / "appier-ad-flow.json").write_text(json.dumps(request_actual, ensure_ascii=False, indent=2) + "\n")
+    (folder / "appier-ad-flow.json").write_text(json.dumps({
+        "expected": {
+            "method": "POST",
+            "path": "/v2/sdk/ios/ad",
+            "same_request_response_flow": True,
+            "http_status": 200,
+            "request_and_response_bodies_saved": True,
+            "response_has_valid_ad_unit": True,
+        },
+        "actual": request_actual,
+        "note": (
+            "This record is derived from the captured proxy traffic flow; bid_raw.json and "
+            "bid_response.json preserve the bodies from that same transaction."
+        ),
+    }, ensure_ascii=False, indent=2) + "\n")
 
-    init = _responses(events, "sdk-init")
-    init_ok = _ok(init, redirects=False)
+    init_requests = [
+        row for row in _requests(events, "sdk-init")
+        if row.get("method") == "GET"
+        and urlsplit(str(row.get("url") or "")).path == "/v1/sdk/ios/init"
+    ]
+    init_responses = _responses(events, "sdk-init")
+    init_transactions = []
+    for request in init_requests:
+        response_event = next((
+            row for row in init_responses
+            if row.get("flow_id") == request.get("flow_id")
+        ), None)
+        init_transactions.append({"request": request, "response": response_event})
+    successful_init_transactions = [
+        transaction for transaction in init_transactions
+        if (transaction.get("response") or {}).get("status") == 200
+    ]
+    init_actual = {
+        "transactions": init_transactions,
+        "matched_transaction_count": sum(
+            transaction.get("response") is not None for transaction in init_transactions
+        ),
+        "successful_transaction_count": len(successful_init_transactions),
+    }
+    init_ok = bool(successful_init_transactions)
+    (folder / "sdk-init-flow.json").write_text(json.dumps({
+        "expected": {
+            "method": "GET",
+            "path": "/v1/sdk/ios/init",
+            "same_request_response_flow": True,
+            "http_status": 200,
+        },
+        "actual": init_actual,
+        "note": (
+            "SDK initialization is a network-only contract. The rendered ad screen is not used as "
+            "proof; request and response must share the same proxy flow_id."
+        ),
+    }, ensure_ascii=False, indent=2) + "\n")
     init_row = _row(
-        "standalone-sdk-init", {"GET iOS init": "HTTP 200"}, init, init_ok,
-        "e2e-network-evidence.json", "The iOS SDK initialization transaction succeeded."
-        , "FAILED: no successful iOS SDK initialization transaction was preserved.")
+        "standalone-sdk-init",
+        {
+            "method": "GET", "path": "/v1/sdk/ios/init",
+            "same_request_response_flow": True, "http_status": 200,
+        },
+        init_actual, init_ok, "sdk-init-flow.json",
+        "The captured proxy flow proves a successful iOS SDK initialization transaction.",
+        "FAILED: no same-flow GET /v1/sdk/ios/init request and HTTP 200 response were preserved.",
+    )
 
     assets = _responses(events, "asset")
     asset_urls = []
@@ -180,7 +236,7 @@ def validate_bundle(folder):
               "bid_requested_at": bid_request.get("timestamp") if bid_request else None,
               "ad_clicked_at": matching_clicks[-1].get("timestamp") if matching_clicks else None}
     (folder / "attribution-query.json").write_text(json.dumps(lookup, ensure_ascii=False, indent=2) + "\n")
-    network = {"init": init, "bid": request_actual, "assets": assets,
+    network = {"init": init_actual, "bid": request_actual, "assets": assets,
                "impressions": impressions, "wins": wins, "clicks": click_events,
                "matching_clicks": matching_clicks}
     (folder / "e2e-network-evidence.json").write_text(json.dumps(network, ensure_ascii=False, indent=2) + "\n")

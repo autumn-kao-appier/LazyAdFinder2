@@ -549,7 +549,7 @@ DYNAMIC_ZH = {
     "The extended ISO-639-1 code must equal the low-precision language component of the current App locale.": "Extended 的 ISO-639-1 代碼必須等於 App 當前語言的低精度語言部分。",
     "Request and extended BCP 47 tags must equal the precise language and region of the current App locale.": "Request 與 Extended 的 BCP 47 標籤必須等於 App 當前語言與地區的高精度標籤。",
     "lang does not match the primary Android system language code": "device.lang 不符合 Android 設定頁第一順位的系統語言代碼。",
-    "Platform definition: Android Ads SDK has no standalone Init endpoint; keep BLOCKED while deciding whether AOS needs an equivalent contract aligned with the iOS Init flow": "平台定義：Android Ads SDK 沒有獨立的 Standalone Init endpoint；此項維持 BLOCKED，等待確認是否需要建立與 iOS Init 流程對齊的 AOS 等效契約。",
+    "Platform definition: Android Ads SDK has no standalone Init endpoint, so no executable initialization contract is currently defined": "平台定義：Android Ads SDK 沒有獨立的 Standalone Init endpoint，因此目前沒有可執行的初始化契約。",
     "Verified by the same suite's Standalone R5-1 Android SDK Signal evidence; no GAID-denied AdMob Mediation request was sent.": "已使用同一輪 Standalone R5-1 的 Android SDK Signal Evidence 完成驗證；沒有在 GAID 拒絕狀態下送出 AdMob Mediation request。",
     "Capture limitation: no preserved proxy transaction proves that POST /v2/sdk/aos/ad request and response belong to the same flow": "擷取限制：目前沒有保存可證明 POST /v2/sdk/aos/ad request 與 response 屬於同一個 flow 的 proxy transaction。",
     "Capture limitation: the proxy flow exists, but its request or response body was not preserved": "擷取限制：已取得 proxy flow，但沒有完整保存 request 或 response body。",
@@ -620,6 +620,47 @@ DYNAMIC_ZH = {
     "Waiting for a reviewer to enter the expected iOS Ads SDK build version in the report.": "等待 reviewer 在報告中輸入預期的 iOS Ads SDK Build 版本。",
     "The decoded value matches independent iOS device Evidence.": "解碼值與獨立擷取的 iOS 實機 Evidence 一致。",
     "FAILED: the decoded value does not match independent iOS device Evidence.": "FAILED：解碼值與獨立擷取的 iOS 實機 Evidence 不一致。",
+    "device.ext.pot has the valid iOS wire format; human-visible Evidence is currently unavailable.": "device.ext.pot 符合有效的 iOS wire format；目前沒有可供人眼核對的 Evidence。",
+    "FAILED: device.ext.pot must contain 1 to 5 strictly increasing positive epoch-millisecond integers.": "FAILED：device.ext.pot 必須包含 1 至 5 個嚴格遞增的正整數 epoch milliseconds。",
+    "device.ext.mem_total is a positive integer byte value; human-visible Evidence is currently unavailable.": "device.ext.mem_total 是以 bytes 表示的正整數；目前沒有可供人眼核對的 Evidence。",
+    "FAILED: device.ext.mem_total must be a positive integer byte value.": "FAILED：device.ext.mem_total 必須是以 bytes 表示的正整數。",
+    "device.ext.mem_available is positive and does not exceed mem_total; human-visible Evidence is currently unavailable.": "device.ext.mem_available 是正數且不超過 mem_total；目前沒有可供人眼核對的 Evidence。",
+    "FAILED: device.ext.mem_available must be positive integer bytes not exceeding mem_total.": "FAILED：device.ext.mem_available 必須是以 bytes 表示的正整數，且不可超過 mem_total。",
+    "The visible GetMyIDFA value exactly matches Request and Extended device.ia under authorized ATT.": "GetMyIDFA 畫面可見的值與已授權 ATT 狀態下 Request／Extended 的 device.ia 完全相同。",
+    "Extended device.ifv is a non-empty UUID in 8-4-4-4-12 form.": "Extended device.ifv 是非空值，且符合 8-4-4-4-12 格式的 UUID。",
+    "FAILED: Extended device.ext.iaphistory is missing or is not an array of unique non-empty product-ID strings.": "FAILED：Extended device.ext.iaphistory 缺少，或不是由唯一且非空的 product ID 字串組成的陣列。",
+    "The visible iOS Control Center battery percentage was not captured.": "未擷取到 iOS 控制中心畫面可見的電池百分比。",
+    "Control Center battery accessibility does not expose an unambiguous charging state": "控制中心的電池 accessibility 資訊沒有提供可明確判定的充電狀態。",
+    "The payload battery level matches the visible iOS Control Center percentage within 2%.": "Payload 電池電量與 iOS 控制中心畫面可見的百分比相差不超過 2%。",
+    "FAILED: device.batterylevel is invalid or differs from the visible iOS Control Center percentage by more than 2%.": "FAILED：device.batterylevel 無效，或與 iOS 控制中心畫面可見的百分比相差超過 2%。",
+    "The payload charging state matches the visible iOS Control Center battery state.": "Payload 充電狀態與 iOS 控制中心畫面可見的電池充電狀態一致。",
+    "FAILED: device.charging is missing, invalid, inconsistent, or does not match the visible iOS Control Center state.": "FAILED：device.charging 缺少、無效、前後不一致，或與 iOS 控制中心畫面可見的充電狀態不符。",
+    "The payload battery-saver flag matches the visible native iOS Low Power Mode switch.": "Payload 的省電模式旗標與 iOS 原生畫面可見的低耗電模式開關一致。",
+    "Request sw matches captured XCUITest points and Extended sw matches the mapped Apple native pixels.": "Request sw 與 XCUITest 擷取的 points 一致，Extended sw 與 Apple 機型對應的原生 pixels 一致。",
+    "Request sh matches captured XCUITest points and Extended sh matches the mapped Apple native pixels.": "Request sh 與 XCUITest 擷取的 points 一致，Extended sh 與 Apple 機型對應的原生 pixels 一致。",
+    "Extended device.ppi matches the Apple physical PPI mapped from the independently captured ProductType.": "Extended device.ppi 與獨立擷取 ProductType 後對應出的 Apple 實體 PPI 一致。",
+    "Request and Extended device.pxratio match native pixels divided by independently captured logical points.": "Request／Extended device.pxratio 均等於原生 pixels 除以獨立擷取的 logical points。",
+    "FAILED: device.ext.screen_bright is invalid or differs from the visible native iOS brightness slider by more than 0.01.": "FAILED：device.ext.screen_bright 無效，或與 iOS 原生畫面可見的亮度滑桿相差超過 0.01。",
+    "The Larger Text page visibly proves the selected Dynamic Type state, but no reviewed iOS API bridge maps that slider state to the exact payload scale yet.": "Larger Text 畫面已證明目前選取的 Dynamic Type 狀態，但尚無經 review 的 iOS API bridge 能將該滑桿狀態對應到 payload 的精確倍率。",
+    "The payload dark-mode boolean matches the visibly selected native iOS appearance.": "Payload 的深色模式 boolean 與 iOS 原生畫面可見的外觀選項一致。",
+    "Control Center does not expose one unambiguous media-volume percentage": "控制中心沒有提供可明確判定的單一媒體音量百分比。",
+    "The payload manufacturer matches the Apple device established by native About and the official ProductType mapping.": "Payload 的 manufacturer 與原生 About 畫面及官方 ProductType 對應所確認的 Apple 裝置一致。",
+    "The payload model and hardware version match native About and the Apple ProductType mapping.": "Payload 的 model 與 hardware version 均符合原生 About 畫面及 Apple ProductType 對應結果。",
+    "The payload UTC offset matches the capture-time IANA timezone including DST.": "Payload 的 UTC offset 與擷取當下包含 DST 的 IANA timezone 一致。",
+    "The payload language matches native Language & Region and ideviceinfo Locale.": "Payload 語言與 iOS 原生 Language & Region 及 ideviceinfo Locale 一致。",
+    "The payload keyboard tag list matches the visible native keyboard order.": "Payload 的鍵盤語言標籤清單與 iOS 原生畫面可見的鍵盤順序一致。",
+    "Native Settings and a physical ProductType do not independently prove absence of jailbreak; a reviewed integrity probe is required.": "原生 Settings 與實體 ProductType 無法獨立證明裝置未越獄；仍需經 review 的完整性 probe。",
+    "libimobiledevice and hardware ProductType establish a physical iOS device.": "libimobiledevice 與硬體 ProductType 已確認本次使用實體 iOS 裝置。",
+    "The payload transport matches the visibly connected Wi-Fi network.": "Payload 的連線類型與畫面可見的已連線 Wi-Fi 網路一致。",
+    "This scenario requires an active SIM and cellular data; the current R1 only observes native Cellular prerequisites.": "此情境需要 active SIM 與行動數據；目前 R1 只觀察 iOS 原生 Cellular 前置條件。",
+    "An active SIM requires a separate exact iOS carrier contract; visible No SIM Evidence is unavailable.": "Active SIM 需要另外定義精確的 iOS carrier 契約；目前也沒有可見的 No SIM Evidence。",
+    "Location Services is visible, but it does not expose exact coordinates; the Sample App still needs an independent coordinate QA surface.": "Location Services 畫面可見，但不會顯示精確座標；Sample App 仍需提供獨立的座標 QA 畫面。",
+    "The payload array is observed, but R1 has no independent visible foreground-event timeline to verify each timestamp.": "已觀察到 payload 陣列，但 R1 沒有獨立可見的 foreground event timeline 可逐筆驗證 timestamp。",
+    "The payload array is observed, but R1 has no independent visible background-event timeline to verify each timestamp.": "已觀察到 payload 陣列，但 R1 沒有獨立可見的 background event timeline 可逐筆驗證 timestamp。",
+    "The payload VPN flag matches the visible native VPN state.": "Payload 的 VPN 旗標與 iOS 原生畫面可見的 VPN 狀態一致。",
+    "The Sample App does not visibly expose the configured Force GDPR input; the request cannot prove its own configuration.": "Sample App 沒有顯示已設定的 Force GDPR 輸入值；Request 不能用自身內容證明設定正確。",
+    "The Sample App does not visibly expose the configured COPPA input; the request cannot prove its own configuration.": "Sample App 沒有顯示已設定的 COPPA 輸入值；Request 不能用自身內容證明設定正確。",
+    "The visible Sample App tracking switch, visible IDFA, Request/Extended IDFA, and inverse LAT flag consistently prove tracking is allowed.": "Sample App 畫面可見的 tracking 開關、IDFA、Request／Extended IDFA 與反向 LAT 旗標一致證明目前允許追蹤。",
     "The App-language UI Evidence was not captured; payload alone cannot PASS.": "未擷取 App 語言的 UI Evidence；不能只憑 payload 判定 PASS。",
     "The App language code matches the language component of the iOS locale.": "App 語言代碼與 iOS locale 的語言部分一致。",
     "FAILED: the App language code does not match the independently captured iOS locale.": "FAILED：App 語言代碼與獨立擷取的 iOS locale 不一致。",
@@ -647,6 +688,8 @@ DYNAMIC_ZH = {
     "FAILED: visible native iOS Settings Evidence is missing or the decoded Bid does not match that state.": "FAILED：缺少可見的 iOS 原生 Settings Evidence，或解碼後的 Bid 與該狀態不一致。",
     "The iOS SDK initialization transaction succeeded.": "iOS SDK initialization transaction 成功。",
     "FAILED: no successful iOS SDK initialization transaction was preserved.": "FAILED：沒有保存成功的 iOS SDK initialization transaction。",
+    "The captured proxy flow proves a successful iOS SDK initialization transaction.": "擷取到的 proxy flow 已證明 iOS SDK initialization transaction 成功。",
+    "FAILED: no same-flow GET /v1/sdk/ios/init request and HTTP 200 response were preserved.": "FAILED：沒有保存 flow_id 相同的 GET /v1/sdk/ios/init request 與 HTTP 200 response。",
     "The same proxy flow proves the iOS Appier request and response.": "同一條 proxy flow 已證明 iOS Appier request 與 response 相互對應。",
     "FAILED: no complete same-flow iOS Appier ad transaction was preserved.": "FAILED：沒有保存完整且屬於同一 flow 的 iOS Appier ad transaction。",
     "All response-specified creative assets loaded successfully.": "Response 指定的所有廣告素材都已成功載入。",
@@ -690,6 +733,13 @@ DYNAMIC_ZH = {
     "The Sample App does not expose the requested independent value yet; the decoded Bid Request is not accepted as its own Evidence.": "Sample App 尚未提供所需的獨立真值；解碼後的 Bid Request 不得作為自身的 Evidence。",
     "The decoded value matches the visible Sample App QA Evidence.": "解碼值與 Sample App 畫面可見的 QA Evidence 一致。",
     "FAILED: the decoded value does not match the visible Sample App QA Evidence.": "FAILED：解碼值與 Sample App 畫面可見的 QA Evidence 不一致。",
+}
+
+DYNAMIC_EN = {
+    "目前是單純抓包並解密 device.ifv。若需要可截圖的人眼 Evidence，需請 RD 在 iOS Sample App 增加顯示 IDFV 的測試入口。": "The current capture only decrypts device.ifv. A human-visible screenshot requires an IDFV QA surface in the iOS Sample App.",
+    "Sample App 沒有購買流程或獨立 expected product IDs，因此合法陣列仍無法驗證內容正確性。": "The Sample App has no purchase flow or independent expected product IDs, so a valid array still cannot prove content correctness.",
+    "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式。": "Human-visible iOS Evidence is currently unavailable; this TestCase validates the decoded payload format.",
+    "iOS 目前拿不到肉眼可見 Evidence；本 TC 使用解碼後 payload 驗證欄位格式與數值關係。": "Human-visible iOS Evidence is currently unavailable; this TestCase validates the decoded payload format and numeric relationship.",
 }
 
 
@@ -852,7 +902,13 @@ def _dynamic_bi(text, zh=None):
         zh = "已自動保存流量查詢鍵；MMP Click Action 仍需查詢 MMP action 才能完成驗證。"
     elif text.startswith("The traffic lookup key was captured automatically.") and "attribution recognition" in text:
         zh = "已自動保存流量查詢鍵；歸因認列仍需完成 Spark／MMP 對帳。"
-    return _bi(text, zh or DYNAMIC_ZH.get(text, text))
+    translated_zh = zh or DYNAMIC_ZH.get(text)
+    if translated_zh:
+        return _bi(text, translated_zh)
+    translated_en = DYNAMIC_EN.get(text)
+    if translated_en:
+        return _bi(translated_en, text)
+    return _bi(text, text)
 
 
 def _tc_title(row):
@@ -1251,7 +1307,20 @@ def _e2e_run_recording(rows):
         reverse=True,
     )
     for row in candidates:
-        video = Path(row["source"]).parent / "e2e-interactions.mp4"
+        folder = Path(row["source"]).parent
+        try:
+            interactions = _load_json(folder / "e2e-interactions.json")
+        except ReportError:
+            interactions = {}
+        recording = interactions.get("recording") if isinstance(interactions, dict) else {}
+        preferred = recording.get("browser_path") if isinstance(recording, dict) else None
+        if preferred:
+            video = folder / preferred
+        elif isinstance(recording, dict) and recording.get("browser_compatible") is False:
+            continue
+        else:
+            # Backward compatibility for recordings captured before codec metadata existed.
+            video = folder / "e2e-interactions.mp4"
         if not video.is_file():
             continue
         asset_url = _register_report_asset(video)
