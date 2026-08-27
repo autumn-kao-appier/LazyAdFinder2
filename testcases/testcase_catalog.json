@@ -424,11 +424,11 @@
         "applicable": true,
         "setup": "沿用本輪 capture；目前 Sample App 沒有購買流程。",
         "setup_en": "Reuse this round's capture; the Sample App currently has no purchase flow.",
-        "expected": "欄位缺少或格式錯誤為 FAILED；合法陣列在 Sample App 尚無購買流程與 expected product IDs 時為 BLOCKED。",
-        "expected_en": "A missing or malformed field is FAILED. A valid array remains BLOCKED while the Sample App has no purchase flow or independent expected product IDs.",
+        "expected": "目前無法獨立觀測購買紀錄；欄位缺少或合法陣列皆為 BLOCKED。只有欄位存在但格式錯誤時為 FAILED。",
+        "expected_en": "Purchase history is not independently observable. A missing field or valid array is BLOCKED; only a present but malformed field is FAILED.",
         "evidence": "in-app-purchase-history-evidence.png、in-app-purchase-history.json、bid_decoded.json、verdicts.json",
-        "evidence_note": "比照 Android：目前只能驗證欄位與 product ID 陣列格式，無法驗證內容正確性，因此合法陣列結果為 BLOCKED。",
-        "evidence_note_en": "Same as Android: only the field and product-ID array shape can be validated. Content correctness cannot be proven, so a valid array remains BLOCKED."
+        "evidence_note": "目前 Sample App 沒有可觀測的購買流程或獨立 expected product IDs，因此無法判定購買紀錄正確性。",
+        "evidence_note_en": "The Sample App has no observable purchase flow or independent expected product IDs, so purchase-history correctness cannot be judged."
       }
     },
     {

@@ -191,8 +191,8 @@ PASS／FAILED。
 Evidence：`in-app-purchase-history.json` 顯示欄位狀態、數量及 product IDs，並保留 raw、decoded
 與 verdict。SDK 的非同步 Billing 查詢失敗也可能維持空陣列，所以不得把 `[]` 判成 PASS。
 
-iOS 比照同一判準：欄位缺少或陣列格式錯誤為 FAILED；合法陣列（包含 `[]`）
-因沒有購買流程與獨立 expected product IDs，維持 BLOCKED。Evidence 同樣產生
+iOS 目前無法獨立觀測購買紀錄：欄位缺少或合法陣列（包含 `[]`）皆維持 BLOCKED；只有欄位
+明確存在但陣列格式錯誤時為 FAILED。Evidence 同樣產生
 `in-app-purchase-history.json`。
 
 ## System Boot Timestamps

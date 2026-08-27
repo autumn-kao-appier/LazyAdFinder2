@@ -342,6 +342,16 @@ class IOSEvidenceContractTests(unittest.TestCase):
             verdict = TC_DEFINITIONS["in-app-purchase-history"].validate(folder)
             self.assertEqual(verdict["status"], "FAILED")
 
+    def test_iap_missing_field_is_blocked_without_observable_purchase_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ext": {}}}},
+            }))
+            verdict = TC_DEFINITIONS["in-app-purchase-history"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertFalse(verdict["actual"]["field_present"])
+
     def test_boot_timestamps_valid_format_passes_without_visible_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

@@ -198,6 +198,12 @@ def validate_in_app_purchase_history(folder):
         "product_count": len(value) if isinstance(value, list) else 0,
         "product_ids": value,
     }
+    if not present:
+        return _blocked(
+            "in-app-purchase-history", "In App Purchase History",
+            "The Sample App has no observable purchase flow or independent expected product IDs, so purchase-history correctness cannot be judged.",
+            actual, "in-app-purchase-history.json",
+        )
     valid = (
         isinstance(value, list)
         and all(isinstance(item, str) and bool(item.strip()) for item in value)
@@ -208,7 +214,7 @@ def validate_in_app_purchase_history(folder):
             "in-app-purchase-history", "In App Purchase History",
             {"field_present": True, "value": "array of unique non-empty product-ID strings"},
             actual, False, "in-app-purchase-history.json",
-            "FAILED: Extended device.ext.iaphistory is missing or is not an array of unique non-empty product-ID strings.",
+            "FAILED: Extended device.ext.iaphistory is present but is not an array of unique non-empty product-ID strings.",
         )
     return _blocked(
         "in-app-purchase-history", "In App Purchase History",
