@@ -642,6 +642,7 @@ DYNAMIC_ZH = {
     "Extended device.ppi matches the Apple physical PPI mapped from the independently captured ProductType.": "Extended device.ppi 與獨立擷取 ProductType 後對應出的 Apple 實體 PPI 一致。",
     "Request and Extended device.pxratio match native pixels divided by independently captured logical points.": "Request／Extended device.pxratio 均等於原生 pixels 除以獨立擷取的 logical points。",
     "FAILED: device.ext.screen_bright is invalid or differs from the visible native iOS brightness slider by more than 0.01.": "FAILED：device.ext.screen_bright 無效，或與 iOS 原生畫面可見的亮度滑桿相差超過 0.01。",
+    "The native iOS Display & Brightness slider was not captured with complete visual Evidence.": "未完整擷取 iOS 原生 Display & Brightness 的亮度滑桿，因此無法進行可視證據比較。",
     "The Larger Text page visibly proves the selected Dynamic Type state, but no reviewed iOS API bridge maps that slider state to the exact payload scale yet.": "Larger Text 畫面已證明目前選取的 Dynamic Type 狀態，但尚無經 review 的 iOS API bridge 能將該滑桿狀態對應到 payload 的精確倍率。",
     "The payload dark-mode boolean matches the visibly selected native iOS appearance.": "Payload 的深色模式 boolean 與 iOS 原生畫面可見的外觀選項一致。",
     "Control Center does not expose one unambiguous media-volume percentage": "控制中心沒有提供可明確判定的單一媒體音量百分比。",

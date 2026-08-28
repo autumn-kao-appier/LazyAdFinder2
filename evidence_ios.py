@@ -602,17 +602,30 @@ def _settings_slider_evidence_document(kind, info, source_image):
     color = {"PASS": "#287a3d", "FAILED": "#b9342b", "BLOCKED": "#a56516"}[result]
     if kind == "brightness":
         title = "Screen Brightness"
-        marker = f'{info.get("visible_percent", "—")}% VISIBLE BRIGHTNESS'
-        source = f'Native slider {info.get("slider_accessibility_value") or "—"} → {info.get("normalized_brightness", "—")}'
-        rows = (
-            ("Visible slider", info.get("slider_accessibility_value")),
-            ("Normalized expected", info.get("normalized_brightness")),
-            ("Request device.ext.screen_bright", actual.get("request")),
-            ("Extended device.ext.screen_bright", actual.get("extended")),
-        )
-        explanation = (
-            "The native accessibility percentage is normalized to 0...1 and compared with the same-round payload within 0.01."
-        )
+        if info.get("slider_visible_in_screenshot") is True:
+            marker = f'{info.get("visible_percent", "—")}% VISIBLE BRIGHTNESS'
+            source = f'Native slider {info.get("slider_accessibility_value") or "—"} → {info.get("normalized_brightness", "—")}'
+            rows = (
+                ("Visible slider", info.get("slider_accessibility_value")),
+                ("Normalized expected", info.get("normalized_brightness")),
+                ("Request device.ext.screen_bright", actual.get("request")),
+                ("Extended device.ext.screen_bright", actual.get("extended")),
+            )
+            explanation = (
+                "The native accessibility percentage is normalized to 0...1 and compared with the same-round payload within 0.01."
+            )
+        else:
+            marker = "INCOMPLETE CAPTURE · SLIDER NOT VISIBLE"
+            source = "Display & Brightness page · slider not fully captured"
+            rows = (
+                ("Slider visible in screenshot", False),
+                ("Accessibility metadata (supporting only)", info.get("slider_accessibility_value")),
+                ("Request device.ext.screen_bright", actual.get("request")),
+                ("Extended device.ext.screen_bright", actual.get("extended")),
+            )
+            explanation = (
+                "The saved screenshot does not show the complete Brightness slider. The accessibility value is supporting metadata only and is not compared with the payload; the result remains BLOCKED."
+            )
     else:
         title = "Font Scale"
         slider = info.get("slider_accessibility_value")

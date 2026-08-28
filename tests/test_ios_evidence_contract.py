@@ -1019,6 +1019,25 @@ class IOSEvidenceContractTests(unittest.TestCase):
             verdict = TC_DEFINITIONS["screen-brightness"].validate(folder)
             self.assertEqual(verdict["status"], "BLOCKED")
 
+    def test_incomplete_brightness_card_does_not_claim_slider_is_visible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            screenshot = Path(temporary) / "brightness.png"
+            screenshot.write_bytes(b"image")
+            document = evidence_ios._settings_slider_evidence_document(
+                "brightness",
+                {
+                    "status": "CAPTURED",
+                    "slider_accessibility_value": "53%",
+                    "visible_percent": 53,
+                    "normalized_brightness": .53,
+                    "actual": {"request": None, "extended": .55},
+                },
+                screenshot,
+            )
+            self.assertIn("INCOMPLETE CAPTURE · SLIDER NOT VISIBLE", document)
+            self.assertIn("Accessibility metadata (supporting only)", document)
+            self.assertNotIn("53% VISIBLE BRIGHTNESS", document)
+
     def test_visible_brightness_capture_is_read_only(self):
         config = MagicMock()
         driver = MagicMock()
