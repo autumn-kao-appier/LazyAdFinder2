@@ -994,10 +994,8 @@ def _lifecycle_pids(folder, value):
     return [step.get("pid") for step in steps if isinstance(step, dict)]
 
 
-def _lifecycle_blocked(key, title, expected, reason, actual):
-    row = _blocked(key, title, reason, actual, "ios-lifecycle-sequence.json")
-    row["expected"] = expected
-    return row
+def _lifecycle_blocked(key, title, _expected, reason, actual):
+    return _blocked(key, title, reason, actual, "ios-lifecycle-sequence.json")
 
 
 def _validate_session_duration_increase(folder, key, title, pid_indexes):

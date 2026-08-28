@@ -1176,26 +1176,31 @@ IOS_AOS_ALIGNED_VISUAL_CASES = {
         "title": "Session Duration — Continuous App Session", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "session-duration-continuous-evidence.png", "sequence": "ios-lifecycle-sequence.json",
         "scope": "Require the same App PID, then compare the start and continuous-foreground captures.",
+        "expected": {"relation": "after > before", "process_requirement": "same PID"},
     },
     "session-duration-background": {
         "title": "Session Duration — Resume from Background", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "session-duration-background-evidence.png", "sequence": "ios-lifecycle-sequence.json",
         "scope": "Require the same App PID, then compare continuous foreground with Home/background/resume.",
+        "expected": {"relation": "after > before", "process_requirement": "same PID"},
     },
     "session-duration-termination": {
         "title": "Session Duration — Reset after Termination", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "session-duration-termination-evidence.png", "sequence": "ios-lifecycle-sequence.json",
         "scope": "Require a new App PID, then compare the resumed process with the cold capture after termination.",
+        "expected": {"relation": "after < before", "process_requirement": "new PID"},
     },
     "app-initialization-time": {
         "title": "App Initialization Time", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "app-initialization-time-evidence.png", "sequence": "ios-lifecycle-sequence.json",
         "scope": "Requests 1–3 must share one PID and stable init time; Request 4 must use a new PID and newer init time.",
+        "expected": {"requests_1_to_3": "same timestamp and PID", "request_4": "newer timestamp and new PID"},
     },
     "app-duration-today": {
         "title": "Total App Usage Time Today", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "app-duration-today-evidence.png", "sequence": "ios-lifecycle-sequence.json",
         "scope": "One PID must span Requests 1–3, Request 4 must use a new PID, and daily duration must remain monotonic.",
+        "expected": {"unit": "milliseconds", "requests_1_to_4": "monotonic non-decreasing", "restart_behavior": "must persist"},
     },
 }
 
@@ -1239,7 +1244,10 @@ def _aligned_sequence_images(folder, metadata):
 
 
 def _aligned_payload_rows(folder, key, metadata, verdict):
-    rows = [("Expected", verdict.get("expected")), ("Actual", verdict.get("actual"))]
+    expected = verdict.get("expected")
+    if expected is None:
+        expected = metadata.get("expected")
+    rows = [("Expected", expected), ("Actual", verdict.get("actual"))]
     path = metadata.get("path")
     if path and (Path(folder) / "bid_decoded.json").is_file():
         req, ext = _decoded_path_values(folder, path)
