@@ -1551,11 +1551,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
-        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
-        "expected": "Session Duration — Continuous App Session 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
-        "expected_en": "Session Duration — Continuous App Session must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "session-duration-continuous-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "setup": "冷啟動後抓 Request 1；不離開 App，等待後抓 Request 2；兩步都保存 App PID。",
+        "setup_en": "Capture Request 1 after cold launch, remain in the App, wait, then capture Request 2; preserve the App PID at both steps.",
+        "expected": "Request 1 與 2 必須使用同一 PID，且 Request 2 session_duration > Request 1。PID 前提未證明時為 BLOCKED；前提成立但未遞增時為 FAILED。",
+        "expected_en": "Requests 1 and 2 must use the same PID, and Request 2 session_duration must be greater than Request 1. Unproven PID prerequisites are BLOCKED; no increase after proof is FAILED.",
+        "evidence": "session-duration-continuous-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json",
+        "evidence_note": "PID 證明兩份 request 來自同一個仍存活的 App process；單一 payload 無法驗證遞增。",
+        "evidence_note_en": "PID proves both requests came from the same live App process; one isolated payload cannot prove an increase."
       }
     },
     {
@@ -1578,11 +1580,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
-        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
-        "expected": "Session Duration — Resume from Background 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
-        "expected_en": "Session Duration — Resume from Background must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "session-duration-background-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "setup": "Request 2 後按 Home 保留 App process，再啟用 App 並抓 Request 3；兩步都保存 App PID。",
+        "setup_en": "After Request 2, press Home while keeping the App process alive, reactivate the App, and capture Request 3; preserve both PIDs.",
+        "expected": "Request 2 與 3 必須使用同一 PID，且 Request 3 session_duration > Request 2。PID 前提未證明或 process 已被系統終止時為 BLOCKED；前提成立但未遞增時為 FAILED。",
+        "expected_en": "Requests 2 and 3 must use the same PID, and Request 3 session_duration must be greater than Request 2. Missing PID proof or an OS-terminated process is BLOCKED; no increase after proof is FAILED.",
+        "evidence": "session-duration-background-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json",
+        "evidence_note": "相同 PID 證明本步是 background/resume，而不是意外 cold launch。",
+        "evidence_note_en": "The unchanged PID proves this was background/resume rather than an accidental cold launch."
       }
     },
     {
@@ -1605,11 +1609,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
-        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
-        "expected": "Session Duration — Reset after Termination 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
-        "expected_en": "Session Duration — Reset after Termination must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "session-duration-termination-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "setup": "Request 3 後記錄目前 App PID，以 devicectl 終止 App 並觀察舊 PID 消失；冷啟動後抓 Request 4 並再次記錄 PID。",
+        "setup_en": "After Request 3, record the App PID, terminate the App with devicectl and observe the old PID exit; cold-launch Request 4 and record its PID again.",
+        "expected": "Request 4 必須使用新 PID，且 session_duration < Request 3。PID 缺失或相同時為 BLOCKED；已證明新 PID 但沒有 reset 時為 FAILED。",
+        "expected_en": "Request 4 must use a new PID and session_duration must be lower than Request 3. Missing or unchanged PID evidence is BLOCKED; a proven new PID without a reset is FAILED.",
+        "evidence": "session-duration-termination-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json",
+        "evidence_note": "先證明舊 process 結束與新 PID，再判斷 session_duration 是否 reset。",
+        "evidence_note_en": "Prove the old process exited and a new PID exists before judging whether session_duration reset."
       }
     },
     {
@@ -1797,11 +1803,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
-        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
-        "expected": "App Initialization Time 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
-        "expected_en": "App Initialization Time must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "app-initialization-time-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "setup": "沿用 R3 四份 request 並保存每一步 PID；Request 1～3 保持同一 process，Request 4 由終止後冷啟動的新 process 送出。",
+        "setup_en": "Reuse the four R3 requests and preserve every PID. Requests 1–3 stay in one process; Request 4 is emitted by the new cold-launched process after termination.",
+        "expected": "Request 1～3 必須為同一 PID 且 app_init_time 完全相同；Request 4 必須是新 PID，且 app_init_time 大於 Request 3。PID 前提未證明時為 BLOCKED；前提成立但值不符時為 FAILED。",
+        "expected_en": "Requests 1–3 must share one PID and identical app_init_time. Request 4 must use a new PID and a value greater than Request 3. Unproven PID prerequisites are BLOCKED; a value mismatch after proof is FAILED.",
+        "evidence": "app-initialization-time-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json",
+        "evidence_note": "以 PID 定義 process generation；不可只用 app_init_time 自己證明 process 是否重啟。",
+        "evidence_note_en": "PID defines the process generation; app_init_time cannot prove its own process restart."
       }
     },
     {
@@ -1824,11 +1832,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "依序執行持續前景、Home 背景／恢復、終止 App／冷啟動；每一步各抓一包。",
-        "setup_en": "Execute continuous foreground, Home/background-resume, and terminate/cold-launch in order, preserving one capture per step.",
-        "expected": "Total App Usage Time Today 必須由同一 causal sequence 的多包 iOS Evidence 比較，不以單包數值判定。",
-        "expected_en": "Total App Usage Time Today must be compared across the same causal multi-capture iOS sequence, never from one isolated payload.",
-        "evidence": "app-duration-today-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json"
+        "setup": "沿用 R3 四份 request 與每一步 PID；Request 1～3 保持同一 process，Request 4 由終止後的新 process 送出。",
+        "setup_en": "Reuse all four R3 requests and their PIDs. Requests 1–3 stay in one process; Request 4 is emitted by the new process after termination.",
+        "expected": "四個 app_duration 必須都是非負整數 milliseconds 且單調不減；Request 4 換 PID 後仍不得小於 Request 3。PID 前提未證明時為 BLOCKED；前提成立但值下降時為 FAILED。",
+        "expected_en": "All four app_duration values must be non-negative integer milliseconds and monotonically non-decreasing. After Request 4 changes PID, its value must remain at least Request 3's value. Unproven PID prerequisites are BLOCKED; a decrease after proof is FAILED.",
+        "evidence": "app-duration-today-evidence.png、ios-lifecycle-sequence.json、各步 bid_decoded.json、verdicts.json",
+        "evidence_note": "app_duration 是今日前景使用累積並跨 process 保存；它與新 process 會 reset 的 session_duration 不同。",
+        "evidence_note_en": "app_duration is today's persisted foreground total across processes; unlike session_duration, it must not reset in a new process."
       }
     },
     {

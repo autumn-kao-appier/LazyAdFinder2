@@ -1922,27 +1922,139 @@ def _perform_background_resume(config, seconds=5):
         driver.quit()
 
 
-def _terminate_app(config):
+def _json_objects(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _json_objects(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _json_objects(child)
+
+
+def _devicectl_json(config, *arguments):
+    """Use devicectl's documented JSON-file interface for machine-readable state."""
+    with tempfile.TemporaryDirectory(prefix="laf2-ios-devicectl-") as temporary:
+        output = Path(temporary) / "result.json"
+        _run([
+            "xcrun", "devicectl", *arguments,
+            "--device", config.udid, "--quiet", "--json-output", str(output),
+        ])
+        document = _read_json(output)
+    if not isinstance(document, dict):
+        raise CaptureError(f"devicectl {' '.join(arguments)} did not produce valid JSON")
+    return document
+
+
+def _ios_app_process_tokens(config):
+    """Resolve the installed bundle to stable strings exposed by process-list JSON."""
+    bundle_id = str(config.bundle_id).strip()
+    tokens = {bundle_id.lower()}
+    applications = _devicectl_json(config, "device", "info", "apps")
+    for item in _json_objects(applications):
+        rendered = json.dumps(item, ensure_ascii=False).lower()
+        if bundle_id.lower() not in rendered:
+            continue
+        for key, value in item.items():
+            if not isinstance(value, str):
+                continue
+            normalized_key = str(key).lower()
+            if not any(part in normalized_key for part in ("name", "identifier", "executable", "url", "path")):
+                continue
+            decoded = value.replace("%20", " ").rstrip("/")
+            tokens.add(decoded.lower())
+            tokens.add(decoded.rsplit("/", 1)[-1].removesuffix(".app").lower())
+    return tuple(sorted(token for token in tokens if len(token) >= 3))
+
+
+def _ios_app_pid(config, process_tokens):
+    processes = _devicectl_json(config, "device", "info", "processes")
+    matches = set()
+    for item in _json_objects(processes):
+        pid = next((item.get(key) for key in ("processIdentifier", "pid", "processID") if key in item), None)
+        if isinstance(pid, str) and pid.isdigit():
+            pid = int(pid)
+        if type(pid) is not int or pid <= 0:
+            continue
+        rendered = json.dumps(item, ensure_ascii=False).lower()
+        if any(token in rendered for token in process_tokens):
+            matches.add(pid)
+    if len(matches) > 1:
+        raise CaptureError(f"devicectl returned multiple matching App PIDs: {sorted(matches)}")
+    return next(iter(matches), None)
+
+
+def _terminate_app(config, process_tokens, terminated_pid):
+    requested_at = datetime.now().astimezone().isoformat()
     _run(["xcrun", "devicectl", "device", "process", "terminate",
           "--device", config.udid, config.bundle_id], check=False)
+    deadline = time.monotonic() + 10
+    confirmed = False
+    probe_error = None
+    while time.monotonic() < deadline:
+        try:
+            current_pid = _ios_app_pid(config, process_tokens)
+        except Exception as exc:
+            probe_error = f"{type(exc).__name__}: {exc}"
+            break
+        if current_pid is None:
+            confirmed = True
+            break
+        time.sleep(.5)
     time.sleep(2)
+    return {
+        "termination_requested_at": requested_at,
+        "terminated_pid": terminated_pid,
+        "terminated_pid_confirmed": confirmed,
+        "pid_probe_error": probe_error,
+    }
 
 
 def run_lifecycle_round(config):
     """Execute R3 as one causal sequence and compare values across captures."""
     folders = []
+    process_tokens = ()
+    process_probe_error = None
+    try:
+        process_tokens = _ios_app_process_tokens(config)
+    except Exception as exc:
+        process_probe_error = f"{type(exc).__name__}: {exc}"
+
+    def probe_pid():
+        nonlocal process_probe_error
+        if not process_tokens:
+            return None
+        try:
+            return _ios_app_pid(config, process_tokens)
+        except Exception as exc:
+            process_probe_error = f"{type(exc).__name__}: {exc}"
+            return None
+
     try:
         first = capture(config, "LIFECYCLE-START")
         folders.append(first)
+        first_pid = probe_pid()
         time.sleep(10)
         continuous = capture(config, "LIFECYCLE-CONTINUOUS")
         folders.append(continuous)
+        continuous_pid = probe_pid()
         _perform_background_resume(config)
         background = capture(config, "LIFECYCLE-BACKGROUND")
         folders.append(background)
-        _terminate_app(config)
+        background_pid = probe_pid()
+        termination = _terminate_app(config, process_tokens, background_pid) if process_tokens else {
+            "termination_requested_at": datetime.now().astimezone().isoformat(),
+            "terminated_pid": background_pid,
+            "terminated_pid_confirmed": False,
+            "pid_probe_error": process_probe_error or "iOS process identity tokens were unavailable",
+        }
+        if not process_tokens:
+            _run(["xcrun", "devicectl", "device", "process", "terminate",
+                  "--device", config.udid, config.bundle_id], check=False)
+            time.sleep(2)
         cold = capture(config, "LIFECYCLE-TERMINATED")
         folders.append(cold)
+        cold_pid = probe_pid()
     except Exception as exc:
         failed_folder = getattr(exc, "evidence_folder", None)
         if failed_folder:
@@ -1961,34 +2073,132 @@ def run_lifecycle_round(config):
     background_session, cold_session = number(2, "session_duration"), number(3, "session_duration")
     init_values = [number(index, "app_init_time") for index in range(4)]
     duration_values = [number(index, "app_duration") for index in range(4)]
+    pids = [first_pid, continuous_pid, background_pid, cold_pid]
+    steps = [
+        {
+            "step": index + 1,
+            "label": label,
+            "capture": str(folders[index]),
+            "pid": pids[index],
+            "session_duration": number(index, "session_duration"),
+            "app_init_time": init_values[index],
+            "app_duration": duration_values[index],
+        }
+        for index, label in enumerate(("cold-start", "continuous", "after-background", "after-termination"))
+    ]
+    termination_process_proven = (
+        type(background_pid) is int and type(cold_pid) is int and background_pid != cold_pid
+    )
+    termination_values_valid = (
+        type(background_session) is int and background_session >= 0
+        and type(cold_session) is int and cold_session >= 0
+    )
+    steady_process_proven = all(type(pid) is int for pid in pids[:3]) and len(set(pids[:3])) == 1
+    continuous_process_proven = (
+        type(first_pid) is int and type(continuous_pid) is int and first_pid == continuous_pid
+    )
+    background_process_proven = (
+        type(continuous_pid) is int and type(background_pid) is int and continuous_pid == background_pid
+    )
+    restart_process_proven = (
+        steady_process_proven and type(cold_pid) is int and cold_pid != background_pid
+    )
+    init_values_valid = all(type(value) is int and value > 0 for value in init_values)
     checks = {
         "session-duration-continuous": {
-            "executed": True, "values": [first_session, continuous_session],
-            "passed": first_session is not None and continuous_session is not None and continuous_session > first_session,
-            "reason": "Continuous foreground session_duration must increase.",
+            "executed": True, "values": [first_session, continuous_session], "pids": pids,
+            "pid_probe_error": process_probe_error,
+            "process_identity_proven": continuous_process_proven,
+            "passed": (
+                continuous_process_proven
+                and type(first_session) is int and first_session >= 0
+                and type(continuous_session) is int and continuous_session >= 0
+                and continuous_session > first_session
+            ),
+            "reason": (
+                "Session duration increases while the same App process remains alive."
+                if continuous_process_proven and type(first_session) is int and type(continuous_session) is int and continuous_session > first_session else
+                "FAILED: session_duration did not increase within the proven same App process."
+                if continuous_process_proven else
+                "The continuous-session comparison requires one independently captured PID for Requests 1 and 2."
+            ),
         },
         "session-duration-background": {
-            "executed": True, "values": [continuous_session, background_session],
-            "passed": continuous_session is not None and background_session is not None and background_session > continuous_session,
-            "reason": "session_duration must continue after Home and resume.",
+            "executed": True, "values": [continuous_session, background_session], "pids": pids,
+            "pid_probe_error": process_probe_error,
+            "process_identity_proven": background_process_proven,
+            "passed": (
+                background_process_proven
+                and type(continuous_session) is int and continuous_session >= 0
+                and type(background_session) is int and background_session >= 0
+                and background_session > continuous_session
+            ),
+            "reason": (
+                "Session duration increases while the same App process remains alive."
+                if background_process_proven and type(continuous_session) is int and type(background_session) is int and background_session > continuous_session else
+                "FAILED: session_duration did not increase within the proven same App process."
+                if background_process_proven else
+                "The background/resume comparison requires one independently captured PID for Requests 2 and 3."
+            ),
         },
         "session-duration-termination": {
             "executed": True, "values": [background_session, cold_session],
-            "passed": background_session is not None and cold_session is not None and cold_session < background_session,
-            "reason": "session_duration must reset after process termination.",
+            "before_ms": background_session, "after_ms": cold_session,
+            "before_pid": background_pid, "after_pid": cold_pid,
+            "immediate_pid_exit_observed": bool(termination.get("terminated_pid_confirmed")),
+            "pid_probe_error": termination.get("pid_probe_error") or process_probe_error,
+            "process_identity_proven": termination_process_proven,
+            "passed": termination_process_proven and termination_values_valid and cold_session < background_session,
+            "reason": (
+                "Session duration resets after the old App process exits and a new process starts."
+                if termination_process_proven and termination_values_valid and cold_session < background_session else
+                "FAILED: session_duration did not reset after a proven App process restart."
+                if termination_process_proven and termination_values_valid else
+                "The termination-dependent comparison requires distinct, independently captured before/after App PIDs."
+            ),
         },
         "app-initialization-time": {
             "executed": True, "values": init_values,
-            "passed": all(value is not None for value in init_values) and len(set(init_values[:3])) == 1 and init_values[3] != init_values[2],
-            "reason": "app_init_time must remain stable in one process and renew after termination.",
+            "pids": pids,
+            "steady_process_proven": steady_process_proven,
+            "restart_process_proven": restart_process_proven,
+            "pid_probe_error": process_probe_error,
+            "passed": (
+                restart_process_proven and init_values_valid
+                and len(set(init_values[:3])) == 1 and init_values[3] > init_values[2]
+            ),
+            "reason": (
+                "app_init_time remains stable in one process and renews after a proven process restart."
+                if restart_process_proven and init_values_valid and len(set(init_values[:3])) == 1 and init_values[3] > init_values[2] else
+                "FAILED: app_init_time was not stable in one process or did not renew after a proven process restart."
+                if restart_process_proven and init_values_valid else
+                "The app-initialization-time comparison requires one PID for Requests 1–3 and a new PID for Request 4."
+            ),
         },
         "app-duration-today": {
-            "executed": True, "values": duration_values,
-            "passed": all(value is not None for value in duration_values) and duration_values == sorted(duration_values),
-            "reason": "app_duration must be monotonic across foreground, background and process restart.",
+            "executed": True, "values": duration_values, "pids": pids,
+            "steady_process_proven": steady_process_proven,
+            "restart_process_proven": restart_process_proven,
+            "pid_probe_error": process_probe_error,
+            "passed": (
+                restart_process_proven
+                and all(type(value) is int and value >= 0 for value in duration_values)
+                and all(before <= after for before, after in zip(duration_values, duration_values[1:]))
+            ),
+            "reason": (
+                "Today's foreground usage remains monotonic across background and a proven process restart."
+                if restart_process_proven and all(type(value) is int and value >= 0 for value in duration_values) and all(before <= after for before, after in zip(duration_values, duration_values[1:])) else
+                "FAILED: app_duration decreased during the proven same-day lifecycle sequence."
+                if restart_process_proven else
+                "The app-duration comparison requires one PID for Requests 1–3 and a new PID for Request 4."
+            ),
         },
     }
-    sequence = {"platform": "ios", "captures": [str(folder) for folder in folders], **checks}
+    sequence = {
+        "platform": "ios", "captures": [str(folder) for folder in folders],
+        "process_tokens": list(process_tokens), "process_probe_error": process_probe_error,
+        "termination": termination, "steps": steps, **checks,
+    }
     result_folder = Path(folders[-1])
     (result_folder / "ios-lifecycle-sequence.json").write_text(json.dumps(sequence, ensure_ascii=False, indent=2) + "\n")
     rows = [TC_DEFINITIONS[key].validate(result_folder) for key in ROUND_DEFINITIONS["R3"].testcase_keys]

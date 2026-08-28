@@ -985,6 +985,211 @@ def _lifecycle_validator(key, title, rule):
     return validate
 
 
+def _lifecycle_pids(folder, value):
+    pids = value.get("pids") if isinstance(value.get("pids"), list) else []
+    if pids:
+        return pids
+    sequence = _read(folder, "ios-lifecycle-sequence.json", {}) or {}
+    steps = sequence.get("steps") if isinstance(sequence.get("steps"), list) else []
+    return [step.get("pid") for step in steps if isinstance(step, dict)]
+
+
+def _lifecycle_blocked(key, title, expected, reason, actual):
+    row = _blocked(key, title, reason, actual, "ios-lifecycle-sequence.json")
+    row["expected"] = expected
+    return row
+
+
+def _validate_session_duration_increase(folder, key, title, pid_indexes):
+    expected = {"relation": "after > before", "process_requirement": "same PID"}
+    value = _lifecycle_value(folder, key)
+    if not isinstance(value, dict) or not value.get("executed"):
+        return _lifecycle_blocked(
+            key, title, expected,
+            "The required independent iOS lifecycle sequence was not executed.", value,
+        )
+    values = value.get("values") if isinstance(value.get("values"), list) else []
+    all_pids = _lifecycle_pids(folder, value)
+    pair_pids = (
+        [all_pids[index] for index in pid_indexes]
+        if len(all_pids) > max(pid_indexes) else []
+    )
+    before_ms = values[0] if len(values) >= 1 else None
+    after_ms = values[1] if len(values) >= 2 else None
+    actual = {
+        "before_ms": before_ms,
+        "after_ms": after_ms,
+        "before_pid": pair_pids[0] if len(pair_pids) == 2 else None,
+        "after_pid": pair_pids[1] if len(pair_pids) == 2 else None,
+        "pid_probe_error": value.get("pid_probe_error"),
+    }
+    same_process_proven = (
+        len(pair_pids) == 2
+        and all(type(pid) is int for pid in pair_pids)
+        and pair_pids[0] == pair_pids[1]
+    )
+    if not same_process_proven:
+        return _lifecycle_blocked(
+            key, title, expected,
+            "R3 did not prove that both requests used the same iOS App PID; the same-process session comparison was not executed.",
+            actual,
+        )
+    values_valid = (
+        type(before_ms) is int and before_ms >= 0
+        and type(after_ms) is int and after_ms >= 0
+    )
+    passed = values_valid and after_ms > before_ms
+    return _row(
+        key, title,
+        expected,
+        actual, passed, f"{key}-evidence.png",
+        "Session duration increases while the same App process remains alive." if passed else
+        "FAILED: session_duration did not increase within the proven same App process.",
+    )
+
+
+def validate_session_duration_continuous(folder):
+    return _validate_session_duration_increase(
+        folder, "session-duration-continuous",
+        "Session Duration — Continuous App Session", (0, 1),
+    )
+
+
+def validate_session_duration_background(folder):
+    return _validate_session_duration_increase(
+        folder, "session-duration-background",
+        "Session Duration — Resume from Background", (1, 2),
+    )
+
+
+def validate_session_duration_termination(folder):
+    key = "session-duration-termination"
+    title = "Session Duration — Reset after Termination"
+    expected = {"relation": "after < before", "process_requirement": "new PID"}
+    value = _lifecycle_value(folder, key)
+    if not isinstance(value, dict) or not value.get("executed"):
+        return _lifecycle_blocked(
+            key, title, expected,
+            "The required independent iOS lifecycle sequence was not executed.", value,
+        )
+    pids = _lifecycle_pids(folder, value)
+    before_pid = value.get("before_pid", pids[2] if len(pids) == 4 else None)
+    after_pid = value.get("after_pid", pids[3] if len(pids) == 4 else None)
+    legacy_values = value.get("values") if isinstance(value.get("values"), list) else []
+    before_ms = value.get("before_ms", legacy_values[0] if len(legacy_values) >= 1 else None)
+    after_ms = value.get("after_ms", legacy_values[1] if len(legacy_values) >= 2 else None)
+    actual = {
+        "before_ms": before_ms,
+        "after_ms": after_ms,
+        "before_pid": before_pid,
+        "after_pid": after_pid,
+        "immediate_pid_exit_observed": bool(value.get("immediate_pid_exit_observed")),
+        "pid_probe_error": value.get("pid_probe_error"),
+    }
+    if type(before_pid) is not int or type(after_pid) is not int or before_pid == after_pid:
+        return _lifecycle_blocked(
+            key, title, expected,
+            "R3 termination setup did not prove that the old iOS App process exited and Request 4 used a new PID; the termination-dependent comparison was not executed.",
+            actual,
+        )
+    values_valid = (
+        type(before_ms) is int and before_ms >= 0
+        and type(after_ms) is int and after_ms >= 0
+    )
+    passed = values_valid and after_ms < before_ms
+    return _row(
+        key, title,
+        expected,
+        actual, passed, "session-duration-termination-evidence.png",
+        "Session duration resets after the old App process exits and a new process starts." if passed else
+        "FAILED: session_duration did not reset after a proven App process restart.",
+    )
+
+
+def validate_app_initialization_time(folder):
+    key = "app-initialization-time"
+    title = "App Initialization Time"
+    expected = {"requests_1_to_3": "same timestamp and PID", "request_4": "newer timestamp and new PID"}
+    value = _lifecycle_value(folder, key)
+    if not isinstance(value, dict) or not value.get("executed"):
+        return _lifecycle_blocked(
+            key, title, expected,
+            "The required independent iOS lifecycle sequence was not executed.", value,
+        )
+    values = value.get("values") if isinstance(value.get("values"), list) else []
+    pids = _lifecycle_pids(folder, value)
+    actual = {
+        "values": values,
+        "pids": pids,
+        "stable_app_init_time": values[0] if values else None,
+        "restarted_app_init_time": values[3] if len(values) == 4 else None,
+        "pid_probe_error": value.get("pid_probe_error"),
+    }
+    process_proven = (
+        len(pids) == 4
+        and all(type(pid) is int for pid in pids)
+        and len(set(pids[:3])) == 1
+        and pids[3] != pids[2]
+    )
+    if not process_proven:
+        return _lifecycle_blocked(
+            key, title, expected,
+            "R3 did not prove that Requests 1–3 used one iOS App PID and Request 4 used a new PID; the process-scoped initialization comparison was not executed.",
+            actual,
+        )
+    values_valid = len(values) == 4 and all(type(item) is int and item > 0 for item in values)
+    passed = values_valid and len(set(values[:3])) == 1 and values[3] > values[2]
+    return _row(
+        key, title,
+        expected,
+        actual, passed, "app-initialization-time-evidence.png",
+        "app_init_time remains stable in one process and renews after a proven process restart." if passed else
+        "FAILED: app_init_time was not stable in one process or did not renew after a proven process restart.",
+    )
+
+
+def validate_app_duration_today(folder):
+    key = "app-duration-today"
+    title = "Total App Usage Time Today"
+    expected = {"unit": "milliseconds", "requests_1_to_4": "monotonic non-decreasing", "restart_behavior": "must persist"}
+    value = _lifecycle_value(folder, key)
+    if not isinstance(value, dict) or not value.get("executed"):
+        return _lifecycle_blocked(
+            key, title, expected,
+            "The required independent iOS lifecycle sequence was not executed.", value,
+        )
+    values = value.get("values") if isinstance(value.get("values"), list) else []
+    pids = _lifecycle_pids(folder, value)
+    actual = {
+        "before_restart_ms": values[2] if len(values) == 4 else None,
+        "after_restart_ms": values[3] if len(values) == 4 else None,
+        "values": values,
+        "pids": pids,
+        "pid_probe_error": value.get("pid_probe_error"),
+    }
+    process_sequence_proven = (
+        len(pids) == 4
+        and all(type(pid) is int for pid in pids)
+        and len(set(pids[:3])) == 1
+        and pids[3] != pids[2]
+    )
+    if not process_sequence_proven:
+        return _lifecycle_blocked(
+            key, title, expected,
+            "R3 did not prove one App PID through background/resume and a new PID after termination; the cross-process app-duration comparison was not executed.",
+            actual,
+        )
+    values_valid = len(values) == 4 and all(type(item) is int and item >= 0 for item in values)
+    passed = values_valid and all(before <= after for before, after in zip(values, values[1:]))
+    return _row(
+        key, title,
+        expected,
+        actual, passed, "app-duration-today-evidence.png",
+        "Today's foreground usage remains monotonic across background and a proven process restart." if passed else
+        "FAILED: app_duration decreased during the proven same-day lifecycle sequence.",
+    )
+
+
 def _platform_contract_pending(key, title, field):
     def validate(folder):
         req, ext = _wire(folder, field)
@@ -1100,11 +1305,11 @@ TC_DEFINITIONS = {
     "sdk-version": _tc("sdk-version", "SDK Version (sdk_version)", "Reviewer-supplied build answer.", validate_sdk_version, (IOS_REVIEW_CONTEXT, BID)),
     "impression-history": _tc("impression-history", "Impression History", "Second request carries the first proven impression.", validate_impression_history),
     "network-latency": _tc("network-latency", "Connection Latency", "SDK latency is available after initialization.", _wire_validator("network-latency", "Connection Latency", "device.ext.latency", _positive_number, "positive milliseconds")),
-    "session-duration-continuous": _tc("session-duration-continuous", "Session Duration — Continuous", "Duration increases in one foreground session.", _lifecycle_validator("session-duration-continuous", "Session Duration — Continuous", "second > first"), (IOS_LIFECYCLE_SEQUENCE, BID)),
-    "session-duration-background": _tc("session-duration-background", "Session Duration — Background", "Duration continues after background/resume.", _lifecycle_validator("session-duration-background", "Session Duration — Background", "resumed > previous"), (IOS_LIFECYCLE_SEQUENCE, BID)),
-    "session-duration-termination": _tc("session-duration-termination", "Session Duration — Termination", "Duration resets after termination.", _lifecycle_validator("session-duration-termination", "Session Duration — Termination", "cold < previous"), (IOS_LIFECYCLE_SEQUENCE, BID)),
-    "app-initialization-time": _tc("app-initialization-time", "App Initialization Time", "Init time is stable per process and renews after restart.", _lifecycle_validator("app-initialization-time", "App Initialization Time", "same process stable; new process renewed"), (IOS_LIFECYCLE_SEQUENCE, BID)),
-    "app-duration-today": _tc("app-duration-today", "Total App Usage Time Today", "Daily foreground duration persists and increases.", _lifecycle_validator("app-duration-today", "Total App Usage Time Today", "monotonic across restart"), (IOS_LIFECYCLE_SEQUENCE, BID)),
+    "session-duration-continuous": _tc("session-duration-continuous", "Session Duration — Continuous App Session", "Duration increases in the same foreground App process.", validate_session_duration_continuous, (IOS_LIFECYCLE_SEQUENCE, BID)),
+    "session-duration-background": _tc("session-duration-background", "Session Duration — Resume from Background", "Duration continues after background/resume in the same App process.", validate_session_duration_background, (IOS_LIFECYCLE_SEQUENCE, BID)),
+    "session-duration-termination": _tc("session-duration-termination", "Session Duration — Reset after Termination", "Duration resets only after a proven process restart.", validate_session_duration_termination, (IOS_LIFECYCLE_SEQUENCE, BID)),
+    "app-initialization-time": _tc("app-initialization-time", "App Initialization Time", "Init time is stable per process and renews after a proven restart.", validate_app_initialization_time, (IOS_LIFECYCLE_SEQUENCE, BID)),
+    "app-duration-today": _tc("app-duration-today", "Total App Usage Time Today", "Daily foreground duration persists monotonically across a proven process restart.", validate_app_duration_today, (IOS_LIFECYCLE_SEQUENCE, BID)),
     "advertising-id-opt-out": _tc("advertising-id-opt-out", "Advertising ID — Tracking Denied", "ATT denial suppresses usable IDFA.", validate_advertising_id_opt_out, (IOS_SETTINGS_STATE, BID)),
     "tracking-denied": _tc("tracking-denied", "Advertising Tracking Denied", "ATT denial produces LAT=1.", validate_tracking_denied, (IOS_SETTINGS_STATE, BID)),
 }

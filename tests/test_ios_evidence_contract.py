@@ -1501,6 +1501,170 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 self.assertIn(label, document)
             self.assertIn("[1,11]", document)
 
+    def test_ios_process_pid_is_resolved_from_devicectl_json(self):
+        config = MagicMock()
+        config.bundle_id = "com.appier.Random"
+        config.udid = "device"
+        applications = {
+            "result": {"apps": [{
+                "bundleIdentifier": "com.appier.Random",
+                "name": "AppierAdsSwiftSample",
+                "executable": "file:///private/AppierAdsSwiftSample.app/AppierAdsSwiftSample",
+            }]},
+        }
+        processes = {
+            "result": {"runningProcesses": [{
+                "processIdentifier": "4321",
+                "executable": "file:///private/AppierAdsSwiftSample.app/AppierAdsSwiftSample",
+            }]},
+        }
+        with patch.object(qa_ios, "_devicectl_json", side_effect=[applications, processes]):
+            tokens = qa_ios._ios_app_process_tokens(config)
+            pid = qa_ios._ios_app_pid(config, tokens)
+        self.assertEqual(pid, 4321)
+
+    def test_session_duration_increase_cases_require_same_pid_and_increase(self):
+        cases = (
+            ("session-duration-continuous", [111, 111, 111, 222], [1000, 2000], "PASS"),
+            ("session-duration-continuous", [111, 111, 111, 222], [2000, 1000], "FAILED"),
+            ("session-duration-continuous", [], [1000, 2000], "BLOCKED"),
+            ("session-duration-background", [111, 111, 111, 222], [2000, 3000], "PASS"),
+            ("session-duration-background", [111, 111, 333, 444], [2000, 3000], "BLOCKED"),
+        )
+        for key, pids, values, expected in cases:
+            with self.subTest(key=key, pids=pids, values=values), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                    key: {"executed": True, "pids": pids, "values": values},
+                }))
+                verdict = TC_DEFINITIONS[key].validate(folder)
+                self.assertEqual(verdict["status"], expected)
+
+    def test_session_duration_termination_passes_only_with_new_pid_and_reset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                "session-duration-termination": {
+                    "executed": True,
+                    "before_ms": 9000,
+                    "after_ms": 1200,
+                    "before_pid": 111,
+                    "after_pid": 222,
+                    "immediate_pid_exit_observed": True,
+                },
+            }))
+            verdict = TC_DEFINITIONS["session-duration-termination"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+            self.assertEqual(verdict["actual"]["before_pid"], 111)
+            self.assertEqual(verdict["actual"]["after_pid"], 222)
+
+    def test_session_duration_termination_blocks_without_new_pid_proof(self):
+        for before_pid, after_pid in ((None, None), (111, 111)):
+            with self.subTest(before_pid=before_pid, after_pid=after_pid), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                    "session-duration-termination": {
+                        "executed": True,
+                        "before_ms": 9000,
+                        "after_ms": 1200,
+                        "before_pid": before_pid,
+                        "after_pid": after_pid,
+                        "immediate_pid_exit_observed": False,
+                    },
+                }))
+                verdict = TC_DEFINITIONS["session-duration-termination"].validate(folder)
+                self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_session_duration_termination_preserves_legacy_values_when_pid_is_absent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                "session-duration-termination": {
+                    "executed": True,
+                    "values": [166370, 183897],
+                },
+            }))
+            verdict = TC_DEFINITIONS["session-duration-termination"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertEqual(verdict["actual"]["before_ms"], 166370)
+            self.assertEqual(verdict["actual"]["after_ms"], 183897)
+
+    def test_session_duration_termination_fails_after_proven_restart_without_reset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                "session-duration-termination": {
+                    "executed": True,
+                    "before_ms": 9000,
+                    "after_ms": 9500,
+                    "before_pid": 111,
+                    "after_pid": 222,
+                    "immediate_pid_exit_observed": True,
+                },
+            }))
+            verdict = TC_DEFINITIONS["session-duration-termination"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_app_initialization_time_passes_with_stable_then_new_process_value(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                "app-initialization-time": {
+                    "executed": True,
+                    "pids": [111, 111, 111, 222],
+                    "values": [1000, 1000, 1000, 2000],
+                },
+            }))
+            verdict = TC_DEFINITIONS["app-initialization-time"].validate(folder)
+            self.assertEqual(verdict["status"], "PASS")
+
+    def test_app_initialization_time_blocks_without_process_generation_proof(self):
+        for pids in ([None, None, None, None], [111, 111, 111, 111]):
+            with self.subTest(pids=pids), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                    "app-initialization-time": {
+                        "executed": True,
+                        "pids": pids,
+                        "values": [1000, 1000, 1000, 2000],
+                    },
+                }))
+                verdict = TC_DEFINITIONS["app-initialization-time"].validate(folder)
+                self.assertEqual(verdict["status"], "BLOCKED")
+
+    def test_app_initialization_time_fails_after_proven_restart_without_renewal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                "app-initialization-time": {
+                    "executed": True,
+                    "pids": [111, 111, 111, 222],
+                    "values": [1000, 1000, 1000, 1000],
+                },
+            }))
+            verdict = TC_DEFINITIONS["app-initialization-time"].validate(folder)
+            self.assertEqual(verdict["status"], "FAILED")
+
+    def test_app_duration_today_requires_proven_restart_and_monotonic_values(self):
+        cases = (
+            ([111, 111, 111, 222], [1000, 2000, 3000, 4000], "PASS"),
+            ([111, 111, 111, 222], [1000, 2000, 3000, 2500], "FAILED"),
+            ([], [1000, 2000, 3000, 4000], "BLOCKED"),
+            ([111, 111, 111, 111], [1000, 2000, 3000, 4000], "BLOCKED"),
+        )
+        for pids, values, expected in cases:
+            with self.subTest(pids=pids, values=values), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                (folder / "ios-lifecycle-sequence.json").write_text(json.dumps({
+                    "app-duration-today": {
+                        "executed": True,
+                        "pids": pids,
+                        "values": values,
+                    },
+                }))
+                verdict = TC_DEFINITIONS["app-duration-today"].validate(folder)
+                self.assertEqual(verdict["status"], expected)
+
     def test_aos_aligned_network_card_lists_each_decoded_transition(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

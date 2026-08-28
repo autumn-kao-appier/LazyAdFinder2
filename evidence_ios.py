@@ -1173,29 +1173,29 @@ IOS_AOS_ALIGNED_VISUAL_CASES = {
         "supporting_image": "screenshot.png",
     },
     "session-duration-continuous": {
-        "title": "Session Duration — Continuous", "round": "R3", "source": "Four-step lifecycle sequence",
+        "title": "Session Duration — Continuous App Session", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "session-duration-continuous-evidence.png", "sequence": "ios-lifecycle-sequence.json",
-        "scope": "Compare the start and continuous-foreground captures.",
+        "scope": "Require the same App PID, then compare the start and continuous-foreground captures.",
     },
     "session-duration-background": {
-        "title": "Session Duration — Background", "round": "R3", "source": "Four-step lifecycle sequence",
+        "title": "Session Duration — Resume from Background", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "session-duration-background-evidence.png", "sequence": "ios-lifecycle-sequence.json",
-        "scope": "Compare continuous foreground with Home/background/resume.",
+        "scope": "Require the same App PID, then compare continuous foreground with Home/background/resume.",
     },
     "session-duration-termination": {
-        "title": "Session Duration — Termination", "round": "R3", "source": "Four-step lifecycle sequence",
+        "title": "Session Duration — Reset after Termination", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "session-duration-termination-evidence.png", "sequence": "ios-lifecycle-sequence.json",
-        "scope": "Compare the resumed process with the cold capture after termination.",
+        "scope": "Require a new App PID, then compare the resumed process with the cold capture after termination.",
     },
     "app-initialization-time": {
         "title": "App Initialization Time", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "app-initialization-time-evidence.png", "sequence": "ios-lifecycle-sequence.json",
-        "scope": "The value must remain stable in one process and renew after termination.",
+        "scope": "Requests 1–3 must share one PID and stable init time; Request 4 must use a new PID and newer init time.",
     },
     "app-duration-today": {
         "title": "Total App Usage Time Today", "round": "R3", "source": "Four-step lifecycle sequence",
         "card": "app-duration-today-evidence.png", "sequence": "ios-lifecycle-sequence.json",
-        "scope": "The daily duration must remain monotonic across all lifecycle steps.",
+        "scope": "One PID must span Requests 1–3, Request 4 must use a new PID, and daily duration must remain monotonic.",
     },
 }
 
@@ -1252,7 +1252,33 @@ def _aligned_payload_rows(folder, key, metadata, verdict):
             sequence = {}
         check = sequence.get(key) if isinstance(sequence.get(key), dict) else {}
         if check:
-            rows.extend((("Sequence values", check.get("values")), ("Sequence rule", check.get("reason"))))
+            rows.append(("Sequence values", check.get("values")))
+            if key in {"session-duration-continuous", "session-duration-background"}:
+                rows.extend((
+                    ("Request PIDs", check.get("pids")),
+                    ("Same App process proven", check.get("process_identity_proven")),
+                    ("PID probe error", check.get("pid_probe_error")),
+                ))
+            elif key == "session-duration-termination":
+                rows.extend((
+                    ("Before / after PID", [check.get("before_pid"), check.get("after_pid")]),
+                    ("Old PID exit observed", check.get("immediate_pid_exit_observed")),
+                    ("PID probe error", check.get("pid_probe_error")),
+                ))
+            elif key == "app-initialization-time":
+                rows.extend((
+                    ("Request PIDs", check.get("pids")),
+                    ("Requests 1–3 same PID", check.get("steady_process_proven")),
+                    ("Request 4 new PID", check.get("restart_process_proven")),
+                    ("PID probe error", check.get("pid_probe_error")),
+                ))
+            elif key == "app-duration-today":
+                rows.extend((
+                    ("Request PIDs", check.get("pids")),
+                    ("Requests 1–3 same PID", check.get("steady_process_proven")),
+                    ("Request 4 new PID", check.get("restart_process_proven")),
+                    ("PID probe error", check.get("pid_probe_error")),
+                ))
         if sequence_name == "r4-network-sequence.json":
             for index, capture in enumerate(sequence.get("captures") or []):
                 capture_folder = Path(capture)

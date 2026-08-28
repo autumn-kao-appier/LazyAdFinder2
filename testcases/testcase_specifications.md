@@ -358,7 +358,12 @@ resolution 與 physical PPI。未收錄 ProductType、非直向、缺少可視�
 - R2 `impression-history`、`network-latency` 將同一次 Automation 的第一則曝光、第二包 Bid 與
   proxy event／probe verdict 整理成卡片；畫面是 supporting capture，因果答案仍來自原始事件檔。
 - R3 五條 lifecycle TC 各產一張卡，並列 START、CONTINUOUS、BACKGROUND、TERMINATED 四個 capture
-  及 `ios-lifecycle-sequence.json` 的 values/rule。原始各步 Bid 必須保留。
+  及 `ios-lifecycle-sequence.json` 的 values、每一步 PID 與 rule。Continuous 與 background/resume 都必須
+  先證明比較兩步使用同一 PID，再判 `session_duration` 遞增。Termination 需保存 Request 3／4 PID 與
+  舊 PID exit observation；PID 缺失或相同為 BLOCKED，新 PID 已證明但 duration 未 reset 才是 FAILED。
+  `app-initialization-time` 使用 PID 定義 process generation：Request 1～3 同 PID 且值相同，Request 4
+  新 PID 且值較大。`app-duration-today` 亦需相同 process sequence 前提，四值須單調不減並跨新 process
+  保存。所有 PID 前提未證明時均為 BLOCKED。原始各步 Bid 必須保留。
 - R4 六條 IPv6 TC 各產一張卡，並列 LAUNCH、WI-FI SWITCH、RECOVERY、DEBOUNCE、SLOW NETWORK
   最多五個 capture，以及每步 decoded IPv6／conntype。`r4-network-sequence.json` 與各步 bundle
   仍是可稽核原始來源；卡片不取代 Appier probe 契約。
