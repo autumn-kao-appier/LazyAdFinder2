@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 import evidence_ios
 import qa_ios
@@ -1760,6 +1760,65 @@ class IOSEvidenceContractTests(unittest.TestCase):
         with patch.object(qa_ios, "_tcp_listening", return_value=False):
             with self.assertRaisesRegex(qa_ios.CaptureError, "Charles is not listening"):
                 qa_ios.ensure_e2e_proxy_ready()
+
+    def test_shared_proxy_preflight_starts_repo_mitmdump_when_missing(self):
+        addon = str(Path(qa_ios.__file__).with_name("mitmdump_addon.py").resolve())
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(qa_ios, "MITMDUMP_LOG", Path(temporary) / "mitmdump.log"), \
+                patch.object(qa_ios, "_tcp_listening", side_effect=[True, False, True, True]), \
+                patch.object(
+                    qa_ios, "_listener_commands",
+                    side_effect=[["/Applications/Charles.app/Contents/MacOS/Charles"], [f"mitmdump -s {addon}"]],
+                ), patch.object(qa_ios.shutil, "which", return_value="/opt/homebrew/bin/mitmdump"), \
+                patch.object(qa_ios.subprocess, "Popen") as start:
+            qa_ios.ensure_proxy_ready()
+        start.assert_called_once_with(
+            ["/opt/homebrew/bin/mitmdump", "-s", addon, "--listen-port", "8081"],
+            cwd=Path(addon).parent,
+            stdout=ANY,
+            stderr=qa_ios.subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    def test_ios_automation_preflight_requires_device_appium_app_and_proxy(self):
+        config = MagicMock(udid="device-1", bundle_id="com.appier.Random")
+        with patch.object(qa_ios, "connected_udids", return_value=["device-1"]), \
+                patch.object(qa_ios, "_appium_ready", return_value=True), \
+                patch.object(qa_ios, "_bundle_installed", return_value=True), \
+                patch.object(qa_ios, "ensure_proxy_ready") as proxy:
+            qa_ios.ensure_ios_automation_ready(config)
+        proxy.assert_called_once_with()
+
+    def test_ios_automation_preflight_stops_before_proxy_when_appium_is_missing(self):
+        config = MagicMock(udid="device-1", bundle_id="com.appier.Random")
+        with patch.object(qa_ios, "connected_udids", return_value=["device-1"]), \
+                patch.object(qa_ios, "_appium_ready", return_value=False), \
+                patch.object(qa_ios, "_bundle_installed") as installed, \
+                patch.object(qa_ios, "ensure_proxy_ready") as proxy:
+            with self.assertRaisesRegex(qa_ios.CaptureError, "Appium is not ready"):
+                qa_ios.ensure_ios_automation_ready(config)
+        installed.assert_not_called()
+        proxy.assert_not_called()
+
+    def test_r1_main_runs_preflight_before_round_or_phone_interaction(self):
+        config = MagicMock(
+            udid="device-1", bundle_id="com.appier.Random", test_mode="standalone",
+            tab_name="Appier Direct", test_type="aibid", test_cid="cid", test_round="R1",
+        )
+        arguments = [
+            "round", "R1", "--bundle-id", "com.appier.Random",
+            "--test-mode", "standalone", "--test-type", "aibid",
+            "--test-cid", "cid", "--udid", "device-1",
+        ]
+        with patch.object(qa_ios, "config_from_args", return_value=config), \
+                patch.object(
+                    qa_ios, "ensure_ios_automation_ready",
+                    side_effect=qa_ios.CaptureError("preflight stopped"),
+                ) as preflight, patch.object(qa_ios, "run_round") as run:
+            with self.assertRaisesRegex(qa_ios.CaptureError, "preflight stopped"):
+                qa_ios.main(arguments)
+        preflight.assert_called_once_with(config)
+        run.assert_not_called()
 
     def test_e2e_cold_launch_terminates_before_reactivating_sample_app(self):
         driver = MagicMock()

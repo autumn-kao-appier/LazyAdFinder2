@@ -29,6 +29,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -1304,17 +1306,17 @@ def _listener_commands(port):
     return commands
 
 
-def ensure_e2e_proxy_ready():
+def ensure_proxy_ready():
     """Fail before UI actions unless the complete Charles→mitmdump path exists."""
     if not _tcp_listening("127.0.0.1", CHARLES_PORT):
-        raise CaptureError(f"E2E proxy preflight failed: Charles is not listening on :{CHARLES_PORT}")
+        raise CaptureError(f"iOS proxy preflight failed: Charles is not listening on :{CHARLES_PORT}")
     charles = _listener_commands(CHARLES_PORT)
     if not any("Charles.app/Contents/MacOS/Charles" in command for command in charles):
-        raise CaptureError(f"E2E proxy preflight failed: :{CHARLES_PORT} is not owned by Charles")
+        raise CaptureError(f"iOS proxy preflight failed: :{CHARLES_PORT} is not owned by Charles")
     if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
         executable = shutil.which("mitmdump")
         if not executable:
-            raise CaptureError("E2E proxy preflight failed: mitmdump is unavailable")
+            raise CaptureError("iOS proxy preflight failed: mitmdump is unavailable")
         addon = Path(__file__).with_name("mitmdump_addon.py").resolve()
         stream = MITMDUMP_LOG.open("a")
         try:
@@ -1329,11 +1331,66 @@ def ensure_e2e_proxy_ready():
         while time.monotonic() < deadline and not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
             time.sleep(.2)
     if not _tcp_listening("127.0.0.1", MITMDUMP_PORT):
-        raise CaptureError(f"E2E proxy preflight failed: mitmdump is not listening on :{MITMDUMP_PORT}")
+        raise CaptureError(f"iOS proxy preflight failed: mitmdump is not listening on :{MITMDUMP_PORT}")
     addon = str(Path(__file__).with_name("mitmdump_addon.py").resolve())
     if not any("mitmdump" in command and addon in command for command in _listener_commands(MITMDUMP_PORT)):
-        raise CaptureError("E2E proxy preflight failed: mitmdump is not using this repo's addon")
+        raise CaptureError("iOS proxy preflight failed: mitmdump is not using this repo's addon")
     print(f"[proxy preflight] READY: iPhone → Charles :{CHARLES_PORT} → mitmdump :{MITMDUMP_PORT}")
+
+
+def ensure_e2e_proxy_ready():
+    """Backward-compatible name for callers that only knew the E2E preflight."""
+    return ensure_proxy_ready()
+
+
+def _appium_ready():
+    try:
+        with urllib.request.urlopen(f"{APPIUM_URL}/status", timeout=2) as response:
+            document = json.loads(response.read())
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+    value = document.get("value") if isinstance(document, dict) else None
+    return bool(isinstance(value, dict) and value.get("ready") is True)
+
+
+def _bundle_installed(config):
+    applications = _devicectl_json(config, "device", "info", "apps")
+    expected = str(config.bundle_id).strip().lower()
+    for item in _json_objects(applications):
+        for key in ("bundleIdentifier", "bundleID", "bundleId", "identifier"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip().lower() == expected:
+                return True
+    return False
+
+
+def ensure_ios_automation_ready(config):
+    """Complete read-only gate shared by Signal, alternate-state, and E2E runs."""
+    devices = connected_udids()
+    if config.udid not in devices:
+        observed = ", ".join(devices) if devices else "none"
+        raise CaptureError(
+            f"iOS automation preflight failed: target device {config.udid!r} is not connected "
+            f"(observed: {observed})"
+        )
+    if not _appium_ready():
+        raise CaptureError(f"iOS automation preflight failed: Appium is not ready at {APPIUM_URL}")
+    try:
+        installed = _bundle_installed(config)
+    except Exception as exc:
+        raise CaptureError(
+            f"iOS automation preflight failed: installed App lookup failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if not installed:
+        raise CaptureError(
+            f"iOS automation preflight failed: Sample App {config.bundle_id!r} is not installed "
+            f"on {config.udid}"
+        )
+    ensure_proxy_ready()
+    print(
+        f"[automation preflight] READY: Appium · {config.udid} · "
+        f"{config.bundle_id} · proxy capture"
+    )
 
 
 def round_directory(config):
@@ -2902,8 +2959,10 @@ def main(argv=None):
     print(f"[cid]    {config.test_cid or '(any request)'}")
     print(f"[round]  {config.test_round}")
 
-    if args.command == "round" and args.name.strip().upper().startswith("E2E-"):
-        ensure_e2e_proxy_ready()
+    # Every capture path ultimately taps a placement and polls files written by
+    # this repository's mitmdump addon. Gate Signal/R1–R5/E2E before the first
+    # Settings capture, Appium session, or placement interaction.
+    ensure_ios_automation_ready(config)
 
     if args.command == "capture":
         capture(config, capture_name=args.capture_name)
