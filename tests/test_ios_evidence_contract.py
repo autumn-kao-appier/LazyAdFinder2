@@ -622,14 +622,39 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 evidence_ios, "_write_html_screenshot", side_effect=render,
             ):
                 evidence_ios.materialize_ios_system_context(folder)
+            root_card = (folder / "root-status-evidence.html").read_text()
+            self.assertIn("NO INDEPENDENT SCREEN", root_card)
+            self.assertIn("Extended device.ext.jailbreak", root_card)
             for key in (
                 "default-timezone", "default-language-iso", "default-language-bcp47",
                 "keyboard-languages", "connection-type", "carrier", "mcc-mnc", "vpn-status",
-                "emulator-detection",
+                "emulator-detection", "root-status",
             ):
                 self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "PASS", key)
-            for key in ("root-status", "precise-gps-latitude", "precise-gps-longitude", "connection-type-cellular"):
+            for key in ("precise-gps-latitude", "precise-gps-longitude", "connection-type-cellular"):
                 self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "BLOCKED", key)
+
+    def test_root_status_requires_strict_false_wire_value(self):
+        cases = (
+            (None, False, "PASS"),
+            (False, False, "PASS"),
+            (None, True, "FAILED"),
+            (None, 0, "FAILED"),
+            (True, False, "FAILED"),
+            (None, None, "FAILED"),
+        )
+        for request_value, extended_value, expected_status in cases:
+            with self.subTest(request=request_value, extended=extended_value):
+                with tempfile.TemporaryDirectory() as temporary:
+                    folder = Path(temporary)
+                    request_ext = {} if request_value is None else {"jailbreak": request_value}
+                    extended_ext = {} if extended_value is None else {"jailbreak": extended_value}
+                    (folder / "bid_decoded.json").write_text(json.dumps({
+                        "req": {"plaintext": {"device": {"ext": request_ext}}},
+                        "ext": {"plaintext": {"device": {"ext": extended_ext}}},
+                    }))
+                    verdict = TC_DEFINITIONS["root-status"].validate(folder)
+                    self.assertEqual(verdict["status"], expected_status)
 
     def test_review_context_materializer_keeps_unverifiable_values_visible_and_blocked(self):
         with tempfile.TemporaryDirectory() as temporary:

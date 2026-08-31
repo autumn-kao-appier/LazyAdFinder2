@@ -1191,11 +1191,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "保存實體 iPhone Settings／ProductType 背景；本輪沒有已 review 的 jailbreak integrity probe。",
-        "setup_en": "Preserve physical-iPhone Settings/ProductType context; this round has no reviewed jailbreak integrity probe.",
-        "expected": "BLOCKED；實體裝置背景不能獨立證明未 jailbreak，payload boolean 不可自證。",
-        "expected_en": "BLOCKED. Physical-device context cannot independently prove absence of jailbreak, and the payload boolean cannot prove itself.",
-        "evidence": "root-status-evidence.png、ios-system-context.json、bid_decoded.json、verdicts.json"
+        "setup": "在一般非越獄的實體 iPhone 執行 R1，解碼 Request 與 Extended Bid；ProductType 僅作執行環境背景。",
+        "setup_en": "Run R1 on the normal non-jailbroken physical iPhone and decode the Request and Extended Bid. ProductType is execution-context information only.",
+        "expected": "Extended device.ext.jailbreak 必須是 JSON boolean false；Request 可不送此欄位，若有則也必須是 false。",
+        "expected_en": "Extended device.ext.jailbreak must be JSON boolean false. Request may omit the field; when present, it must also be false.",
+        "evidence": "root-status-evidence.png、ios-system-context.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "此 TC 如實驗證 SDK 送出的 jailbreak 欄位，不把 ProductType 或 payload 描述成獨立的裝置完整性鑑識。",
+        "evidence_note_en": "This testcase reports and validates the SDK jailbreak wire value; it does not present ProductType or the payload as an independent device-integrity attestation."
       }
     },
     {

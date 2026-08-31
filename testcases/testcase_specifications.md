@@ -435,8 +435,8 @@ Keyboards、Wi-Fi、Cellular、VPN & Device Management、Location Services 七�
 
 iOS 對應規則：
 
-- `root-status` 保留卡片但 BLOCKED。原生 Settings 與 physical ProductType 無法證明「沒有 jailbreak」；
-  要 PASS 必須另有已 review 的 integrity probe。
+- `root-status` 驗證 SDK wire contract，不宣稱完成獨立裝置完整性鑑識。一般非越獄實體 iPhone 的
+  Extended `device.ext.jailbreak` 必須是 JSON boolean `false`；Request 可缺省，若存在也必須為 `false`。
 - `emulator-detection` 以 libimobiledevice 可取得的 iPhone／iPad／iPod ProductType 證明是實機；
   req/ext `device.ext.emulator` 必須為 JSON boolean `false`。
 - `connection-type` 以 Settings > Wi-Fi 的已勾選網路作為 expected=`wifi`；`carrier`／`mcc-mnc`

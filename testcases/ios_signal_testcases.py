@@ -1,9 +1,10 @@
 """iOS-owned Signal TestCases, Round membership, and comparisons.
 
 The keys intentionally match the shared Catalog, but no Android validator or
-Round definition is imported.  A wire value is never enough to prove a device
-state: validators either compare it with independent iOS Evidence or return an
-honest BLOCKED result until that Evidence is available.
+Round definition is imported.  Device-state validators compare the wire value
+with independent iOS Evidence when the testcase claims the state itself.  A
+testcase may instead explicitly validate only the SDK's wire contract, without
+claiming that the payload is an independent integrity attestation.
 """
 
 import json
@@ -441,7 +442,15 @@ def validate_keyboard_languages(folder):
 
 def validate_root_status(folder):
     req, ext = _wire(folder, "device.ext.jailbreak"); info = _system_context(folder)
-    return _blocked("root-status", "Jailbreak Status", "Native Settings and a physical ProductType do not independently prove absence of jailbreak; a reviewed integrity probe is required.", {"product_type": info.get("product_type"), "request": req, "extended": ext}, "root-status-evidence.png")
+    actual = {"product_type": info.get("product_type"), "request": req, "extended": ext}
+    passed = ext is False and (req is None or req is False)
+    return _row(
+        "root-status", "Jailbreak Status", False, actual, passed,
+        "root-status-evidence.png",
+        "Extended device.ext.jailbreak is JSON boolean false; Request is absent or also false."
+        if passed else
+        "FAILED: device.ext.jailbreak must be JSON boolean false in Extended and must be absent or false in Request.",
+    )
 
 
 def validate_emulator_detection(folder):
@@ -1285,7 +1294,7 @@ TC_DEFINITIONS = {
     "default-language-iso": _tc("default-language-iso", "App Language Code", "Native Language & Region and Locale establish the language code.", validate_language_iso, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "default-language-bcp47": _tc("default-language-bcp47", "App Language and Region Tag", "Native Language & Region and Locale establish the BCP 47 tag.", validate_language_bcp47, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "keyboard-languages": _tc("keyboard-languages", "Installed Keyboard Languages", "Visible keyboard rows map to the ordered payload tags.", validate_keyboard_languages, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
-    "root-status": _tc("root-status", "Jailbreak Status", "Absence of jailbreak requires a reviewed independent integrity probe.", validate_root_status, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
+    "root-status": _tc("root-status", "Jailbreak Status", "Validate the SDK jailbreak wire value as false without treating it as an independent integrity attestation.", validate_root_status, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "emulator-detection": _tc("emulator-detection", "Simulator Detection", "libimobiledevice ProductType establishes a physical device.", validate_emulator_detection, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "connection-type": _tc("connection-type", "Connection Type", "A checked native Wi-Fi network establishes the transport.", validate_connection_type, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "connection-type-cellular": _tc("connection-type-cellular", "Connection Type (Cellular)", "Requires an active SIM and cellular-data scenario.", validate_connection_type_cellular, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),

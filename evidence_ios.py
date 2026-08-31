@@ -1120,6 +1120,12 @@ def materialize_ios_r5_visual_evidence(folder):
 
 
 IOS_AOS_ALIGNED_VISUAL_CASES = {
+    "root-status": {
+        "title": "Jailbreak Status", "round": "R1",
+        "source": "Decoded Bid Request · SDK wire-value contract", "path": "device.ext.jailbreak",
+        "card": "root-status-evidence.png",
+        "scope": "Report the SDK jailbreak boolean as captured. No unrelated Settings screenshot or independent integrity attestation is claimed.",
+    },
     "app-set-id": {
         "title": "Identifier for Vendor (IDFV)", "round": "R1",
         "source": "Decoded Bid Request · payload-only contract", "path": "device.ifv",
@@ -1454,7 +1460,24 @@ def materialize_ios_system_context(folder):
         values = actual[actual_key]
         render(key, title, "location", (("Location Services page", "captured"), ("Request payload", values["request"]), ("Extended payload", values["extended"])), "Location Services proves permission context but does not expose exact coordinates; a Sample App coordinate QA surface is still required.", "BLOCKED", "Settings > Location Services")
 
-    render("root-status", "Jailbreak Status", "cellular", (("Physical ProductType", info.get("product_type")), ("Request jailbreak", actual["jailbreak"]["request"]), ("Extended jailbreak", actual["jailbreak"]["extended"])), "Native Settings and ProductType prove a real device but cannot independently prove absence of jailbreak; a reviewed integrity probe is required.", "BLOCKED", "Physical iPhone context")
+    jailbreak_values = actual["jailbreak"]
+    jailbreak_pass = jailbreak_values["extended"] is False and (jailbreak_values["request"] is None or jailbreak_values["request"] is False)
+    jailbreak_reason = (
+        "Extended device.ext.jailbreak is JSON boolean false; Request is absent or also false."
+        if jailbreak_pass else
+        "FAILED: device.ext.jailbreak must be JSON boolean false in Extended and must be absent or false in Request."
+    )
+    jailbreak_verdict = {
+        "status": "PASS" if jailbreak_pass else "FAILED", "expected": False,
+        "actual": {"request": jailbreak_values["request"], "extended": jailbreak_values["extended"]},
+        "reason": jailbreak_reason,
+    }
+    jailbreak_document = folder / "root-status-evidence.html"
+    jailbreak_card = folder / "root-status-evidence.png"
+    jailbreak_document.write_text(_aligned_visual_evidence_document(
+        folder, "root-status", IOS_AOS_ALIGNED_VISUAL_CASES["root-status"], jailbreak_verdict,
+    ), encoding="utf-8")
+    _write_html_screenshot(jailbreak_document, jailbreak_card)
 
     emulator_values = actual["emulator"]
     physical = str(info.get("product_type") or "").startswith(("iPhone", "iPad", "iPod"))
