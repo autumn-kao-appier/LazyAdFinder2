@@ -960,7 +960,11 @@ def validate_advertising_id(folder):
 def validate_tracking_denied(folder):
     ia_req, ia_ext = _wire(folder, "device.ia")
     lat_req, lat_ext = _wire(folder, "device.lat")
-    att = _get(_read(folder, "ios-settings-state.json", {}) or {}, "att.authorization")
+    state = _read(folder, "ios-settings-state.json", {}) or {}
+    operations = state.get("operations") if isinstance(state, dict) else None
+    if isinstance(operations, dict):
+        state = operations.get("tracking-denied") or operations.get("advertising-id-opt-out") or {}
+    att = _get(state, "att.authorization")
     ia = ia_ext if ia_ext is not None else ia_req
     lat = lat_ext if lat_ext is not None else lat_req
     if not att:
@@ -1327,9 +1331,12 @@ def _alternate(key, title, path, predicate, expected, *, allow_missing=False):
         req, ext = _wire(folder, path)
         values = [value for value in (req, ext) if value is not None]
         wire_ok = (allow_missing and not values) or (bool(values) and all(predicate(value) for value in values) and _same(req, ext))
-        state = _read(folder, "ios-settings-state.json", {}) or {}
+        state_document = _read(folder, "ios-settings-state.json", {}) or {}
+        operations = state_document.get("operations") if isinstance(state_document, dict) else None
+        state = operations.get(key, {}) if isinstance(operations, dict) else state_document
+        mutated_screenshot = _get(state, "stages.mutated.screenshot") or "ios-settings-state.png"
         visible = bool((state.get("confirmed_by_operator") or state.get("automation")) and state.get("screenshot_saved")
-                       and (Path(folder) / "ios-settings-state.png").is_file())
+                       and (Path(folder) / mutated_screenshot).is_file())
         passed = visible and wire_ok
         return _row(
             key, title, {"visible_native_settings_state": True, "wire_rule": expected},
@@ -1374,22 +1381,35 @@ ROUND_DEFINITIONS = {
         "session-duration-termination", "app-initialization-time", "app-duration-today",
     ), strategy="lifecycle-sequence"),
     "R5": Round("ALTERNATE-STATE", (
-        "dark-mode-enabled", "font-scale-maximum", "screen-brightness-minimum",
-        "output-volume-muted", "battery-saver-enabled", "screen-brightness-maximum",
-        "output-volume-maximum", "timezone-changed", "location-permission-denied",
+        "dark-mode-enabled", "font-scale-maximum", "screen-brightness-maximum",
+        "output-volume-maximum", "screen-brightness-minimum", "output-volume-muted",
+        "battery-saver-enabled", "timezone-changed", "location-permission-denied",
         "advertising-id-opt-out", "tracking-denied",
     ), strategy="r5-scenarios"),
 }
 
 R5_SCENARIOS = (
-    ("DISPLAY-DARK", ("dark-mode-enabled",)),
-    ("TEXT-MAX", ("font-scale-maximum",)),
-    ("DISPLAY-LOW", ("screen-brightness-minimum",)),
-    ("AUDIO-MUTED", ("output-volume-muted",)),
-    ("LOW-POWER", ("battery-saver-enabled",)),
-    ("DISPLAY-HIGH", ("screen-brightness-maximum",)),
-    ("AUDIO-HIGH", ("output-volume-maximum",)),
-    ("TIMEZONE-ALT", ("timezone-changed",)),
-    ("LOCATION-DENIED", ("location-permission-denied",)),
+    ("DISPLAY-HIGH", (
+        "dark-mode-enabled", "font-scale-maximum",
+        "screen-brightness-maximum", "output-volume-maximum",
+    )),
+    ("DISPLAY-LOW", ("screen-brightness-minimum", "output-volume-muted")),
+    ("SYSTEM-ALT", (
+        "battery-saver-enabled", "timezone-changed", "location-permission-denied",
+    )),
     ("PRIVACY-DENIED", ("advertising-id-opt-out", "tracking-denied")),
 )
+
+R5_OPERATION_LABELS = {
+    "dark-mode-enabled": "DISPLAY-DARK",
+    "font-scale-maximum": "TEXT-MAX",
+    "screen-brightness-minimum": "DISPLAY-LOW",
+    "output-volume-muted": "AUDIO-MUTED",
+    "battery-saver-enabled": "LOW-POWER",
+    "screen-brightness-maximum": "DISPLAY-HIGH",
+    "output-volume-maximum": "AUDIO-HIGH",
+    "timezone-changed": "TIMEZONE-ALT",
+    "location-permission-denied": "LOCATION-DENIED",
+    "advertising-id-opt-out": "PRIVACY-DENIED",
+    "tracking-denied": "PRIVACY-DENIED",
+}

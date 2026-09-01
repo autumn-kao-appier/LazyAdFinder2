@@ -216,6 +216,25 @@ def main(argv=None):
             print("[suite] cancelled before execution")
             return 2
 
+    runnable = next((
+        capture_config for plan, capture_config, _mode in plans
+        if any(scenario.decision == "RUN" for scenario in plan.scenarios)
+    ), None)
+    if runnable is not None:
+        required_packages = ()
+        if config["target_app_package"] and any(
+            plan.round_name.startswith("E2E-")
+            and any(scenario.decision == "RUN" for scenario in plan.scenarios)
+            for plan, _capture_config, _mode in plans
+        ):
+            required_packages = (config["target_app_package"],)
+        try:
+            qa_aos.ensure_aos_automation_ready(runnable, required_packages)
+        except (qa_aos.CaptureError, OSError, subprocess.SubprocessError) as exc:
+            print(f"[suite preflight] FAILED: {exc}", file=sys.stderr)
+            return 2
+        print("[suite preflight] READY: complete selected AOS scope")
+
     environment.update({
         "TEST_RUN_ID": run_id,
         "TEST_RUN_STARTED_AT": started.isoformat(),

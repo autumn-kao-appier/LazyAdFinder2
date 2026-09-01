@@ -50,7 +50,7 @@ from testcases.ios_signal_testcases import (
     IOS_DARK_MODE_VISIBLE, IOS_DEVICE_IDENTITY, IOS_FONT_SIZE_VISIBLE, IOS_IDFA_VISIBLE, IOS_LOW_POWER_VISIBLE,
     IOS_OUTPUT_VOLUME_VISIBLE,
     IOS_SYSTEM_CONTEXT_VISIBLE,
-    TC_DEFINITIONS, ROUND_DEFINITIONS, R5_SCENARIOS,
+    TC_DEFINITIONS, ROUND_DEFINITIONS, R5_OPERATION_LABELS, R5_SCENARIOS,
 )
 from testcases.e2e.ios_e2e_baseline import TESTCASES as BASELINE_E2E_TESTCASES
 from testcases.e2e.ios_e2e_baseline import validate_bundle as validate_baseline_e2e
@@ -1353,9 +1353,9 @@ def _appium_ready():
     return bool(isinstance(value, dict) and value.get("ready") is True)
 
 
-def _bundle_installed(config):
+def _bundle_installed(config, bundle_id=None):
     applications = _devicectl_json(config, "device", "info", "apps")
-    expected = str(config.bundle_id).strip().lower()
+    expected = str(bundle_id or config.bundle_id).strip().lower()
     for item in _json_objects(applications):
         for key in ("bundleIdentifier", "bundleID", "bundleId", "identifier"):
             value = item.get(key)
@@ -1364,7 +1364,7 @@ def _bundle_installed(config):
     return False
 
 
-def ensure_ios_automation_ready(config):
+def ensure_ios_automation_ready(config, required_bundle_ids=()):
     """Complete read-only gate shared by Signal, alternate-state, and E2E runs."""
     devices = connected_udids()
     if config.udid not in devices:
@@ -1375,17 +1375,20 @@ def ensure_ios_automation_ready(config):
         )
     if not _appium_ready():
         raise CaptureError(f"iOS automation preflight failed: Appium is not ready at {APPIUM_URL}")
-    try:
-        installed = _bundle_installed(config)
-    except Exception as exc:
-        raise CaptureError(
-            f"iOS automation preflight failed: installed App lookup failed: {type(exc).__name__}: {exc}"
-        ) from exc
-    if not installed:
-        raise CaptureError(
-            f"iOS automation preflight failed: Sample App {config.bundle_id!r} is not installed "
-            f"on {config.udid}"
-        )
+    bundle_ids = tuple(dict.fromkeys((config.bundle_id, *required_bundle_ids)))
+    for bundle_id in bundle_ids:
+        try:
+            installed = _bundle_installed(config, bundle_id)
+        except Exception as exc:
+            raise CaptureError(
+                f"iOS automation preflight failed: installed App lookup failed for "
+                f"{bundle_id!r}: {type(exc).__name__}: {exc}"
+            ) from exc
+        if not installed:
+            raise CaptureError(
+                f"iOS automation preflight failed: required App {bundle_id!r} is not installed "
+                f"on {config.udid}"
+            )
     ensure_proxy_ready()
     print(
         f"[automation preflight] READY: Appium · {config.udid} · "
@@ -2067,6 +2070,21 @@ def _terminate_app(config, process_tokens, terminated_pid):
     }
 
 
+def _prepare_r3_cold_start(config, process_tokens):
+    """Prove the old process is absent before R3 Request 1 is launched."""
+    if not process_tokens:
+        raise CaptureError(
+            "iOS R3 cold-start requires independently resolvable Sample App process identity"
+        )
+    initial_pid = _ios_app_pid(config, process_tokens)
+    termination = _terminate_app(config, process_tokens, initial_pid)
+    if not termination.get("terminated_pid_confirmed"):
+        raise CaptureError(
+            "iOS R3 cold-start could not prove the previous Sample App process was absent"
+        )
+    return termination
+
+
 def run_lifecycle_round(config):
     """Execute R3 as one causal sequence and compare values across captures."""
     folders = []
@@ -2088,6 +2106,7 @@ def run_lifecycle_round(config):
             return None
 
     try:
+        initial_termination = _prepare_r3_cold_start(config, process_tokens)
         first = capture(config, "LIFECYCLE-START")
         folders.append(first)
         first_pid = probe_pid()
@@ -2254,6 +2273,7 @@ def run_lifecycle_round(config):
     sequence = {
         "platform": "ios", "captures": [str(folder) for folder in folders],
         "process_tokens": list(process_tokens), "process_probe_error": process_probe_error,
+        "initial_cold_start_termination": initial_termination,
         "termination": termination, "steps": steps, **checks,
     }
     result_folder = Path(folders[-1])
@@ -2636,30 +2656,45 @@ def _record_blocked(config, round_name, label, keys, reason):
     return folder
 
 
+def _r5_staged_state(staging, operation_label, state):
+    """Preserve one operation's before/mutated images until the shared Bid exists."""
+    staged = json.loads(json.dumps(state))
+    slug = operation_label.lower()
+    sources = {
+        "before": Path(os.environ.get("IOS_SETTINGS_BEFORE_SCREENSHOT", "/tmp/laf2-ios-settings-before.png")),
+        "mutated": Path(os.environ.get("IOS_SETTINGS_SCREENSHOT", "/tmp/laf2-ios-settings-state.png")),
+    }
+    for stage_name, source in sources.items():
+        destination = Path(staging) / f"{slug}-{stage_name}.png"
+        if source.is_file() and source.stat().st_size:
+            shutil.copy2(source, destination)
+            staged.setdefault("stages", {}).setdefault(stage_name, {})["screenshot"] = destination.name
+    return staged
+
+
+def _materialize_r5_staging(staging, folder):
+    folder = Path(folder)
+    for source in Path(staging).glob("*.png"):
+        shutil.copy2(source, folder / source.name)
+
+
 def run_r5_round(config):
-    """Run independent iOS alternate-state Scenarios; one failure never cancels another."""
+    """Run the same four shared-Bid R5 Scenarios as AOS and restore in reverse order."""
     folders = []
-    restore_failed = False
-    for index, (label, keys) in enumerate(R5_SCENARIOS):
+    restore_chain_failed = False
+    for label, planned_keys in R5_SCENARIOS:
         if config.selected_scenarios and label not in config.selected_scenarios:
             continue
-        # REEN does not require the privacy-denied identity contract.
         if label == "PRIVACY-DENIED" and config.test_type != "aibid":
             continue
-        if restore_failed:
+        keys = tuple(planned_keys)
+        if restore_chain_failed:
             folders.append(_record_blocked(
                 config, "R5", label, keys,
                 "Not executed because the previous iOS Scenario did not restore its original state.",
             ))
             continue
-        try:
-            state = _mutate_ios_state(config, label)
-        except Exception as exc:
-            folders.append(_record_blocked(
-                config, "R5", label, keys,
-                f"iOS native Settings automation could not establish and read back this state: {type(exc).__name__}: {exc}",
-            ))
-            continue
+
         scenario_config = config
         if label == "PRIVACY-DENIED" and config.test_mode == "admob-mediation":
             scenario_config = replace(
@@ -2667,36 +2702,122 @@ def run_r5_round(config):
                 tab_name=MODE_TABS["standalone"], trigger_label=MODE_TRIGGERS["standalone"],
             )
             print("[R5 PRIVACY-DENIED] safety override: capture exactly one Standalone request; no Mediation request is allowed after ATT denial")
-        testcases = [TC_DEFINITIONS[key] for key in keys]
-        required = tuple(item for testcase in testcases for item in testcase.evidence)
+
+        operation_keys = {}
+        for key in keys:
+            operation_keys.setdefault(R5_OPERATION_LABELS[key], []).append(key)
+        successful = []
+        testcase_states = {}
+        mutation_errors = {}
         evidence_folder = None
-        try:
-            evidence_folder = Path(collect_evidence(
-                scenario_config, required,
-                lambda setup: capture(scenario_config, label, setup=setup),
-            ))
-            rows = [testcase.validate(evidence_folder) for testcase in testcases]
-            (evidence_folder / "verdicts.json").write_text(json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n")
-            folders.append(evidence_folder)
-        except Exception as exc:
-            failed_folder = getattr(exc, "evidence_folder", None)
-            if failed_folder:
-                evidence_folder = Path(failed_folder)
-                folders.append(evidence_folder)
-                _write_failed_verdicts(
-                    evidence_folder, keys,
-                    f"iOS R5 {label} failed after execution began: {type(exc).__name__}: {exc}",
+        capture_error = None
+
+        with tempfile.TemporaryDirectory(prefix="laf2-ios-r5-") as staging:
+            for operation_label, related_keys in operation_keys.items():
+                try:
+                    state = _mutate_ios_state(config, operation_label)
+                    state = _r5_staged_state(staging, operation_label, state)
+                    state["scenario"] = label
+                    state["operation"] = operation_label
+                    successful.append((operation_label, state, tuple(related_keys)))
+                    for key in related_keys:
+                        testcase_states[key] = json.loads(json.dumps(state))
+                except Exception as exc:
+                    reason = f"{type(exc).__name__}: {exc}"
+                    for key in related_keys:
+                        mutation_errors[key] = reason
+
+            if not successful:
+                reason = "iOS native Settings automation could not establish any state in this Scenario: " + "; ".join(
+                    f"{key}: {error}" for key, error in mutation_errors.items()
                 )
-            print(f"[warn] R5 {label} failed independently: {exc}", file=sys.stderr)
-        finally:
-            restored, restore_reason = _restore_ios_state(config, label, state, evidence_folder)
-            if not restored:
-                restore_failed = True
-                target = Path(folders[-1]) if folders else None
-                if target and target.is_dir():
-                    (target / "restore-error.txt").write_text(restore_reason + "\n")
-                print(f"[warn] R5 {label} restore failed independently: {restore_reason}", file=sys.stderr)
+                folders.append(_record_blocked(config, "R5", label, keys, reason))
+                continue
+
+            testcases = [TC_DEFINITIONS[key] for key in keys]
+            required = tuple(item for testcase in testcases for item in testcase.evidence)
+            try:
+                evidence_folder = Path(collect_evidence(
+                    scenario_config, required,
+                    lambda setup: capture(scenario_config, label, setup=setup),
+                ))
+                folders.append(evidence_folder)
+            except Exception as exc:
+                capture_error = exc
+                failed_folder = getattr(exc, "evidence_folder", None)
+                if failed_folder:
+                    evidence_folder = Path(failed_folder)
+                    folders.append(evidence_folder)
+                print(f"[warn] R5 {label} failed independently: {exc}", file=sys.stderr)
+
+            restore_errors = {}
+            restored_source = Path(os.environ.get(
+                "IOS_SETTINGS_RESTORED_SCREENSHOT", "/tmp/laf2-ios-settings-restored.png",
+            ))
+            for operation_label, state, related_keys in reversed(successful):
+                try:
+                    restored_source.unlink()
+                except FileNotFoundError:
+                    pass
+                restored, restore_reason = _restore_ios_state(config, operation_label, state)
+                restored_name = f"{operation_label.lower()}-restored.png"
+                if restored_source.is_file() and restored_source.stat().st_size:
+                    shutil.copy2(restored_source, Path(staging) / restored_name)
+                for key in related_keys:
+                    testcase_states[key].setdefault("stages", {})["restored"] = {
+                        "status": "VERIFIED" if restored else "FAILED",
+                        "value": state.get("before") if restored else None,
+                        "screenshot": restored_name if restored_source.is_file() else None,
+                        "reason": restore_reason or None,
+                        "captured_at": datetime.now().astimezone().isoformat(),
+                    }
+                if not restored:
+                    restore_errors[operation_label] = restore_reason
+
+            if restore_errors:
+                restore_chain_failed = True
+                print(f"[warn] R5 {label} restore failed: {restore_errors}", file=sys.stderr)
+
             if evidence_folder:
+                _materialize_r5_staging(staging, evidence_folder)
+                state_document = {
+                    "scenario": label,
+                    "shared_bid": True,
+                    "operations": testcase_states,
+                    "mutation_errors": mutation_errors,
+                    "restore_errors": restore_errors,
+                }
+                (evidence_folder / "ios-settings-state.json").write_text(
+                    json.dumps(state_document, ensure_ascii=False, indent=2) + "\n"
+                )
+                if restore_errors:
+                    (evidence_folder / "restore-error.txt").write_text(
+                        json.dumps(restore_errors, ensure_ascii=False, indent=2) + "\n"
+                    )
+                if capture_error is not None:
+                    _write_failed_verdicts(
+                        evidence_folder, keys,
+                        f"iOS R5 {label} failed after execution began: {type(capture_error).__name__}: {capture_error}",
+                    )
+                else:
+                    rows = []
+                    for testcase in testcases:
+                        if testcase.key in mutation_errors:
+                            row = blocked(
+                                testcase.key,
+                                f"iOS native Settings mutation was unavailable: {mutation_errors[testcase.key]}",
+                            ).to_dict()
+                            row.update({
+                                "layer": "Signal", "title": testcase.title,
+                                "description": testcase.description,
+                                "evidence": f"{testcase.key}-evidence.png",
+                            })
+                            rows.append(row)
+                        else:
+                            rows.append(testcase.validate(evidence_folder))
+                    (evidence_folder / "verdicts.json").write_text(
+                        json.dumps({"verdicts": rows}, ensure_ascii=False, indent=2) + "\n"
+                    )
                 _render_r5_cards(evidence_folder)
     return folders
 

@@ -1103,10 +1103,12 @@ def materialize_ios_r5_visual_evidence(folder):
         metadata = IOS_R5_VISUAL_CASES.get(key)
         if not metadata:
             continue
+        operations = state.get("operations") if isinstance(state, dict) else None
+        testcase_state = operations.get(key, {}) if isinstance(operations, dict) else state
         document = folder / f"{key}-evidence.html"
         card = folder / f"{key}-evidence.png"
         document.write_text(
-            _r5_visual_evidence_document(folder, key, metadata, state, verdict),
+            _r5_visual_evidence_document(folder, key, metadata, testcase_state, verdict),
             encoding="utf-8",
         )
         _write_html_screenshot(document, card)

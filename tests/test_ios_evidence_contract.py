@@ -8,9 +8,79 @@ import evidence_ios
 import qa_ios
 from testcases.e2e.ios_e2e_baseline import validate_bundle as validate_ios_e2e
 from testcases.ios_signal_testcases import TC_DEFINITIONS
+from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
 
 
 class IOSEvidenceContractTests(unittest.TestCase):
+    def test_r3_proves_old_process_absent_before_first_request(self):
+        config = MagicMock()
+        tokens = ("com.appier.random",)
+        termination = {"terminated_pid": 41, "terminated_pid_confirmed": True}
+        with patch.object(qa_ios, "_ios_app_pid", return_value=41) as pid, \
+                patch.object(qa_ios, "_terminate_app", return_value=termination) as terminate:
+            result = qa_ios._prepare_r3_cold_start(config, tokens)
+        pid.assert_called_once_with(config, tokens)
+        terminate.assert_called_once_with(config, tokens, 41)
+        self.assertEqual(termination, result)
+
+    def test_r3_refuses_to_label_unproven_launch_as_cold_start(self):
+        with self.assertRaisesRegex(qa_ios.CaptureError, "process identity"):
+            qa_ios._prepare_r3_cold_start(MagicMock(), ())
+
+    def test_ios_r4_requires_matching_appier_ipv6_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"ipv6": "2001:db8::1", "conntype": 2}}},
+            }))
+            without_probe = validate_ipv6_sequence([folder], {"platform": "ios"})
+            self.assertTrue(all(row["status"] == "BLOCKED" for row in without_probe))
+            (folder / "ipv6-net-probe-response.json").write_text(json.dumps({"ipv6": "2001:db8::1"}))
+            with_probe = validate_ipv6_sequence([folder], {"platform": "ios"})
+            self.assertEqual("PASS", with_probe[0]["status"])
+            self.assertEqual("PASS", with_probe[1]["status"])
+
+    def test_r5_group_uses_one_shared_bid_and_keeps_per_tc_mutation_results(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            state = {
+                "automation": "Appium", "screenshot_saved": True,
+                "before": .5, "after": 0, "desired": 0,
+                "stages": {"before": {}, "mutated": {}, "restored": {}},
+            }
+            brightness = MagicMock()
+            brightness.key = "screen-brightness-minimum"
+            brightness.evidence = ("bid",)
+            brightness.validate.return_value = {"tc": "screen-brightness-minimum", "status": "PASS"}
+            volume = MagicMock()
+            volume.key = "output-volume-muted"
+            volume.evidence = ("bid",)
+            volume.title = "Output Volume — Muted"
+            volume.description = "muted"
+            config = MagicMock(
+                selected_scenarios=("DISPLAY-LOW",), test_type="reen-static",
+                test_mode="standalone",
+            )
+            with patch.dict(qa_ios.TC_DEFINITIONS, {
+                    "screen-brightness-minimum": brightness,
+                    "output-volume-muted": volume,
+                }, clear=True), patch.object(
+                    qa_ios, "_mutate_ios_state",
+                    side_effect=[state, qa_ios.CaptureError("volume unavailable")],
+                ) as mutate, patch.object(
+                    qa_ios, "collect_evidence", return_value=folder,
+                ) as collect, patch.object(
+                    qa_ios, "_restore_ios_state", return_value=(True, ""),
+                ), patch.object(qa_ios, "_render_r5_cards"):
+                result = qa_ios.run_r5_round(config)
+            self.assertEqual([folder], result)
+            self.assertEqual(2, mutate.call_count)
+            collect.assert_called_once()
+            document = json.loads((folder / "ios-settings-state.json").read_text())
+            self.assertTrue(document["shared_bid"])
+            self.assertIn("screen-brightness-minimum", document["operations"])
+            self.assertIn("output-volume-muted", document["mutation_errors"])
+
     def test_ios_recording_uses_appium_camel_case_h264_contract(self):
         driver = MagicMock()
         qa_ios._start_screen_recording(driver)
@@ -1788,6 +1858,17 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 patch.object(qa_ios, "ensure_proxy_ready") as proxy:
             qa_ios.ensure_ios_automation_ready(config)
         proxy.assert_called_once_with()
+
+    def test_ios_automation_preflight_rejects_missing_scope_helper_app(self):
+        config = MagicMock(udid="device-1", bundle_id="com.appier.Random")
+        with patch.object(qa_ios, "connected_udids", return_value=["device-1"]), \
+                patch.object(qa_ios, "_appium_ready", return_value=True), \
+                patch.object(qa_ios, "_bundle_installed", side_effect=[True, False]) as installed, \
+                patch.object(qa_ios, "ensure_proxy_ready") as proxy:
+            with self.assertRaisesRegex(qa_ios.CaptureError, "com.pag3dev.GetMyIDFA"):
+                qa_ios.ensure_ios_automation_ready(config, ("com.pag3dev.GetMyIDFA",))
+        self.assertEqual(2, installed.call_count)
+        proxy.assert_not_called()
 
     def test_ios_automation_preflight_stops_before_proxy_when_appium_is_missing(self):
         config = MagicMock(udid="device-1", bundle_id="com.appier.Random")

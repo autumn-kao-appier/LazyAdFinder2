@@ -120,7 +120,10 @@ def validate_sequence(folders, context=None):
         for folder in folders
     ]
     first = values[0]
-    require_probe = str(context.get("platform", "ios")).lower() == "aos"
+    # Both platforms use the same independent Appier network probe.  A payload
+    # value alone cannot prove that the device's externally observed IPv6 was
+    # refreshed after a network transition.
+    require_probe = True
     if not _valid_ipv6(first["ipv6"]) or (require_probe and first["probe_ipv6"] != first["ipv6"]):
         reason = "Environment prerequisite unavailable: the current network did not produce a matching Appier IPv6 probe and payload; R4 was not executable"
         return [_blocked(key, reason) for key in TESTCASES]

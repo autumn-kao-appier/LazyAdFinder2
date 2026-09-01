@@ -5,7 +5,7 @@ import types
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import evidence_aos
 import page
@@ -35,6 +35,23 @@ def round_args(name, test_type="aibid", mode="standalone"):
 
 
 class CampaignContractTests(unittest.TestCase):
+    def test_aos_automation_preflight_checks_appium_apps_and_proxy(self):
+        config = types.SimpleNamespace(udid="android-1", app_package="com.appier.Sample")
+        with patch.object(qa_aos, "require_device_unlocked") as unlocked, \
+                patch.object(qa_aos, "_appium_ready", return_value=True), \
+                patch.object(qa_aos, "_package_installed", return_value=True) as installed, \
+                patch.object(qa_aos, "ensure_proxy_capture_ready") as proxy:
+            qa_aos.ensure_aos_automation_ready(config, ("com.example.Target",))
+        unlocked.assert_called_once_with(config)
+        self.assertEqual(
+            [
+                call(config, "com.appier.Sample"),
+                call(config, "com.example.Target"),
+            ],
+            installed.call_args_list,
+        )
+        proxy.assert_called_once_with(config)
+
     def test_ios_registry_is_platform_owned_and_does_not_alias_android(self):
         self.assertIsNot(ios_signal_testcases.TC_DEFINITIONS, android_signal_testcases.TC_DEFINITIONS)
         self.assertIsNot(ios_signal_testcases.ROUND_DEFINITIONS, android_signal_testcases.ROUND_DEFINITIONS)
@@ -60,6 +77,22 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual("RUN", mediation["E2E-ADMOB"].decision)
         self.assertIn("admob-pubsetting", mediation["E2E-ADMOB"].testcase_keys)
 
+    def test_ios_r5_uses_the_same_four_shared_bid_scenarios_as_aos(self):
+        self.assertEqual(
+            (
+                ("DISPLAY-HIGH", (
+                    "dark-mode-enabled", "font-scale-maximum",
+                    "screen-brightness-maximum", "output-volume-maximum",
+                )),
+                ("DISPLAY-LOW", ("screen-brightness-minimum", "output-volume-muted")),
+                ("SYSTEM-ALT", (
+                    "battery-saver-enabled", "timezone-changed", "location-permission-denied",
+                )),
+                ("PRIVACY-DENIED", ("advertising-id-opt-out", "tracking-denied")),
+            ),
+            ios_signal_testcases.R5_SCENARIOS,
+        )
+
     def test_ios_suite_round_selection_is_decided_before_execution(self):
         plan = run_ios_test_suite.execution_plan(
             "aibid", "standalone", selected_rounds=("R1", "E2E-STANDALONE"),
@@ -83,6 +116,25 @@ class CampaignContractTests(unittest.TestCase):
         self.assertTrue(run_ios_test_suite.confirm_mediation_test_device(
             "standalone", input_fn=lambda _prompt: self.fail("Standalone must not prompt"),
         ))
+
+    def test_ios_suite_preflight_checks_selected_helper_and_target_apps_once(self):
+        args = types.SimpleNamespace(
+            bundle_id="com.appier.Random", integration_mode="standalone",
+            test_type="reen-static", test_cid="cid", evidence_dir="evidence",
+            udid="device-1", target_app_bundle_id="com.example.Target",
+        )
+        plan = (
+            run_ios_test_suite.PlannedRound("R1", "RUN", ("advertising-id",)),
+            run_ios_test_suite.PlannedRound("E2E-STANDALONE", "RUN", ("standalone-landing",)),
+        )
+        config = types.SimpleNamespace()
+        with patch.object(qa_ios, "config_from_args", return_value=config), \
+                patch.object(qa_ios, "ensure_ios_automation_ready") as ready:
+            result = run_ios_test_suite.suite_preflight(args, plan)
+        self.assertIs(config, result)
+        ready.assert_called_once_with(
+            config, ("com.pag3dev.GetMyIDFA", "com.example.Target"),
+        )
 
     @classmethod
     def setUpClass(cls):

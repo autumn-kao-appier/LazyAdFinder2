@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import qa_ios
 from campaign_profiles import campaign_profile
 from campaign_testcases import supports
 from testcases.ios_signal_testcases import ROUND_DEFINITIONS
@@ -100,6 +101,38 @@ def confirm_mediation_test_device(integration_mode, input_fn=input, open_page=No
     return answer in {"y", "yes"}
 
 
+def suite_preflight(args, plan):
+    """Gate the complete selected suite before the first Round creates Evidence."""
+    runnable = [item for item in plan if item.decision == "RUN"]
+    if not runnable:
+        return None
+    arguments = [
+        "round", runnable[0].name,
+        "--bundle-id", args.bundle_id,
+        "--test-mode", MODE_MAP[args.integration_mode],
+        "--test-type", args.test_type,
+        "--test-cid", args.test_cid,
+        "--evidence-dir", args.evidence_dir,
+    ]
+    if args.udid:
+        arguments += ["--udid", args.udid]
+    if args.target_app_bundle_id:
+        arguments += ["--target-app-bundle-id", args.target_app_bundle_id]
+    parsed = qa_ios.build_parser().parse_args(arguments)
+    config = qa_ios.config_from_args(parsed)
+    required_bundles = []
+    if any(item.name == "R1" for item in runnable):
+        required_bundles.append(os.environ.get("IOS_IDFA_APP_BUNDLE_ID", "com.pag3dev.GetMyIDFA"))
+    if args.target_app_bundle_id and any(item.name.startswith("E2E-") for item in runnable):
+        required_bundles.append(args.target_app_bundle_id)
+    qa_ios.ensure_ios_automation_ready(
+        config,
+        tuple(bundle_id for bundle_id in required_bundles if str(bundle_id).strip()),
+    )
+    print("[suite preflight] READY: complete selected iOS scope")
+    return config
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle-id", default=os.environ.get("BUNDLE_ID", ""))
@@ -162,6 +195,11 @@ def main(argv=None):
         "TEST_RUN_STARTED_AT": started_at,
         "AUTO_PUBLISH": "0",
     })
+    try:
+        suite_preflight(args, plan)
+    except (qa_ios.CaptureError, OSError, subprocess.SubprocessError) as exc:
+        print(f"[suite preflight] FAILED: {exc}", file=sys.stderr)
+        return 2
     failures = []
     for item in plan:
         if item.decision != "RUN":

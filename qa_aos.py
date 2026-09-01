@@ -30,6 +30,8 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -338,6 +340,35 @@ def require_device_unlocked(config):
             "screen. Unlock the device before starting Automation."
         )
     print("[device preflight] unlocked; no Enter PIN screen")
+
+
+def _appium_ready():
+    try:
+        with urllib.request.urlopen(f"{APPIUM_URL}/status", timeout=2) as response:
+            document = json.loads(response.read())
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+    value = document.get("value") if isinstance(document, dict) else None
+    return bool(isinstance(value, dict) and value.get("ready") is True)
+
+
+def _package_installed(config, package):
+    return bool(adb(config.udid, "shell", "pm", "path", package, check=False).strip())
+
+
+def ensure_aos_automation_ready(config, required_packages=()):
+    """Shared suite/Round gate before Android Evidence or requests begin."""
+    require_device_unlocked(config)
+    if not _appium_ready():
+        raise CaptureError(f"AOS automation preflight failed: Appium is not ready at {APPIUM_URL}")
+    for package in tuple(dict.fromkeys((config.app_package, *required_packages))):
+        if not _package_installed(config, package):
+            raise CaptureError(
+                f"AOS automation preflight failed: required App {package!r} is not installed "
+                f"on {config.udid}"
+            )
+    ensure_proxy_capture_ready(config)
+    print(f"[automation preflight] READY: Appium · {config.udid} · Android Apps · proxy capture")
 
 
 def keep_screen_awake(config):
@@ -2550,8 +2581,7 @@ def main(argv=None):
         return 2
     if any(scenario.decision == "RUN" for scenario in plan.scenarios):
         try:
-            require_device_unlocked(config)
-            ensure_proxy_capture_ready(config)
+            ensure_aos_automation_ready(config)
         except CaptureError as exc:
             raise InfrastructureError(str(exc)) from exc
 
