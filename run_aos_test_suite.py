@@ -230,10 +230,12 @@ def main(argv=None):
             required_packages = (config["target_app_package"],)
         try:
             qa_aos.ensure_aos_automation_ready(runnable, required_packages)
+            qa_aos.smoke_aos_suite_capabilities(runnable)
         except (qa_aos.CaptureError, OSError, subprocess.SubprocessError) as exc:
             print(f"[suite preflight] FAILED: {exc}", file=sys.stderr)
             return 2
         print("[suite preflight] READY: complete selected AOS scope")
+        environment["SUITE_CAPABILITY_PREFLIGHT_READY"] = "1"
 
     environment.update({
         "TEST_RUN_ID": run_id,

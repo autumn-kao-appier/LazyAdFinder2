@@ -129,8 +129,16 @@ def suite_preflight(args, plan):
         config,
         tuple(bundle_id for bundle_id in required_bundles if str(bundle_id).strip()),
     )
+    capabilities = {"smoke": qa_ios.smoke_ios_suite_capabilities(config)}
+    if any(item.name == "R4" for item in runnable):
+        capabilities["r4"] = qa_ios.probe_ios_r4_capability()
+    if any(item.name == "R5" for item in runnable):
+        capabilities["r5"] = qa_ios.probe_ios_r5_capabilities(config, args.test_type)
+        unavailable = capabilities["r5"]["unavailable"]
+        if unavailable:
+            print("[suite preflight] R5 unavailable TC: " + ", ".join(sorted(unavailable)))
     print("[suite preflight] READY: complete selected iOS scope")
-    return config
+    return config, capabilities
 
 
 def build_parser():
@@ -196,7 +204,9 @@ def main(argv=None):
         "AUTO_PUBLISH": "0",
     })
     try:
-        suite_preflight(args, plan)
+        _preflight_config, capabilities = suite_preflight(args, plan)
+        environment["IOS_SUITE_PREFLIGHT_JSON"] = json.dumps(capabilities, ensure_ascii=False)
+        environment["SUITE_CAPABILITY_PREFLIGHT_READY"] = "1"
     except (qa_ios.CaptureError, OSError, subprocess.SubprocessError) as exc:
         print(f"[suite preflight] FAILED: {exc}", file=sys.stderr)
         return 2

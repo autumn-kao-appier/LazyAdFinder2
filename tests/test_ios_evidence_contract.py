@@ -12,6 +12,32 @@ from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_
 
 
 class IOSEvidenceContractTests(unittest.TestCase):
+    def test_ios_capability_smoke_locates_placement_without_tapping_it(self):
+        config = MagicMock(bundle_id="com.appier.Random", tab_name="Appier Direct", trigger_label="Native")
+        driver = MagicMock()
+        placement = MagicMock()
+        driver.find_elements.side_effect = [[], [placement]]
+        placement.is_displayed.return_value = True
+        placement.is_enabled.return_value = True
+        with patch.object(qa_ios, "clear_detector_state"), \
+                patch.object(qa_ios, "create_driver", return_value=driver), \
+                patch.object(qa_ios, "select_tab") as select, \
+                patch.object(qa_ios, "_wait_for_proxy_smoke", return_value=("ipv6-net-probe",)):
+            result = qa_ios.smoke_ios_suite_capabilities(config)
+        self.assertTrue(result["device_unlocked"])
+        select.assert_called_once_with(driver, config.tab_name)
+        placement.click.assert_not_called()
+        driver.terminate_app.assert_called_once_with(config.bundle_id)
+        driver.quit.assert_called_once_with()
+
+    def test_ios_r4_capability_requires_global_ipv6_probe(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(qa_ios, "NET_PROBE_RESPONSE_FILE", Path(temporary) / "probe.json"):
+            with self.assertRaisesRegex(qa_ios.CaptureError, "usable Appier IPv6"):
+                qa_ios.probe_ios_r4_capability()
+            qa_ios.NET_PROBE_RESPONSE_FILE.write_text(json.dumps({"ipv6": "2001:db8::8"}))
+            result = qa_ios.probe_ios_r4_capability()
+        self.assertEqual("RUN", result["status"])
     def test_r3_proves_old_process_absent_before_first_request(self):
         config = MagicMock()
         tokens = ("com.appier.random",)
@@ -80,6 +106,21 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertTrue(document["shared_bid"])
             self.assertIn("screen-brightness-minimum", document["operations"])
             self.assertIn("output-volume-muted", document["mutation_errors"])
+
+    def test_r5_does_not_retry_controls_declared_unavailable_by_suite_preflight(self):
+        config = MagicMock(selected_scenarios=("DISPLAY-LOW",), test_type="reen-static")
+        preflight = json.dumps({"r5": {"unavailable": {
+            "screen-brightness-minimum": "slider unavailable",
+            "output-volume-muted": "volume unavailable",
+        }}})
+        blocked_folder = Path("/tmp/preflight-blocked")
+        with patch.dict(qa_ios.os.environ, {"IOS_SUITE_PREFLIGHT_JSON": preflight}), \
+                patch.object(qa_ios, "_mutate_ios_state") as mutate, \
+                patch.object(qa_ios, "_record_blocked", return_value=blocked_folder) as record:
+            result = qa_ios.run_r5_round(config)
+        self.assertEqual([blocked_folder], result)
+        mutate.assert_not_called()
+        record.assert_called_once()
 
     def test_ios_recording_uses_appium_camel_case_h264_contract(self):
         driver = MagicMock()
@@ -1898,7 +1939,7 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 ) as preflight, patch.object(qa_ios, "run_round") as run:
             with self.assertRaisesRegex(qa_ios.CaptureError, "preflight stopped"):
                 qa_ios.main(arguments)
-        preflight.assert_called_once_with(config)
+        preflight.assert_called_once_with(config, ("com.pag3dev.GetMyIDFA",))
         run.assert_not_called()
 
     def test_e2e_cold_launch_terminates_before_reactivating_sample_app(self):

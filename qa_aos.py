@@ -371,6 +371,51 @@ def ensure_aos_automation_ready(config, required_packages=()):
     print(f"[automation preflight] READY: Appium · {config.udid} · Android Apps · proxy capture")
 
 
+def _wait_for_proxy_smoke(timeout=8):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        events = []
+        try:
+            events = [json.loads(line) for line in EVENTS_FILE.read_text().splitlines() if line.strip()]
+        except (OSError, json.JSONDecodeError):
+            pass
+        kinds = {event.get("kind") for event in events if isinstance(event, dict)}
+        if "bid" in kinds or BID_FILE.is_file():
+            raise CaptureError("Capability preflight unexpectedly produced an advertising Bid request")
+        if kinds & {"sdk-init", "ipv6-net-probe"}:
+            return tuple(sorted(kinds))
+        time.sleep(.25)
+    raise CaptureError(
+        "AOS capability preflight did not observe SDK init/network-probe traffic through Charles and mitmdump"
+    )
+
+
+def smoke_aos_suite_capabilities(config):
+    """Create one no-ad Appium session and prove UI and device proxy reachability."""
+    clear_detector_state()
+    orientation_state = lock_portrait(config)
+    driver = None
+    try:
+        adb(config.udid, "shell", "am", "force-stop", config.app_package, check=False)
+        driver = create_driver(config)
+        driver.activate_app(config.app_package)
+        select_tab(driver, config.tab_text, config.trigger_text)
+        if find_visible_text(driver, config.trigger_text) is None:
+            raise CaptureError(
+                f"AOS capability preflight cannot locate placement {config.trigger_text!r}"
+            )
+        proxy_events = _wait_for_proxy_smoke()
+        return {"appium_session": True, "placement": config.trigger_text, "proxy_events": proxy_events}
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+        adb(config.udid, "shell", "am", "force-stop", config.app_package, check=False)
+        restore_orientation(config, orientation_state)
+
+
 def keep_screen_awake(config):
     """Prevent long unattended Rounds from losing Settings behind screen-off."""
     original_timeout = adb(
@@ -2581,7 +2626,13 @@ def main(argv=None):
         return 2
     if any(scenario.decision == "RUN" for scenario in plan.scenarios):
         try:
-            ensure_aos_automation_ready(config)
+            required_packages = (
+                (config.target_app_package,)
+                if plan.round_name.startswith("E2E-") and config.target_app_package else ()
+            )
+            ensure_aos_automation_ready(config, required_packages)
+            if os.environ.get("SUITE_CAPABILITY_PREFLIGHT_READY") != "1":
+                smoke_aos_suite_capabilities(config)
         except CaptureError as exc:
             raise InfrastructureError(str(exc)) from exc
 

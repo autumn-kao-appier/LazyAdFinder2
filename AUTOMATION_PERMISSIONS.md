@@ -71,12 +71,17 @@ Agent 應將需要的命令核准合併在執行前提出；若產品仍要求�
 以下任一項不成立，不得按下 placement 或開始 Round：
 
 1. 只有一台或明確指定且已授權的目標 Android／iOS 裝置。
-2. Appium 可連線；Android Sample App package/activity 或 iOS bundle id 存在。
+2. Appium `/status` ready，且能建立一次不點擊廣告的 UiAutomator2／WDA smoke session；
+   Android Sample App package/activity 或 iOS bundle id 存在。
 3. Charles 正在 `:8888` 監聽。
 4. mitmdump 正在 `:8081` 使用本 repository 的 `mitmdump_addon.py`；缺少時允許自動啟動。
 5. Android proxy 已指向 `<Mac LAN IP>:8888`；缺少或端口錯誤時允許自動設定並讀回。
-6. E2E 必須取得 proxy bid request；Logcat fallback 不得當作 E2E 網路證據。
-7. ExecutionPlan 已在任何手機狀態變更前完整定案並印出。
+6. AOS／iOS smoke session 必須在不點 placement 的情況下定位指定 Tab 與 placement，並由同次
+   SDK init／network probe 證明手機流量實際通過 Charles → mitmdump；若意外產生 Bid 立即停止。
+7. iOS R4 必須在開始前取得可用 Appier IPv6 probe；R5 必須先定位所需原生控制並讀回可還原的
+   baseline，不可用的 TC 在執行前標明 unavailable。
+8. E2E 必須取得 proxy bid request；Logcat fallback 不得當作 E2E 網路證據。
+9. ExecutionPlan 已在任何手機狀態變更前完整定案並印出。
 
 ## 必須自動還原
 

@@ -5,7 +5,7 @@ import types
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
 import evidence_aos
 import page
@@ -51,6 +51,27 @@ class CampaignContractTests(unittest.TestCase):
             installed.call_args_list,
         )
         proxy.assert_called_once_with(config)
+
+    def test_aos_capability_smoke_locates_placement_without_tapping_it(self):
+        config = types.SimpleNamespace(
+            udid="android-1", app_package="com.appier.Sample",
+            tab_text="Appier SDK", trigger_text="Native - basic format",
+        )
+        driver = MagicMock()
+        placement = MagicMock()
+        with patch.object(qa_aos, "clear_detector_state"), \
+                patch.object(qa_aos, "lock_portrait", return_value={"rotation": "0"}), \
+                patch.object(qa_aos, "restore_orientation") as restore, \
+                patch.object(qa_aos, "adb"), \
+                patch.object(qa_aos, "create_driver", return_value=driver), \
+                patch.object(qa_aos, "select_tab") as select, \
+                patch.object(qa_aos, "find_visible_text", return_value=placement), \
+                patch.object(qa_aos, "_wait_for_proxy_smoke", return_value=("sdk-init",)):
+            result = qa_aos.smoke_aos_suite_capabilities(config)
+        self.assertTrue(result["appium_session"])
+        select.assert_called_once_with(driver, config.tab_text, config.trigger_text)
+        driver.quit.assert_called_once_with()
+        restore.assert_called_once()
 
     def test_ios_registry_is_platform_owned_and_does_not_alias_android(self):
         self.assertIsNot(ios_signal_testcases.TC_DEFINITIONS, android_signal_testcases.TC_DEFINITIONS)
@@ -129,9 +150,11 @@ class CampaignContractTests(unittest.TestCase):
         )
         config = types.SimpleNamespace()
         with patch.object(qa_ios, "config_from_args", return_value=config), \
-                patch.object(qa_ios, "ensure_ios_automation_ready") as ready:
+                patch.object(qa_ios, "ensure_ios_automation_ready") as ready, \
+                patch.object(qa_ios, "smoke_ios_suite_capabilities", return_value={"appium_session": True}):
             result = run_ios_test_suite.suite_preflight(args, plan)
-        self.assertIs(config, result)
+        self.assertIs(config, result[0])
+        self.assertTrue(result[1]["smoke"]["appium_session"])
         ready.assert_called_once_with(
             config, ("com.pag3dev.GetMyIDFA", "com.example.Target"),
         )

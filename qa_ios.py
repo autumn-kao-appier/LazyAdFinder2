@@ -20,6 +20,7 @@ import argparse
 import base64
 import getpass
 import html
+import ipaddress
 import json
 import os
 import re
@@ -1396,6 +1397,131 @@ def ensure_ios_automation_ready(config, required_bundle_ids=()):
     )
 
 
+def _wait_for_proxy_smoke(timeout=8):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        events = []
+        try:
+            events = [json.loads(line) for line in EVENTS_FILE.read_text().splitlines() if line.strip()]
+        except (OSError, json.JSONDecodeError):
+            pass
+        kinds = {event.get("kind") for event in events if isinstance(event, dict)}
+        if "bid" in kinds or BID_FILE.is_file():
+            raise CaptureError("Capability preflight unexpectedly produced an advertising Bid request")
+        if kinds & {"sdk-init", "ipv6-net-probe"}:
+            return tuple(sorted(kinds))
+        time.sleep(.25)
+    raise CaptureError(
+        "iOS capability preflight did not observe SDK init/network-probe traffic through Charles and mitmdump"
+    )
+
+
+def smoke_ios_suite_capabilities(config):
+    """Create one no-ad WDA session and prove Tab, placement, unlock, and proxy path."""
+    clear_detector_state()
+    driver = None
+    try:
+        driver = create_driver(config, auto_accept_alerts=False)
+        if driver.find_elements("class name", "XCUIElementTypeAlert"):
+            raise CaptureError(
+                "iOS capability preflight found an unresolved system alert in the Sample App"
+            )
+        select_tab(driver, config.tab_name)
+        placements = driver.find_elements("accessibility id", config.trigger_label)
+        if not any(element.is_displayed() and element.is_enabled() for element in placements):
+            raise CaptureError(
+                f"iOS capability preflight cannot locate placement {config.trigger_label!r}"
+            )
+        proxy_events = _wait_for_proxy_smoke()
+        return {
+            "appium_session": True, "device_unlocked": True,
+            "placement": config.trigger_label, "proxy_events": proxy_events,
+        }
+    finally:
+        if driver is not None:
+            try:
+                driver.terminate_app(config.bundle_id)
+            except Exception:
+                pass
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+
+def probe_ios_r4_capability():
+    """Require the no-ad smoke launch to expose a usable Appier IPv6 answer."""
+    document = _read_json(NET_PROBE_RESPONSE_FILE) or {}
+    value = document.get("ipv6") if isinstance(document, dict) else None
+    try:
+        address = ipaddress.ip_address(str(value))
+    except ValueError as exc:
+        raise CaptureError("iOS R4 preflight did not capture a usable Appier IPv6 probe") from exc
+    if address.version != 6 or address.is_unspecified or address.is_link_local:
+        raise CaptureError(f"iOS R4 preflight captured an unusable IPv6 value: {value!r}")
+    return {"status": "RUN", "ipv6": str(address), "source": NET_PROBE_RESPONSE_FILE.name}
+
+
+def probe_ios_r5_capabilities(config, test_type):
+    """Locate every selected native control without changing its value."""
+    keys = tuple(key for _scenario, scenario_keys in R5_SCENARIOS for key in scenario_keys)
+    if test_type != "aibid":
+        keys = tuple(key for key in keys if R5_OPERATION_LABELS[key] != "PRIVACY-DENIED")
+    operation_keys = {}
+    for key in keys:
+        operation_keys.setdefault(R5_OPERATION_LABELS[key], []).append(key)
+    ready = {}
+    unavailable = {}
+    driver = None
+    try:
+        driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        for operation_label, related_keys in operation_keys.items():
+            try:
+                kind, control, desired = _r5_open_control(driver, config, operation_label)
+                if control is None:
+                    raise CaptureError(f"{operation_label} native control is unavailable")
+                if kind == "switch":
+                    baseline = _switch_state(control)
+                    if baseline is None:
+                        raise CaptureError(f"{operation_label} switch baseline is unreadable")
+                elif kind == "slider":
+                    baseline = _slider_fraction(control)
+                elif kind == "choice":
+                    choices = (
+                        ("Light", "Dark") if operation_label == "DISPLAY-DARK" else
+                        ("Never", "Ask Next Time Or When I Share", "While Using the App", "Always")
+                    )
+                    baseline = next((name for name in choices if (
+                        (item := _setting_element(driver, name)) is not None
+                        and ("selected" in str(_attribute(item, "traits") or "").lower()
+                             or str(_attribute(item, "value") or "").lower() in {"1", "selected", "true"})
+                    )), None)
+                    if baseline is None:
+                        raise CaptureError(f"{operation_label} original choice is unreadable")
+                else:
+                    raise CaptureError(f"{operation_label} unsupported control kind {kind!r}")
+                for key in related_keys:
+                    ready[key] = {
+                        "operation": operation_label, "control_kind": kind,
+                        "baseline": baseline, "desired": desired,
+                    }
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                for key in related_keys:
+                    unavailable[key] = reason
+        return {"ready": ready, "unavailable": unavailable}
+    finally:
+        if driver is not None:
+            try:
+                driver.terminate_app("com.apple.Preferences")
+            except Exception:
+                pass
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+
 def round_directory(config):
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     mode = _safe_label(config.test_mode, "mode").upper()
@@ -2682,6 +2808,11 @@ def run_r5_round(config):
     """Run the same four shared-Bid R5 Scenarios as AOS and restore in reverse order."""
     folders = []
     restore_chain_failed = False
+    try:
+        suite_preflight = json.loads(os.environ.get("IOS_SUITE_PREFLIGHT_JSON", "{}"))
+    except json.JSONDecodeError:
+        suite_preflight = {}
+    preflight_unavailable = ((suite_preflight.get("r5") or {}).get("unavailable") or {})
     for label, planned_keys in R5_SCENARIOS:
         if config.selected_scenarios and label not in config.selected_scenarios:
             continue
@@ -2714,6 +2845,14 @@ def run_r5_round(config):
 
         with tempfile.TemporaryDirectory(prefix="laf2-ios-r5-") as staging:
             for operation_label, related_keys in operation_keys.items():
+                preflight_reason = next((
+                    preflight_unavailable.get(key) for key in related_keys
+                    if preflight_unavailable.get(key)
+                ), None)
+                if preflight_reason:
+                    for key in related_keys:
+                        mutation_errors[key] = preflight_reason
+                    continue
                 try:
                     state = _mutate_ios_state(config, operation_label)
                     state = _r5_staged_state(staging, operation_label, state)
@@ -3083,7 +3222,22 @@ def main(argv=None):
     # Every capture path ultimately taps a placement and polls files written by
     # this repository's mitmdump addon. Gate Signal/R1–R5/E2E before the first
     # Settings capture, Appium session, or placement interaction.
-    ensure_ios_automation_ready(config)
+    direct_required_bundles = []
+    if args.command == "round" and args.name.strip().upper() == "R1":
+        direct_required_bundles.append(_env("IOS_IDFA_APP_BUNDLE_ID", "com.pag3dev.GetMyIDFA"))
+    if (
+        args.command == "round" and args.name.strip().upper().startswith("E2E-")
+        and config.target_app_bundle_id
+    ):
+        direct_required_bundles.append(config.target_app_bundle_id)
+    ensure_ios_automation_ready(config, tuple(direct_required_bundles))
+    if os.environ.get("SUITE_CAPABILITY_PREFLIGHT_READY") != "1":
+        capabilities = {"smoke": smoke_ios_suite_capabilities(config)}
+        if args.command == "round" and args.name.strip().upper() == "R4":
+            capabilities["r4"] = probe_ios_r4_capability()
+        if args.command == "round" and args.name.strip().upper() == "R5":
+            capabilities["r5"] = probe_ios_r5_capabilities(config, config.test_type)
+        os.environ["IOS_SUITE_PREFLIGHT_JSON"] = json.dumps(capabilities, ensure_ascii=False)
 
     if args.command == "capture":
         capture(config, capture_name=args.capture_name)
