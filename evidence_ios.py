@@ -921,7 +921,6 @@ IOS_SYSTEM_SCREENSHOTS = {
     "wifi": ("IOS_WIFI_SCREENSHOT", "/tmp/laf2-ios-wifi.png", "ios-wifi.png"),
     "cellular": ("IOS_CELLULAR_SCREENSHOT", "/tmp/laf2-ios-cellular.png", "ios-cellular.png"),
     "vpn": ("IOS_VPN_SCREENSHOT", "/tmp/laf2-ios-vpn.png", "ios-vpn.png"),
-    "location": ("IOS_LOCATION_SCREENSHOT", "/tmp/laf2-ios-location-services.png", "ios-location-services.png"),
 }
 
 
@@ -1158,6 +1157,20 @@ IOS_AOS_ALIGNED_VISUAL_CASES = {
         "card": "mem-available-evidence.png",
         "scope": "Shape and relationship review; no independent iOS MemAvailable source is claimed.",
     },
+    "precise-gps-latitude": {
+        "title": "Precise GPS Latitude", "round": "R1",
+        "source": "XCUITest/WDA device location + decoded Bid coordinate pair",
+        "card": "precise-gps-latitude-evidence.png",
+        "scope": "AOS-aligned pairwise check: calculate distance from the independent device location and require it within max(accuracy, 200 m).",
+        "visual_placeholder": "NATIVE LOCATION API",
+    },
+    "precise-gps-longitude": {
+        "title": "Precise GPS Longitude", "round": "R1",
+        "source": "XCUITest/WDA device location + decoded Bid coordinate pair",
+        "card": "precise-gps-longitude-evidence.png",
+        "scope": "AOS-aligned pairwise check: calculate distance from the independent device location and require it within max(accuracy, 200 m).",
+        "visual_placeholder": "NATIVE LOCATION API",
+    },
     "gyroscope": {
         "title": "Gyroscope", "round": "R1", "source": "Design scope decision", "path": "device.ext.gyroscope",
         "card": "gyroscope-evidence.png",
@@ -1334,7 +1347,9 @@ def _aligned_visual_evidence_document(folder, key, metadata, verdict):
         else:
             visual.append(f'<div class="stage missing"><div>{html.escape(label)}</div><p>NO SCREENSHOT</p></div>')
     if not visual:
-        placeholder = "NOT IN SCOPE" if key in {"gyroscope", "accelerometer"} else "NO INDEPENDENT SCREEN"
+        placeholder = metadata.get("visual_placeholder") or (
+            "NOT IN SCOPE" if key in {"gyroscope", "accelerometer"} else "NO INDEPENDENT SCREEN"
+        )
         visual.append(f'<div class="stage missing only"><div>EVIDENCE SCOPE</div><p>{placeholder}</p></div>')
     reason = verdict.get("reason") or "No verdict explanation was recorded."
     styles = '''
@@ -1356,6 +1371,10 @@ def materialize_ios_aos_aligned_visual_evidence(folder, skip_existing=False):
         key = verdict.get("tc")
         metadata = IOS_AOS_ALIGNED_VISUAL_CASES.get(key)
         if not metadata:
+            continue
+        if key in {"precise-gps-latitude", "precise-gps-longitude"} and verdict.get("status") == "BLOCKED":
+            # Match AOS report semantics: do not manufacture a comparison card
+            # when the independent location reference required for comparison is absent.
             continue
         card = folder / metadata["card"]
         document = card.with_suffix(".html")
@@ -1407,6 +1426,13 @@ def materialize_ios_system_context(folder):
     }
     info["actual"] = {key: {"request": values[0], "extended": values[1]} for key, path in fields.items() if (values := _decoded_path_values(folder, path))}
     (folder / "ios-system-context.json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n")
+    location_reference = info.get("location_reference") or {
+        "status": "UNAVAILABLE",
+        "reason": "XCUITest/WDA device location was not captured before the Bid.",
+    }
+    (folder / "ios-location-reference.json").write_text(
+        json.dumps(location_reference, ensure_ascii=False, indent=2) + "\n"
+    )
 
     def render(key, title, page_key, rows, note, result, source_label):
         image_name = IOS_SYSTEM_SCREENSHOTS[page_key][2]
@@ -1447,20 +1473,12 @@ def materialize_ios_system_context(folder):
     render("connection-type", "Connection Type", "wifi", (("Visible Wi-Fi connected", wifi), ("Expected transport", connection_expected), ("Request device.conntype", connection_values["request"]), ("Extended device.conntype", connection_values["extended"])), "A checked network on the native Wi-Fi page establishes Wi-Fi as the active visible transport.", "PASS" if connection_pass else ("BLOCKED" if connection_expected is None else "FAILED"), "Settings > Wi-Fi")
 
     no_sim = (pages.get("cellular") or {}).get("no_sim")
-    for key, title, actual_key in (("carrier", "Carrier", "carrier"), ("mcc-mnc", "MCC/MNC", "mcc_mnc")):
-        values = actual[actual_key]
-        passed = no_sim is True and values["extended"] in (None, "") and values["request"] in (None, "")
-        render(key, title, "cellular", (("Visible No SIM", no_sim), ("Request", values["request"]), ("Extended", values["extended"])), "No SIM establishes an empty carrier identity; an active SIM requires a separate exact carrier contract.", "PASS" if passed else ("BLOCKED" if no_sim is not True else "FAILED"), "Settings > Cellular")
     render("connection-type-cellular", "Connection Type (Cellular)", "cellular", (("Visible No SIM", no_sim), ("Observed payload transport", connection_values["extended"])), "This scenario requires an active SIM and cellular data. A visible No SIM state is an unmet environment prerequisite.", "BLOCKED", "Settings > Cellular")
 
     vpn = (pages.get("vpn") or {}).get("connected")
     vpn_values = actual["vpn"]; vpn_expected = "1" if vpn is True else ("0" if vpn is False else None)
     vpn_pass = vpn_expected is not None and vpn_values["extended"] == vpn_expected and (vpn_values["request"] is None or vpn_values["request"] == vpn_expected)
     render("vpn-status", "VPN Status", "vpn", (("Visible VPN connected", vpn), ("Expected payload", vpn_expected), ("Request", vpn_values["request"]), ("Extended", vpn_values["extended"])), "The native VPN page supplies the visible connected/not-connected state.", "PASS" if vpn_pass else ("BLOCKED" if vpn_expected is None else "FAILED"), "Settings > VPN & Device Management")
-
-    for key, title, actual_key in (("precise-gps-latitude", "Precise GPS Latitude", "geo_lat"), ("precise-gps-longitude", "Precise GPS Longitude", "geo_lon")):
-        values = actual[actual_key]
-        render(key, title, "location", (("Location Services page", "captured"), ("Request payload", values["request"]), ("Extended payload", values["extended"])), "Location Services proves permission context but does not expose exact coordinates; a Sample App coordinate QA surface is still required.", "BLOCKED", "Settings > Location Services")
 
     jailbreak_values = actual["jailbreak"]
     jailbreak_pass = jailbreak_values["extended"] is False and (jailbreak_values["request"] is None or jailbreak_values["request"] is False)
@@ -1490,10 +1508,8 @@ def materialize_ios_system_context(folder):
 def materialize_ios_review_context(folder):
     folder = Path(folder)
     items = {
-        "sdk-version": ("SDK Version", "app.sdk_version", "A reviewer or build manifest must provide the expected iOS Ads SDK version; the payload is only the observed value."),
-        "argus-sdk-version": ("Argus SDK Version", "device.argus_ver", "A reviewer or build manifest must provide the expected iOS Argus version; the payload is only the observed value."),
-        "last-foreground-times": ("Last Foreground Times", "user.last_foreground_time", "R1 has no independent visible foreground-event timeline, so array correctness cannot be claimed."),
-        "last-background-times": ("Last Background Times", "user.last_background_time", "R1 has no independent visible background-event timeline, so array correctness cannot be claimed."),
+        "sdk-version": ("SDK Version", "app.sdk_version", "The request SDK version is captured automatically; the owner must enter this Sample App build's expected iOS Ads SDK version for comparison."),
+        "argus-sdk-version": ("Argus SDK Version", "device.argus_ver", "The Argus SDK version is captured automatically; the owner must enter this Sample App build's expected iOS Argus SDK version for comparison."),
         "force-gdpr-override": ("Force GDPR Override", "compliance.force_gdpr_applies", "The Sample App does not visibly expose its Force GDPR configuration input."),
         "coppa-applies": ("COPPA Applicability Flag", "compliance.coppa_applies", "The Sample App does not visibly expose its COPPA configuration input."),
     }

@@ -53,6 +53,8 @@ Agent 應將需要的命令核准合併在執行前提出；若產品仍要求�
   locale、timezone、連線狀態與 Sample App syslog。
 - 透過 Appium XCUITest／WebDriverAgent 啟動、停止、切換 Sample App；tap、swipe、back，以及處理
   ExecutionPlan 內明確列出的系統權限提示。
+- 透過 Appium XCUITest／WebDriverAgent 的 read-only device geolocation API 讀取本輪 iPhone 座標，
+  僅用於 R1 `precise-gps-latitude`／`precise-gps-longitude` 與 Bid 的距離比對；不得設定或模擬位置。
 - 保存截圖、操作影片、syslog、proxy traffic 與 UI hierarchy 暫存；UI hierarchy 只供定位。
 - 執行已列入 iOS R4 的 Wi-Fi／IPv6 人工 checkpoint；未經 ExecutionPlan 宣告不得修改其他網路設定。
 - 執行 ExecutionPlan 已列出的 iOS R5 alternate state／ATT Scenario；每個 Scenario 必須先取得原生 Settings 可見 Evidence，完成後還原，還原未確認時不得繼續污染後續 Scenario。

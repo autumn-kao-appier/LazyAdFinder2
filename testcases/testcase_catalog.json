@@ -473,16 +473,16 @@
       "status": "IMPLEMENTED",
       "aos": {
         "applicable": true,
-        "setup": "沿用本輪 capture，自動擷取 Request SDK version；到報告人工輸入本次 Build 的 Expected 版號。",
-        "expected": "未輸入 Expected 時 BLOCKED；人工輸入後與 Request app.sdk_version 精確相等為 PASS，不等為 FAILED。",
+        "setup": "沿用本輪 capture，自動擷取 Request SDK version；由 owner 在報告輸入本次 Build 的 Expected 版號。",
+        "expected": "owner 尚未輸入 Expected 時維持 BLOCKED；輸入後與 Request app.sdk_version 精確相等為 PASS，不等或 Actual 缺值為 FAILED。",
         "evidence": "sdk-build-info.json、bid_decoded.json、verdicts.json"
       },
       "ios": {
         "applicable": true,
-        "setup": "沿用 iOS R1 capture 擷取 Actual；由 reviewer 依本次 Sample App build manifest 提供 Expected Ads SDK 版號。",
-        "setup_en": "Reuse the iOS R1 capture for Actual and obtain the expected Ads SDK version independently from the reviewed Sample App build manifest.",
-        "expected": "未提供 reviewer Expected 時明確 BLOCKED；Expected 完成後 app.sdk_version 必須精確相等，且 Expected 不得由 payload 反推。",
-        "expected_en": "Explicitly BLOCK until a reviewer supplies Expected. Once supplied, app.sdk_version must match exactly, and Expected must never be inferred from the payload.",
+        "setup": "沿用 iOS R1 capture 自動擷取 Request app.sdk_version；由 owner 在報告輸入本次 Sample App build 的 Expected Ads SDK 版號。",
+        "setup_en": "Reuse the iOS R1 capture to collect Request app.sdk_version automatically; the owner enters this Sample App build's expected Ads SDK version in the report.",
+        "expected": "owner 尚未輸入 Expected 時維持 BLOCKED；輸入後與 Request app.sdk_version 精確相等為 PASS，不等或 Actual 缺值為 FAILED。Expected 不得由 payload 反推。",
+        "expected_en": "Remain BLOCKED until the owner enters Expected. An exact match with Request app.sdk_version passes; a mismatch or missing Actual fails. Expected must never be inferred from the payload.",
         "evidence": "sdk-version-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },
@@ -1445,11 +1445,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "保存原生 Cellular 頁；目前裝置若顯示 No SIM，建立空 carrier identity。",
-        "setup_en": "Preserve native Cellular. A visible No SIM state establishes an empty carrier identity.",
-        "expected": "No SIM 時 req/ext carrier 只能空字串或不存在；有 active SIM 則 BLOCKED，等待精確 carrier 契約。",
-        "expected_en": "With No SIM, req/ext carrier must be empty or absent. An active SIM is BLOCKED pending an exact carrier contract.",
-        "evidence": "carrier-evidence.png、ios-cellular.png、ios-system-context.json、bid_decoded.json、verdicts.json"
+        "setup": "沿用 R1 capture 觀察 device.carrier 與 SIM availability；沒有獨立 iOS carrier reference 前不附加 Cellular 設定頁截圖。",
+        "setup_en": "Observe device.carrier and SIM availability from the R1 capture. Do not attach the Cellular settings screenshot without an independent iOS carrier reference.",
+        "expected": "與 AOS 相同：沒有 active SIM 時因缺少真值而 BLOCKED，空字串不視為 PASS；有 active SIM 但尚未取得獨立 carrier reference 時亦 BLOCKED。取得獨立來源後才能精確比較。",
+        "expected_en": "Match AOS: no active SIM is BLOCKED because no ground truth exists, and an empty string does not pass. An active SIM also remains BLOCKED until an independent carrier reference is captured.",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "沒有可下結論的獨立 carrier 真值時，不在 Report 附加 Cellular 設定頁或比較卡。",
+        "evidence_note_en": "Without independent carrier ground truth, do not attach the Cellular settings page or a comparison card to the report."
       }
     },
     {
@@ -1472,11 +1474,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "與 carrier 共用原生 Cellular／No SIM Evidence。",
-        "setup_en": "Reuse native Cellular/No SIM Evidence from carrier.",
-        "expected": "No SIM 時 req/ext mccmnc 只能空字串或不存在；有 active SIM 則 BLOCKED。",
-        "expected_en": "With No SIM, req/ext mccmnc must be empty or absent. An active SIM is BLOCKED.",
-        "evidence": "mcc-mnc-evidence.png、ios-cellular.png、ios-system-context.json、bid_decoded.json、verdicts.json"
+        "setup": "沿用 R1 capture 觀察 device.mccmnc 與 SIM availability；沒有獨立 iOS MCC/MNC reference 前不附加 Cellular 設定頁截圖。",
+        "setup_en": "Observe device.mccmnc and SIM availability from the R1 capture. Do not attach the Cellular settings screenshot without an independent iOS MCC/MNC reference.",
+        "expected": "與 AOS 相同：沒有 active SIM 時因缺少真值而 BLOCKED，空字串不視為 PASS；有 active SIM 但尚未取得獨立 MCC/MNC reference 時亦 BLOCKED。取得獨立來源後才以 MCC+MNC 精確比較。",
+        "expected_en": "Match AOS: no active SIM is BLOCKED because no ground truth exists, and an empty string does not pass. An active SIM also remains BLOCKED until an independent MCC/MNC reference is captured.",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "沒有可下結論的獨立 MCC/MNC 真值時，不在 Report 附加 Cellular 設定頁或比較卡。",
+        "evidence_note_en": "Without independent MCC/MNC ground truth, do not attach the Cellular settings page or a comparison card to the report."
       }
     },
     {
@@ -1499,11 +1503,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "保存原生 Location Services 權限頁；目前 Sample App 未顯示 exact coordinate。",
-        "setup_en": "Preserve native Location Services permission context; the Sample App does not currently display an exact coordinate.",
-        "expected": "BLOCKED；權限頁不能證明 exact latitude，需 Sample App coordinate QA surface。",
-        "expected_en": "BLOCKED. A permission page cannot prove exact latitude; a Sample App coordinate QA surface is required.",
-        "evidence": "precise-gps-latitude-evidence.png、ios-location-services.png、ios-system-context.json、bid_decoded.json、verdicts.json"
+        "setup": "R1 Bid 前以 XCUITest/WDA device geolocation 讀取獨立 iOS 座標；WDA 的 Location Services 權限須為 Always。",
+        "setup_en": "Before the R1 Bid, read an independent iOS coordinate through XCUITest/WDA device geolocation; Location Services for WDA must be Always.",
+        "expected": "ext.device.geo_lat／geo_lon 必須是有效數字，且與 WDA device location 的距離須在 max(location accuracy, 200m) 內；WDA 座標取不到為 BLOCKED，座標已取得但 payload 缺值或超出範圍為 FAILED。",
+        "expected_en": "ext.device.geo_lat/geo_lon must be valid numbers and within max(location accuracy, 200 m) of the WDA device location. An unavailable WDA coordinate is BLOCKED; a missing or out-of-tolerance payload after capture is FAILED.",
+        "evidence": "取得 WDA 座標時：precise-gps-latitude-evidence.png、ios-location-reference.json、bid_decoded.json、verdicts.json；未取得時：ios-location-reference.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "經緯度成對計算距離；未取得 WDA 座標時不產生比較卡。Location Services 設定頁不擷取，也不附加至 Report。",
+        "evidence_note_en": "Latitude and longitude are evaluated as one coordinate pair. Do not generate a comparison card when WDA coordinates are unavailable. Do not capture or attach the Location Services settings page."
       }
     },
     {
@@ -1526,11 +1532,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "與 latitude 共用 Location Services 權限頁。",
-        "setup_en": "Reuse Location Services permission context from latitude.",
-        "expected": "BLOCKED；權限頁不能證明 exact longitude，需 Sample App coordinate QA surface。",
-        "expected_en": "BLOCKED. A permission page cannot prove exact longitude; a Sample App coordinate QA surface is required.",
-        "evidence": "precise-gps-longitude-evidence.png、ios-location-services.png、ios-system-context.json、bid_decoded.json、verdicts.json"
+        "setup": "與 latitude 共用同一次 XCUITest/WDA device geolocation 與 Bid capture。",
+        "setup_en": "Reuse the same XCUITest/WDA device geolocation and Bid capture as latitude.",
+        "expected": "ext.device.geo_lat／geo_lon 必須是有效數字，且與 WDA device location 的距離須在 max(location accuracy, 200m) 內；經緯度成對判定。",
+        "expected_en": "ext.device.geo_lat/geo_lon must be valid numbers and within max(location accuracy, 200 m) of the WDA device location; evaluate the coordinate pair together.",
+        "evidence": "取得 WDA 座標時：precise-gps-longitude-evidence.png、ios-location-reference.json、bid_decoded.json、verdicts.json；未取得時：ios-location-reference.json、bid_decoded.json、verdicts.json",
+        "evidence_note": "不得只因 longitude 非零就 PASS；未取得 WDA 座標時不產生比較卡。Location Services 設定頁不擷取，也不附加至 Report。",
+        "evidence_note_en": "A nonzero longitude alone cannot pass. Do not generate a comparison card when WDA coordinates are unavailable. Do not capture or attach the Location Services settings page."
       }
     },
     {
@@ -1640,11 +1648,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "沿用 iOS R1 capture 顯示 payload 陣列；目前 Sample App 未提供可逐筆核對的 foreground callback 時間軸。",
-        "setup_en": "Reuse the iOS R1 capture to display the payload array; the Sample App currently exposes no foreground-callback timeline for item-by-item verification.",
-        "expected": "保留可視化卡片但結果為 BLOCKED；不得只檢查 payload 格式就宣稱 lifecycle timestamp 正確。",
-        "expected_en": "Keep a visible evidence card but report BLOCKED; payload shape alone cannot prove lifecycle timestamp correctness.",
-        "evidence": "last-foreground-times-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "與 AOS 相同，沿用 R1 第一個廣告 capture，讀取 ext.user.last_foreground_time。",
+        "setup_en": "As on AOS, reuse the first R1 ad capture and read ext.user.last_foreground_time.",
+        "expected": "與 AOS 相同：非空陣列；每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。",
+        "expected_en": "Match AOS: a non-empty array of positive integer Unix epoch milliseconds in strictly increasing order.",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "目前驗證跨平台欄位契約；若要逐筆證明 lifecycle 時間正確，Sample App 需另輸出 foreground callback log。",
+        "evidence_note_en": "This validates the cross-platform field contract. Item-by-item lifecycle timing correctness would require a separate Sample App foreground callback log."
       }
     },
     {
@@ -1667,11 +1677,13 @@
       },
       "ios": {
         "applicable": true,
-        "setup": "沿用 iOS R1 capture 顯示 payload 陣列；目前 Sample App 未提供可逐筆核對的 background callback 時間軸。",
-        "setup_en": "Reuse the iOS R1 capture to display the payload array; the Sample App currently exposes no background-callback timeline for item-by-item verification.",
-        "expected": "保留可視化卡片但結果為 BLOCKED；不得只檢查 payload 格式就宣稱 lifecycle timestamp 正確。",
-        "expected_en": "Keep a visible evidence card but report BLOCKED; payload shape alone cannot prove lifecycle timestamp correctness.",
-        "evidence": "last-background-times-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
+        "setup": "與 AOS 相同，沿用 R1 capture，讀取 ext.user.last_background_time。",
+        "setup_en": "As on AOS, reuse the R1 capture and read ext.user.last_background_time.",
+        "expected": "與 AOS 相同：陣列可為空；有值時每筆都是正整數 Unix epoch milliseconds，且必須嚴格遞增。",
+        "expected_en": "Match AOS: the array may be empty; when populated, it contains positive integer Unix epoch milliseconds in strictly increasing order.",
+        "evidence": "bid_decoded.json、verdicts.json",
+        "evidence_note": "空陣列表示尚無 background history，不等同欄位缺失；逐筆對時需另有 Sample App callback log。",
+        "evidence_note_en": "An empty array means there is no background history yet and is not the same as a missing field. Item-by-item timing requires a separate Sample App callback log."
       }
     },
     {
@@ -1741,17 +1753,17 @@
       "status": "IMPLEMENTED",
       "aos": {
         "applicable": true,
-        "setup": "沿用本輪第二段 Argus payload，自動擷取 Actual；到報告人工輸入 Expected。",
-        "expected": "未輸入 Expected 時 BLOCKED；人工輸入後與 device.argus_ver 精確相等為 PASS，不等為 FAILED。",
+        "setup": "沿用本輪第二段 Argus payload，自動擷取 Actual；由 owner 在報告輸入本次 Build 的 Expected 版號。",
+        "expected": "owner 尚未輸入 Expected 時維持 BLOCKED；輸入後與 device.argus_ver 精確相等為 PASS，不等或 Actual 缺值為 FAILED。",
         "evidence": "bid_decoded.json、verdicts.json",
-        "evidence_note": "Expected 不得由 payload 反推；必須由 reviewer 依本次整合版本獨立填入。"
+        "evidence_note": "Expected 不得由 payload 反推；必須由 owner 依本次整合版本獨立填入。"
       },
       "ios": {
         "applicable": true,
-        "setup": "沿用 iOS R1 capture 擷取 Actual；由 reviewer 依本次 Sample App build manifest 提供 Expected Argus SDK 版號。",
-        "setup_en": "Reuse the iOS R1 capture for Actual and obtain the expected Argus SDK version independently from the reviewed Sample App build manifest.",
-        "expected": "未提供 reviewer Expected 時明確 BLOCKED；Expected 完成後 device.argus_ver 必須精確相等，且 Expected 不得由 payload 反推。",
-        "expected_en": "Explicitly BLOCK until a reviewer supplies Expected. Once supplied, device.argus_ver must match exactly, and Expected must never be inferred from the payload.",
+        "setup": "沿用 iOS R1 capture 自動擷取 device.argus_ver；由 owner 在報告輸入本次 Sample App build 的 Expected Argus SDK 版號。",
+        "setup_en": "Reuse the iOS R1 capture to collect device.argus_ver automatically; the owner enters this Sample App build's expected Argus SDK version in the report.",
+        "expected": "owner 尚未輸入 Expected 時維持 BLOCKED；輸入後與 device.argus_ver 精確相等為 PASS，不等或 Actual 缺值為 FAILED。Expected 不得由 payload 反推。",
+        "expected_en": "Remain BLOCKED until the owner enters Expected. An exact match with device.argus_ver passes; a mismatch or missing Actual fails. Expected must never be inferred from the payload.",
         "evidence": "argus-sdk-version-evidence.png、ios-review-context.json、bid_decoded.json、screenshot.png、verdicts.json"
       }
     },

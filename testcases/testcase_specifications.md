@@ -439,16 +439,25 @@ iOS 對應規則：
   Extended `device.ext.jailbreak` 必須是 JSON boolean `false`；Request 可缺省，若存在也必須為 `false`。
 - `emulator-detection` 以 libimobiledevice 可取得的 iPhone／iPad／iPod ProductType 證明是實機；
   req/ext `device.ext.emulator` 必須為 JSON boolean `false`。
-- `connection-type` 以 Settings > Wi-Fi 的已勾選網路作為 expected=`wifi`；`carrier`／`mcc-mnc`
-  在 Settings > Cellular 清楚顯示 No SIM 時只接受空字串或欄位不存在。active SIM 需另訂精確契約。
+- `connection-type` 以 Settings > Wi-Fi 的已勾選網路作為 expected=`wifi`。`carrier`／`mcc-mnc`
+  與 AOS 採相同呈現：沒有 active SIM 時因缺少真值而 BLOCKED，空字串不視為 PASS；有 active SIM
+  但沒有獨立 carrier／MCC+MNC reference 時也維持 BLOCKED。沒有可比較的獨立真值時，Report 不附
+  Cellular 設定頁或比較卡。
 - `vpn-status` 以 VPN & Device Management 的 Connected／Not Connected 分別對應 wire 字串
   `"1"`／`"0"`；畫面不明確時 BLOCKED。
 - `connection-type-cellular` 在目前無 active SIM 的 R1 為 BLOCKED／Not executable；不可用 Wi-Fi
   capture 宣稱 cellular 結果。
-- `precise-gps-latitude`／`precise-gps-longitude` 保留 Location Services 與 payload 卡片，但
-  BLOCKED。系統頁不顯示精確座標；需 Sample App 增加獨立 coordinate QA surface 才能比較。
-- `last-foreground-times`／`last-background-times` 保留 payload 可視化卡片但 BLOCKED；需 Sample App
-  輸出獨立 callback timeline 才能逐筆核對，不能只靠陣列格式判 PASS。
+- `precise-gps-latitude`／`precise-gps-longitude` 與 AOS 一樣成對判定。Bid 前由 XCUITest/WDA
+  device geolocation 取得獨立 iOS 座標；`ext.device.geo_lat`／`geo_lon` 必須是有效數字，且兩點
+  距離須在 `max(location accuracy, 200m)` 內。WDA 座標取不到為 BLOCKED；獨立座標已取得後，
+  payload 缺值、格式錯誤或超出容許距離為 FAILED。WDA 座標取不到時不產生比較卡；Location
+  Services 設定頁不擷取、不附加至 Report，也不作精確座標 Evidence。
+- `last-foreground-times`／`last-background-times` 與 AOS 共用同一個 lifecycle-history validator：
+  兩者都必須是嚴格遞增的正整數 Unix epoch milliseconds 陣列；foreground 不可為空，background
+  可為空。Evidence 只使用 `bid_decoded.json`，不產生截圖卡。若要逐筆驗證事件發生時間，需另立
+  加強型 TC 並由 Sample App 輸出 callback timeline，不影響目前跨平台欄位契約的 PASS／FAILED。
+- 跨平台 TC 的 Evidence 應統一證據角色、比較欄位、判定方式與 Report 呈現；AOS／iOS 可各自使用
+  平台適用的 capture provider、系統 API 與檔案路徑，不要求底層取得路徑相同。
 - `force-gdpr-override`／`coppa-applies` 保留 Actual 卡片但 BLOCKED；需 Sample App 提供可視且可控的
   configured input。Request 不能證明自身輸入設定。
 
@@ -480,7 +489,7 @@ req/ext `device.lat` 各自只能是 JSON 整數 `0` 或欄位不存在；boolea
 - Signal / R1 / AOS / P1
 - Field: `app.sdk_version`
 
-目的：先從 request 擷取 SDK 版號，再由 reviewer 在報告中輸入本次 Sample App build 應使用的
+目的：先從 request 擷取 SDK 版號，再由 owner 在報告中輸入本次 Sample App build 應使用的
 Expected 版號。Expected 不得從 request 反推。
 
 Evidence：`sdk-build-info.json`、`bid_raw.json`、`bid_decoded.json`、`verdicts.json`。
@@ -488,6 +497,6 @@ Evidence：`sdk-build-info.json`、`bid_raw.json`、`bid_decoded.json`、`verdic
 未輸入 Expected 時為 BLOCKED。輸入後，`req.plaintext.app.sdk_version` 存在、非空且完全相等
 為 PASS；不相等或缺值為 FAILED。
 
-iOS 的 `sdk-version` 與 `argus-sdk-version` 同樣不可從 payload 反推 Expected。R1 會把 Actual
-與缺少 reviewer/build-manifest expected 的原因做成獨立可視化卡片，並維持 BLOCKED；等 reviewer
-提供本次 build 的 Ads SDK／Argus SDK 版號後，才可做精確相等判定。
+AOS／iOS 的 `sdk-version` 與 `argus-sdk-version` 都不可從 payload 反推 Expected。R1 自動保存
+Actual，並維持 BLOCKED，直到 owner 在報告輸入本次 Sample App build 的 Expected Ads SDK／Argus
+SDK 版號，再以完全相等判定 PASS／FAILED；Actual 缺值亦判 FAILED。

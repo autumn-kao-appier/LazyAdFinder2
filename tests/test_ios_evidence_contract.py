@@ -6,6 +6,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 import evidence_ios
 import qa_ios
+from testcases.android_signal_testcases import TC_DEFINITIONS as AOS_TC_DEFINITIONS
 from testcases.e2e.ios_e2e_baseline import validate_bundle as validate_ios_e2e
 from testcases.ios_signal_testcases import TC_DEFINITIONS
 from testcases.ipv6_refresh_testcases import validate_sequence as validate_ipv6_sequence
@@ -687,6 +688,22 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertEqual(qa_ios.ideviceinfo(config, "DeviceName"), "QA iPhone")
             self.assertEqual(qa_ios.ideviceinfo(config, "ProductVersion"), "26.3")
 
+    def test_wda_location_reference_captures_read_only_device_coordinate(self):
+        driver = MagicMock()
+        driver.location = {"latitude": 25.045825, "longitude": 121.552596, "altitude": 12.0}
+        reference = qa_ios._capture_wda_location_reference(driver, attempts=1)
+        self.assertEqual(reference["status"], "CAPTURED")
+        self.assertEqual(reference["latitude"], 25.045825)
+        self.assertEqual(reference["longitude"], 121.552596)
+        self.assertIsNone(reference["accuracy_m"])
+
+    def test_wda_location_reference_rejects_pending_zero_coordinate(self):
+        driver = MagicMock()
+        driver.location = {"latitude": 0.0, "longitude": 0.0, "altitude": 0.0}
+        reference = qa_ios._capture_wda_location_reference(driver, attempts=1)
+        self.assertEqual(reference["status"], "UNAVAILABLE")
+        self.assertIn("Location Services", reference["reason"])
+
     def test_system_context_materializer_and_validators_use_independent_native_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -700,11 +717,14 @@ class IOSEvidenceContractTests(unittest.TestCase):
                 "wifi": {"status": "CAPTURED", "connected": True},
                 "cellular": {"status": "CAPTURED", "no_sim": True},
                 "vpn": {"status": "CAPTURED", "connected": False},
-                "location": {"status": "CAPTURED"},
             }
             state.write_text(json.dumps({
                 "status": "CAPTURED", "locale": "en_TW", "timezone": "Asia/Taipei",
                 "timezone_offset_minutes": 480, "product_type": "iPhone12,3", "pages": pages,
+                "location_reference": {
+                    "status": "CAPTURED", "source": "XCUITest/WDA device location",
+                    "latitude": 25.0, "longitude": 121.5, "accuracy_m": 50.0,
+                },
             }))
             screenshot_env = {}
             for key, (env_key, _default, _target) in evidence_ios.IOS_SYSTEM_SCREENSHOTS.items():
@@ -738,12 +758,46 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertIn("Extended device.ext.jailbreak", root_card)
             for key in (
                 "default-timezone", "default-language-iso", "default-language-bcp47",
-                "keyboard-languages", "connection-type", "carrier", "mcc-mnc", "vpn-status",
+                "keyboard-languages", "connection-type", "vpn-status",
                 "emulator-detection", "root-status",
             ):
                 self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "PASS", key)
-            for key in ("precise-gps-latitude", "precise-gps-longitude", "connection-type-cellular"):
-                self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "BLOCKED", key)
+            for key in ("carrier", "mcc-mnc"):
+                verdict = TC_DEFINITIONS[key].validate(folder)
+                self.assertEqual(verdict["status"], "BLOCKED", key)
+                self.assertNotIn("evidence", verdict)
+            for key in ("precise-gps-latitude", "precise-gps-longitude"):
+                verdict = TC_DEFINITIONS[key].validate(folder)
+                self.assertEqual(verdict["status"], "PASS", key)
+                self.assertEqual(verdict["expected"]["tolerance_m"], 200.0)
+            self.assertEqual(TC_DEFINITIONS["connection-type-cellular"].validate(folder)["status"], "BLOCKED")
+
+    def test_precise_location_fails_when_payload_is_missing_after_wda_reference_capture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-location-reference.json").write_text(json.dumps({
+                "status": "CAPTURED", "source": "XCUITest/WDA device location",
+                "latitude": 25.0, "longitude": 121.5, "accuracy_m": 25.0,
+            }))
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "req": {"plaintext": {"device": {}}},
+                "ext": {"plaintext": {"device": {}}},
+            }))
+            for key in ("precise-gps-latitude", "precise-gps-longitude"):
+                self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "FAILED", key)
+
+    def test_precise_location_blocks_only_when_wda_reference_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-location-reference.json").write_text(json.dumps({
+                "status": "UNAVAILABLE", "reason": "WDA location permission is not Always",
+            }))
+            (folder / "bid_decoded.json").write_text(json.dumps({
+                "ext": {"plaintext": {"device": {"geo_lat": 25.0, "geo_lon": 121.5}}},
+            }))
+            verdict = TC_DEFINITIONS["precise-gps-latitude"].validate(folder)
+            self.assertEqual(verdict["status"], "BLOCKED")
+            self.assertIn("not Always", verdict["reason"])
 
     def test_root_status_requires_strict_false_wire_value(self):
         cases = (
@@ -774,10 +828,10 @@ class IOSEvidenceContractTests(unittest.TestCase):
             (folder / "bid_decoded.json").write_text(json.dumps({
                 "req": {"plaintext": {
                     "app": {"sdk_version": "9.9.9"},
-                    "device": {"argus_ver": "1.2.3"},
                     "user": {"last_foreground_time": [1000], "last_background_time": []},
                     "compliance": {"force_gdpr_applies": 0, "coppa_applies": 1},
                 }},
+                "ext": {"plaintext": {"device": {"argus_ver": "1.2.3"}}},
             }))
 
             def render(_document, target, width=1400, height=1000):
@@ -789,11 +843,56 @@ class IOSEvidenceContractTests(unittest.TestCase):
             context = json.loads((folder / "ios-review-context.json").read_text())
             self.assertEqual(context["status"], "REVIEW_REQUIRED")
             for key in (
-                "sdk-version", "argus-sdk-version", "last-foreground-times",
-                "last-background-times", "force-gdpr-override", "coppa-applies",
+                "sdk-version", "argus-sdk-version", "force-gdpr-override", "coppa-applies",
             ):
                 self.assertTrue((folder / f"{key}-evidence.png").is_file(), key)
                 self.assertEqual(TC_DEFINITIONS[key].validate(folder)["status"], "BLOCKED", key)
+
+            for key in ("last-foreground-times", "last-background-times"):
+                self.assertFalse((folder / f"{key}-evidence.png").exists(), key)
+
+            sdk_verdict = TC_DEFINITIONS["sdk-version"].validate(folder)
+            self.assertEqual(sdk_verdict["actual"]["req_app_sdk_version"], "9.9.9")
+            self.assertEqual(sdk_verdict["comparison_view"]["kind"], "manual-expected")
+            self.assertEqual(sdk_verdict["comparison_view"]["actual"]["value"], "9.9.9")
+            self.assertIn("owner", sdk_verdict["reason"])
+
+            argus_verdict = TC_DEFINITIONS["argus-sdk-version"].validate(folder)
+            self.assertEqual(argus_verdict["actual"]["argus_ver"], "1.2.3")
+            self.assertEqual(argus_verdict["comparison_view"]["kind"], "manual-expected")
+            self.assertEqual(argus_verdict["comparison_view"]["actual"]["value"], "1.2.3")
+            self.assertIn("owner", argus_verdict["reason"])
+
+    def test_lifecycle_history_validators_match_aos_contract(self):
+        cases = (
+            ([1000, 2000], [1500], "PASS", "PASS"),
+            ([], [], "FAILED", "PASS"),
+            ([2000, 1000], [1000, 1000], "FAILED", "FAILED"),
+            ([1000, "2000"], None, "FAILED", "FAILED"),
+        )
+        for foreground, background, expected_foreground, expected_background in cases:
+            with self.subTest(foreground=foreground, background=background), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                (folder / "bid_decoded.json").write_text(json.dumps({
+                    "ext": {"plaintext": {"user": {
+                        "last_foreground_time": foreground,
+                        "last_background_time": background,
+                    }}},
+                }))
+                for key, expected in (
+                    ("last-foreground-times", expected_foreground),
+                    ("last-background-times", expected_background),
+                ):
+                    ios = TC_DEFINITIONS[key].validate(folder)
+                    aos = AOS_TC_DEFINITIONS[key].validate(folder)
+                    self.assertEqual(ios["status"], expected)
+                    self.assertEqual(ios["status"], aos["status"])
+                    self.assertEqual(ios["expected"], aos["expected"])
+                    self.assertEqual(ios["actual"], aos["actual"])
+                    self.assertEqual(ios["reason"], aos["reason"])
+                    self.assertEqual(ios["evidence"], "bid_decoded.json")
+                    self.assertEqual(ios["evidence"], aos["evidence"])
+                    self.assertEqual(ios["comparison_view"], aos["comparison_view"])
 
     def test_control_center_parser_treats_scoped_battery_without_qualifier_as_not_charging(self):
         level, charging, _ = qa_ios._control_center_battery_state(
@@ -830,7 +929,7 @@ class IOSEvidenceContractTests(unittest.TestCase):
             verdict = TC_DEFINITIONS["charging-status"].validate(folder)
             self.assertEqual(verdict["status"], "BLOCKED")
 
-    def test_active_sim_carrier_block_points_to_existing_visual_card(self):
+    def test_active_sim_carrier_block_does_not_attach_unrelated_cellular_card(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             (folder / "bid_decoded.json").write_text(json.dumps({
@@ -840,11 +939,11 @@ class IOSEvidenceContractTests(unittest.TestCase):
             (folder / "ios-system-context.json").write_text(json.dumps({
                 "pages": {"cellular": {"status": "CAPTURED", "no_sim": False}},
             }))
-            (folder / "ios-cellular.png").write_bytes(b"settings")
-            (folder / "carrier-evidence.png").write_bytes(b"card")
             verdict = TC_DEFINITIONS["carrier"].validate(folder)
             self.assertEqual(verdict["status"], "BLOCKED")
-            self.assertEqual(verdict["evidence"], "carrier-evidence.png")
+            self.assertNotIn("evidence", verdict)
+            self.assertEqual(verdict["actual"]["request"], "Orange France")
+            self.assertIn("active SIM", verdict["reason"])
 
     def test_battery_saver_matches_visible_low_power_switch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1593,6 +1692,31 @@ class IOSEvidenceContractTests(unittest.TestCase):
             self.assertIn("device.ifv", document)
             verdict = json.loads((folder / "verdicts.json").read_text())["verdicts"][0]
             self.assertEqual(verdict["evidence"], "app-set-id-evidence.png")
+
+    def test_blocked_gps_without_reference_does_not_generate_comparison_card(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / "ios-location-reference.json").write_text(json.dumps({
+                "status": "UNAVAILABLE",
+                "reason": "WDA location could not be read independently.",
+            }))
+            (folder / "verdicts.json").write_text(json.dumps({"verdicts": [{
+                "tc": "precise-gps-latitude", "status": "BLOCKED",
+                "expected": "independent WDA latitude",
+                "actual": {"ext_device_geo_lat": 25.033},
+                "reason": "Independent native location reference is unavailable.",
+                "evidence": "ios-location-reference.json",
+            }]}))
+
+            with patch.object(evidence_ios, "_write_html_screenshot") as render:
+                rendered = evidence_ios.materialize_ios_aos_aligned_visual_evidence(folder)
+
+            self.assertEqual(rendered, [])
+            render.assert_not_called()
+            self.assertFalse((folder / "precise-gps-latitude-evidence.html").exists())
+            self.assertFalse((folder / "precise-gps-latitude-evidence.png").exists())
+            verdict = json.loads((folder / "verdicts.json").read_text())["verdicts"][0]
+            self.assertEqual(verdict["evidence"], "ios-location-reference.json")
 
     def test_aos_aligned_sensor_card_records_not_in_scope_block(self):
         with tempfile.TemporaryDirectory() as temporary:

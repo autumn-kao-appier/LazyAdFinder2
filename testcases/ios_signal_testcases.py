@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from testcases.shared_signal_contracts import epoch_history_comparison_view, epoch_history_contract
 from verdict import blocked, evaluate
 
 
@@ -373,21 +374,45 @@ def _timestamp_array(value):
 
 def validate_argus_sdk_version(folder):
     _, actual = _wire(folder, "device.argus_ver")
-    return _blocked(
-        "argus-sdk-version", "Argus SDK Version",
-        "Waiting for a reviewer to enter the expected iOS Argus SDK version in the report.",
-        {"captured_version": actual}, "argus-sdk-version-evidence.png",
+    reason = "Waiting for the owner to enter this build's expected iOS Argus SDK version in the report."
+    row = _blocked(
+        "argus-sdk-version", "Argus SDK Version", reason,
+        {"argus_ver": actual}, "argus-sdk-version-evidence.png",
     )
+    row["description"] = (
+        "The Argus SDK version was captured; comparison waits for the owner-provided build version."
+    )
+    row["comparison_view"] = {
+        "kind": "manual-expected",
+        "criterion": (
+            "Enter this Sample App build's intended iOS Argus SDK version; "
+            "an exact match passes and a mismatch fails."
+        ),
+        "actual": {"label": "Decoded Bid Extended", "value": actual},
+    }
+    return row
 
 
 def validate_sdk_version(folder):
-    req, ext = _wire(folder, "app.sdk_version")
-    actual = req if req is not None else ext
-    return _blocked(
-        "sdk-version", "SDK Version (sdk_version)",
-        "Waiting for a reviewer to enter the expected iOS Ads SDK build version in the report.",
-        {"captured_version": actual}, "sdk-version-evidence.png",
+    req, _ = _wire(folder, "app.sdk_version")
+    actual = {"req_app_sdk_version": req}
+    reason = "Waiting for the owner to enter this build's expected iOS Ads SDK version in the report."
+    row = _blocked(
+        "sdk-version", "SDK Version (sdk_version)", reason,
+        actual, "sdk-version-evidence.png",
     )
+    row["description"] = (
+        "The request SDK version was captured; comparison waits for the owner-provided build version."
+    )
+    row["comparison_view"] = {
+        "kind": "manual-expected",
+        "criterion": (
+            "Enter this Sample App build's intended iOS Ads SDK version; "
+            "an exact match passes and a mismatch fails."
+        ),
+        "actual": {"label": "Decoded Bid Request", "value": req},
+    }
+    return row
 
 
 def _system_context(folder):
@@ -472,26 +497,87 @@ def validate_connection_type(folder):
     return _row("connection-type", "Connection Type", "wifi", actual, passed, "connection-type-evidence.png", "The payload transport matches the visibly connected Wi-Fi network." if passed else "FAILED: device.conntype does not match visible Wi-Fi connectivity.")
 
 
-def _validate_no_sim_identity(folder, key, title, path, card):
+def _validate_cellular_identity(folder, key, title, path):
     req, ext = _wire(folder, path); info = _system_context(folder); no_sim = _get(info, "pages.cellular.no_sim")
     actual = {"visible_no_sim": no_sim, "request": req, "extended": ext}
-    if no_sim is not True or not _system_page_ready(folder, info, "cellular", "ios-cellular.png", card):
-        return _blocked(key, title, "An active SIM requires a separate exact iOS carrier contract; visible No SIM Evidence is unavailable.", actual, card)
-    passed = req in (None, "") and ext in (None, "")
-    return _row(key, title, "empty/absent when No SIM", actual, passed, card, "The empty payload agrees with the visible No SIM state." if passed else f"FAILED: {path} must be empty or absent when native Settings visibly shows No SIM.")
+    if no_sim is True:
+        reason = f"Hardware limitation: the iOS QA device has no active SIM; {title} cannot be captured or verified."
+    elif no_sim is False:
+        reason = f"An active SIM is present, but an independent iOS {title} reference is not captured yet."
+    else:
+        reason = f"The iOS SIM state and an independent {title} reference were not captured."
+    row = _blocked(key, title, reason, actual)
+    row.pop("evidence", None)
+    return row
 
 
-def validate_carrier(folder): return _validate_no_sim_identity(folder, "carrier", "Carrier", "device.carrier", "carrier-evidence.png")
-def validate_mcc_mnc(folder): return _validate_no_sim_identity(folder, "mcc-mnc", "MCC/MNC", "device.mccmnc", "mcc-mnc-evidence.png")
+def validate_carrier(folder): return _validate_cellular_identity(folder, "carrier", "Carrier", "device.carrier")
+def validate_mcc_mnc(folder): return _validate_cellular_identity(folder, "mcc-mnc", "MCC/MNC", "device.mccmnc")
 
 
-def _validate_precise_location_blocked(folder, key, title, path):
-    req, ext = _wire(folder, path); info = _system_context(folder)
-    return _blocked(key, title, "Location Services is visible, but it does not expose exact coordinates; the Sample App still needs an independent coordinate QA surface.", {"request": req, "extended": ext, "location_page": _get(info, "pages.location.status")}, f"{key}-evidence.png")
+def _gps_distance_m(expected_lat, expected_lon, actual_lat, actual_lon):
+    radius = 6_371_000
+    lat1, lat2 = math.radians(expected_lat), math.radians(actual_lat)
+    dlat = lat2 - lat1
+    dlon = math.radians(actual_lon - expected_lon)
+    value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(value))
 
 
-def validate_precise_latitude(folder): return _validate_precise_location_blocked(folder, "precise-gps-latitude", "Precise GPS Latitude", "device.geo_lat")
-def validate_precise_longitude(folder): return _validate_precise_location_blocked(folder, "precise-gps-longitude", "Precise GPS Longitude", "device.geo_lon")
+def _validate_precise_location(folder, key, title, field):
+    req_lat, ext_lat = _wire(folder, "device.geo_lat")
+    req_lon, ext_lon = _wire(folder, "device.geo_lon")
+    reference = _read(folder, "ios-location-reference.json", {}) or {}
+    expected_lat = reference.get("latitude")
+    expected_lon = reference.get("longitude")
+    accuracy = reference.get("accuracy_m")
+    tolerance = max(float(accuracy or 0), 200.0)
+    actual = {
+        "request_geo_lat": req_lat,
+        "request_geo_lon": req_lon,
+        "geo_lat": ext_lat,
+        "geo_lon": ext_lon,
+        "distance_m": None,
+        "checked_field": field,
+        "reference_source": reference.get("source"),
+    }
+    reference_valid = (
+        reference.get("status") == "CAPTURED"
+        and all(type(value) in (int, float) for value in (expected_lat, expected_lon))
+        and -90 <= expected_lat <= 90 and -180 <= expected_lon <= 180
+    )
+    if not reference_valid:
+        return _blocked(
+            key, title,
+            reference.get("reason") or "XCUITest/WDA did not capture an independent iOS device coordinate before the Bid.",
+            actual, "ios-location-reference.json",
+        )
+    values_valid = (
+        all(type(value) in (int, float) for value in (ext_lat, ext_lon))
+        and -90 <= ext_lat <= 90 and -180 <= ext_lon <= 180
+    )
+    if values_valid:
+        actual["distance_m"] = _gps_distance_m(expected_lat, expected_lon, ext_lat, ext_lon)
+    passed = values_valid and actual["distance_m"] <= tolerance
+    return _row(
+        key, title,
+        {
+            "geo_lat": expected_lat, "geo_lon": expected_lon,
+            "accuracy_m": accuracy, "tolerance_m": tolerance,
+        },
+        actual, passed, f"{key}-evidence.png",
+        "The decoded coordinate pair agrees with the independent iOS device location within the reviewed accuracy tolerance."
+        if passed else
+        "FAILED: ext.device.geo_lat/geo_lon is missing, invalid, or outside the independent iOS device location tolerance.",
+    )
+
+
+def validate_precise_latitude(folder):
+    return _validate_precise_location(folder, "precise-gps-latitude", "Precise GPS Latitude", "geo_lat")
+
+
+def validate_precise_longitude(folder):
+    return _validate_precise_location(folder, "precise-gps-longitude", "Precise GPS Longitude", "geo_lon")
 
 
 def validate_vpn_status(folder):
@@ -514,12 +600,33 @@ def _review_context_blocked(folder, key, title, path, reason):
     return _blocked(key, title, reason, {"request": req, "extended": ext}, f"{key}-evidence.png")
 
 
+def _validate_epoch_history(folder, key, title, field, allow_empty):
+    _, value = _wire(folder, f"user.{field}")
+    expected, actual, failures = epoch_history_contract(value, field, allow_empty)
+    description = f"{title} follows the shared Android/iOS lifecycle-history contract."
+    row = evaluate(
+        key,
+        expected=expected,
+        actual=actual,
+        evidence="bid_decoded.json",
+        compare=lambda _expected, _actual: not failures,
+        reason="; ".join(failures),
+    ).to_dict()
+    row.update({
+        "layer": "Signal",
+        "title": title,
+        "description": description,
+        "comparison_view": epoch_history_comparison_view(actual),
+    })
+    return row
+
+
 def validate_last_foreground_times(folder):
-    return _review_context_blocked(folder, "last-foreground-times", "Last Foreground Times", "user.last_foreground_time", "The payload array is observed, but R1 has no independent visible foreground-event timeline to verify each timestamp.")
+    return _validate_epoch_history(folder, "last-foreground-times", "Last Foreground Times", "last_foreground_time", False)
 
 
 def validate_last_background_times(folder):
-    return _review_context_blocked(folder, "last-background-times", "Last Background Times", "user.last_background_time", "The payload array is observed, but R1 has no independent visible background-event timeline to verify each timestamp.")
+    return _validate_epoch_history(folder, "last-background-times", "Last Background Times", "last_background_time", True)
 
 
 def validate_force_gdpr_override(folder):
@@ -1302,18 +1409,18 @@ TC_DEFINITIONS = {
     "emulator-detection": _tc("emulator-detection", "Simulator Detection", "libimobiledevice ProductType establishes a physical device.", validate_emulator_detection, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "connection-type": _tc("connection-type", "Connection Type", "A checked native Wi-Fi network establishes the transport.", validate_connection_type, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "connection-type-cellular": _tc("connection-type-cellular", "Connection Type (Cellular)", "Requires an active SIM and cellular-data scenario.", validate_connection_type_cellular, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
-    "carrier": _tc("carrier", "Carrier", "Visible No SIM establishes empty carrier identity.", validate_carrier, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
-    "mcc-mnc": _tc("mcc-mnc", "MCC/MNC", "Visible No SIM establishes empty MCC/MNC identity.", validate_mcc_mnc, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
-    "precise-gps-latitude": _tc("precise-gps-latitude", "Precise GPS Latitude", "Exact coordinate Evidence requires a Sample App QA surface.", validate_precise_latitude, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
-    "precise-gps-longitude": _tc("precise-gps-longitude", "Precise GPS Longitude", "Exact coordinate Evidence requires a Sample App QA surface.", validate_precise_longitude, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
-    "last-foreground-times": _tc("last-foreground-times", "Last Foreground Times", "Independent event timeline is required for correctness.", validate_last_foreground_times, (IOS_REVIEW_CONTEXT, BID)),
-    "last-background-times": _tc("last-background-times", "Last Background Times", "Independent event timeline is required for correctness.", validate_last_background_times, (IOS_REVIEW_CONTEXT, BID)),
+    "carrier": _tc("carrier", "Carrier", "Carrier remains blocked until an independent iOS carrier reference is available.", validate_carrier, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
+    "mcc-mnc": _tc("mcc-mnc", "MCC/MNC", "MCC/MNC remains blocked until an independent iOS operator-code reference is available.", validate_mcc_mnc, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
+    "precise-gps-latitude": _tc("precise-gps-latitude", "Precise GPS Latitude", "Latitude matches the independent iOS device location within accuracy tolerance.", validate_precise_latitude, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
+    "precise-gps-longitude": _tc("precise-gps-longitude", "Precise GPS Longitude", "Longitude matches the independent iOS device location within accuracy tolerance.", validate_precise_longitude, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
+    "last-foreground-times": _tc("last-foreground-times", "Last Foreground Times", "Foreground history follows the shared Android/iOS contract.", validate_last_foreground_times, (BID,)),
+    "last-background-times": _tc("last-background-times", "Last Background Times", "Background history follows the shared Android/iOS contract.", validate_last_background_times, (BID,)),
     "vpn-status": _tc("vpn-status", "VPN Status", "Native VPN state maps to the payload string flag.", validate_vpn_status, (IOS_SYSTEM_CONTEXT_VISIBLE, BID)),
     "force-gdpr-override": _tc("force-gdpr-override", "Force GDPR Override", "Visible Sample App configuration is required.", validate_force_gdpr_override, (IOS_REVIEW_CONTEXT, BID)),
     "coppa-applies": _tc("coppa-applies", "COPPA Applicability Flag", "Visible Sample App configuration is required.", validate_coppa_applies, (IOS_REVIEW_CONTEXT, BID)),
-    "argus-sdk-version": _tc("argus-sdk-version", "Argus SDK Version", "Reviewer-supplied build answer.", validate_argus_sdk_version, (IOS_REVIEW_CONTEXT, BID)),
+    "argus-sdk-version": _tc("argus-sdk-version", "Argus SDK Version", "Owner-supplied build answer.", validate_argus_sdk_version, (IOS_REVIEW_CONTEXT, BID)),
     "tracking-allowed": _tc("tracking-allowed", "Advertising Tracking Allowed", "Visible Sample App ATT state and IDFA agree with the inverse LAT flag.", validate_tracking_allowed, (IOS_IDFA_VISIBLE, IOS_SETTINGS_STATE, BID)),
-    "sdk-version": _tc("sdk-version", "SDK Version (sdk_version)", "Reviewer-supplied build answer.", validate_sdk_version, (IOS_REVIEW_CONTEXT, BID)),
+    "sdk-version": _tc("sdk-version", "SDK Version (sdk_version)", "Owner-supplied build answer.", validate_sdk_version, (IOS_REVIEW_CONTEXT, BID)),
     "impression-history": _tc("impression-history", "Impression History", "Second request carries the first proven impression.", validate_impression_history),
     "network-latency": _tc("network-latency", "Connection Latency", "SDK latency is available after initialization.", _wire_validator("network-latency", "Connection Latency", "device.ext.latency", _positive_number, "positive milliseconds")),
     "session-duration-continuous": _tc("session-duration-continuous", "Session Duration — Continuous App Session", "Duration increases in the same foreground App process.", validate_session_duration_continuous, (IOS_LIFECYCLE_SEQUENCE, BID)),

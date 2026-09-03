@@ -24,6 +24,7 @@ from evidence_aos import (
     TIMEZONE_STATUS,
     LOCATION_PERMISSION_STATUS,
 )
+from testcases.shared_signal_contracts import epoch_history_comparison_view, epoch_history_contract
 from verdict import blocked, evaluate
 
 
@@ -96,6 +97,8 @@ def _verdict(key, title, description, expected, actual, evidence, failures):
 
 def _comparison_view(key, expected, actual):
     """Describe what Page should show without asking Page to reinterpret a TC."""
+    if key in {"last-foreground-times", "last-background-times"}:
+        return epoch_history_comparison_view(actual)
     compare = {
         "advertising-id": ("Visible Android GAID", actual.get("settings_gaid"), "SDK Payload", actual.get("ext_device_ia"), "="),
         "boot-timestamps": ("Calculated boot time", actual.get("current_boot_reference_ms"), "SDK Payload", (actual.get("pot") or [None])[-1], "≈"),
@@ -327,16 +330,16 @@ def validate_sdk_version(folder):
     expected_version = expected.get("build_sdk_version")
     actual_version = actual.get("req_app_sdk_version")
     if not isinstance(expected_version, str) or not expected_version:
-        row = blocked(key, "Waiting for a reviewer to enter the expected SDK version in the report").to_dict()
+        row = blocked(key, "Waiting for the owner to enter this build's expected SDK version in the report").to_dict()
         row.update({
             "layer": "Signal",
             "title": title,
-            "description": "The request version was captured; comparison waits for an independently entered expected version.",
+            "description": "The request SDK version was captured; comparison waits for the owner-provided build version.",
             "actual": actual,
             "evidence": "sdk-build-info.json",
             "comparison_view": {
                 "kind": "manual-expected",
-                "criterion": "Enter the intended build SDK version; an exact match passes and a mismatch fails.",
+                "criterion": "Enter this build's intended SDK version; an exact match passes and a mismatch fails.",
                 "actual": {"label": "Decoded Bid Request", "value": actual_version},
             },
         })
@@ -1069,22 +1072,7 @@ def validate_app_duration_today(folder):
 
 def _validate_epoch_history(folder, key, title, field, allow_empty):
     value = _decoded_user_value(_decoded(folder), field)
-    failures = []
-    if not isinstance(value, list):
-        failures.append(f"ext.user.{field} must be an array")
-    else:
-        if not allow_empty and not value:
-            failures.append(f"ext.user.{field} must contain the current lifecycle timestamp")
-        if any(type(item) is not int or item <= 0 for item in value):
-            failures.append(f"ext.user.{field} must contain positive Unix epoch milliseconds")
-        if any(left >= right for left, right in zip(value, value[1:])):
-            failures.append(f"ext.user.{field} must be strictly increasing")
-    expected = {
-        "type": "array of strictly increasing Unix epoch milliseconds",
-        "empty_allowed": allow_empty,
-        "cross_platform_contract": True,
-    }
-    actual = {"timestamp_count": len(value) if isinstance(value, list) else None, "timestamps": value}
+    expected, actual, failures = epoch_history_contract(value, field, allow_empty)
     return _verdict(key, title, f"{title} follows the shared Android/iOS lifecycle-history contract.", expected, actual, "bid_decoded.json", failures)
 
 
@@ -1215,17 +1203,17 @@ def validate_vpn_status(_folder):
 
 def validate_argus_sdk_version(folder):
     actual = _decoded_device_value(_decoded(folder), "ext", "argus_ver")
-    row = blocked("argus-sdk-version", "Waiting for a reviewer to enter the expected Argus SDK version in the report").to_dict()
+    row = blocked("argus-sdk-version", "Waiting for the owner to enter this build's expected Argus SDK version in the report").to_dict()
     row.update({
         "layer": "Signal",
         "title": "Argus SDK Version",
-        "description": "The Argus version was captured; comparison waits for an independently entered expected version.",
+        "description": "The Argus SDK version was captured; comparison waits for the owner-provided build version.",
         "actual": {"argus_ver": actual},
         "evidence": "bid_decoded.json",
         "comparison_view": {
             "kind": "manual-expected",
-            "criterion": "Enter the intended Argus SDK version; an exact match passes and a mismatch fails.",
-            "actual": {"label": "Decoded Bid Request", "value": actual},
+            "criterion": "Enter this build's intended Argus SDK version; an exact match passes and a mismatch fails.",
+            "actual": {"label": "Decoded Bid Extended", "value": actual},
         },
     })
     return row
@@ -1338,7 +1326,7 @@ TC_DEFINITIONS = {
     "force-gdpr-override": TestCase("force-gdpr-override", "Force GDPR Override", "Force GDPR requires a Sample App trigger.", (BID,), validate_force_gdpr_override),
     "coppa-applies": TestCase("coppa-applies", "COPPA Applicability Flag", "COPPA flag reflects the Sample App setter.", (BID,), validate_coppa_applies),
     "vpn-status": TestCase("vpn-status", "VPN Status", "VPN is outside this round scope.", (BID,), validate_vpn_status),
-    "argus-sdk-version": TestCase("argus-sdk-version", "Argus SDK Version", "Captured Argus version waits for a reviewer-supplied expected version.", (BID,), validate_argus_sdk_version),
+    "argus-sdk-version": TestCase("argus-sdk-version", "Argus SDK Version", "Captured Argus version waits for an owner-supplied expected version.", (BID,), validate_argus_sdk_version),
     "sdk-version": TestCase(
         "sdk-version",
         "SDK Version (sdk_version)",

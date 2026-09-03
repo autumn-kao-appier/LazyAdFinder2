@@ -999,7 +999,6 @@ IOS_SYSTEM_CONTEXT_PAGES = {
     "wifi": ("Wi-Fi", "/tmp/laf2-ios-wifi.png"),
     "cellular": ("Cellular", "/tmp/laf2-ios-cellular.png"),
     "vpn": ("VPN & Device Management", "/tmp/laf2-ios-vpn.png"),
-    "location": ("Location Services", "/tmp/laf2-ios-location-services.png"),
 }
 
 
@@ -1059,6 +1058,50 @@ def _visible_vpn_connected(values):
     return None
 
 
+def _capture_wda_location_reference(driver, attempts=3):
+    """Read an independent device coordinate through XCUITest/WDA without mutating it."""
+    errors = []
+    for attempt in range(1, attempts + 1):
+        try:
+            value = driver.location or {}
+            latitude = value.get("latitude") if isinstance(value, dict) else None
+            longitude = value.get("longitude") if isinstance(value, dict) else None
+            accuracy = (
+                value.get("horizontalAccuracy", value.get("accuracy"))
+                if isinstance(value, dict) else None
+            )
+            numeric = all(
+                type(item) in (int, float) for item in (latitude, longitude)
+            )
+            valid = (
+                numeric and -90 <= latitude <= 90 and -180 <= longitude <= 180
+                and not (latitude == 0 and longitude == 0)
+            )
+            if valid:
+                return {
+                    "status": "CAPTURED",
+                    "source": "Appium XCUITest GET /session/:sessionId/location (WebDriverAgent)",
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "accuracy_m": accuracy if type(accuracy) in (int, float) and accuracy >= 0 else None,
+                    "altitude_m": value.get("altitude"),
+                    "attempt": attempt,
+                }
+            errors.append(f"attempt {attempt}: invalid or pending location {value!r}")
+        except Exception as exc:
+            errors.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
+        if attempt < attempts:
+            time.sleep(1)
+    return {
+        "status": "UNAVAILABLE",
+        "source": "Appium XCUITest GET /session/:sessionId/location (WebDriverAgent)",
+        "reason": (
+            "WDA did not return a valid device coordinate. Ensure Location Services "
+            "for WebDriverAgent is set to Always. " + "; ".join(errors)
+        ),
+    }
+
+
 def capture_visible_system_context(config):
     """Capture read-only native Settings pages used by system-context TCs."""
     state_path = Path(os.environ.get("IOS_SYSTEM_CONTEXT_STATE_FILE", "/tmp/laf2-ios-system-context.json"))
@@ -1083,6 +1126,7 @@ def capture_visible_system_context(config):
     driver = None
     try:
         driver = create_driver(config, bundle_id="com.apple.Preferences", auto_accept_alerts=False)
+        state["location_reference"] = _capture_wda_location_reference(driver)
         try:
             wda_info = driver.execute_script("mobile: deviceInfo") or {}
             state["wda_device_info"] = {
