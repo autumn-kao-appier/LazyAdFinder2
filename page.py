@@ -1657,12 +1657,22 @@ def publish(evidence_dirs, catalog_path=DEFAULT_CATALOG, remote=None, open_page=
     with tempfile.TemporaryDirectory(prefix="lazyadfinder2-pages-") as temp:
         checkout = Path(temp) / "pages"
         exists = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", remote, "gh-pages"], text=True, capture_output=True).returncode == 0
+        checkout.mkdir()
+        subprocess.run(["git", "init"], cwd=checkout, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "remote", "add", "origin", remote], cwd=checkout, check=True)
         if exists:
-            subprocess.run(["git", "clone", "--depth", "1", "--branch", "gh-pages", remote, str(checkout)], check=True)
+            # Only the current commit and trees are needed: the report replaces the
+            # complete branch contents, so downloading historical asset blobs wastes
+            # substantial time and bandwidth.
+            subprocess.run(
+                ["git", "fetch", "--depth", "1", "--filter=blob:none", "origin", "gh-pages"],
+                cwd=checkout, check=True,
+            )
+            subprocess.run(["git", "update-ref", "refs/heads/gh-pages", "FETCH_HEAD"], cwd=checkout, check=True)
+            subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/gh-pages"], cwd=checkout, check=True)
+            subprocess.run(["git", "read-tree", "--empty"], cwd=checkout, check=True)
         else:
-            subprocess.run(["git", "clone", "--depth", "1", remote, str(checkout)], check=True)
-            subprocess.run(["git", "switch", "--orphan", "gh-pages"], cwd=checkout, check=True)
-            subprocess.run(["git", "rm", "-rf", "--ignore-unmatch", "."], cwd=checkout, check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/gh-pages"], cwd=checkout, check=True)
         (checkout / "index.html").write_text(document, encoding="utf-8")
         _write_report_assets(checkout / "assets")
         subprocess.run(["git", "add", "index.html", "assets"], cwd=checkout, check=True)
